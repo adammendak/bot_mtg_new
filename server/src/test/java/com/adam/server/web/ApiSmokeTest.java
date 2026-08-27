@@ -47,6 +47,17 @@ class ApiSmokeTest {
     }
 
     @Test
+    void legacyV1StatesBybitBinanceWereNeverInThisRepo() throws Exception {
+        mvc.perform(get("/api/v1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.present").value(false))
+                .andExpect(jsonPath("$.defaultBroker").value("capital"));
+        mvc.perform(get("/api/legacy"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.present").value(false));
+    }
+
+    @Test
     void brokerEndpointListsBothBooks() throws Exception {
         mvc.perform(get("/api/broker"))
                 .andExpect(status().isOk())

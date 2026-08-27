@@ -115,6 +115,7 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 - `GET /api/signals`
 - `POST /api/scan` (manual trigger; also a Scheduler backup)
 - `GET /api/broker` — both books
+- `GET /api/v1` and `GET /api/legacy` — not a Bybit/Binance API. This repo never had those clients (see below).
 
 Dashboard: two columns Demo \| Live. `/signals` and `/payments` unchanged.
 
@@ -126,4 +127,8 @@ Dashboard: two columns Demo \| Live. `/signals` and `/payments` unchanged.
 
 `PaperBrokerClient` is the stub that proves the swap; it is not a second live broker.
 
-This repository's git history (all commits/branches/tags) has no Bybit, Binance, ccxt, or exchange client classes. Capital.com is the only live adapter. Those names were not deleted here; they were never in `bot_mtg_new`.
+This repository's git history has **no Bybit, Binance, ccxt, or exchange client classes**. They were not deleted on merge; they were never here.
+
+Search (2026-08-27): `git log --all` is 12 commits; branches `main` and `cursor/capital-sdd-m15-337f`; no tags. `git grep` across every commit's `*.java`/`*.ts`/`*.xml` finds no `bybit`/`binance`/`ccxt` except this paragraph. GitHub API lists the same two branches. Public `adammendak/*` repos are unrelated (GroceryList, etc.). The tree before Capital.com was a Spring payments starter (`ui/bot` YES/NO form) plus `ui/01-starting-project`.
+
+`GET /api/v1` and `GET /api/legacy` return that finding as JSON. Do not invent a fake Bybit/Binance adapter. When you have real code, implement `BrokerClient` and register beans beside Capital.

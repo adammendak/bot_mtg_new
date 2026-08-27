@@ -13,6 +13,10 @@ import org.springframework.web.client.RestClient;
 import java.time.Clock;
 import java.time.ZoneId;
 
+/**
+ * Capital.com is the default live adapter ({@code BROKER=capital}). Paper proves the SPI swap.
+ * Bybit/Binance beans belong here when a real implementation exists; this repo has none.
+ */
 @Configuration
 public class BrokerConfiguration {
 
