@@ -17,6 +17,7 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
         {{ executionOn() ? 'EXECUTION ON' : 'execution off' }}
       </span>
       <span class="small text-muted">Last scan: {{ (sdd.lastScan()?.scannedAt | date: 'short') || 'never' }}</span>
+      <span class="small text-muted">webhook {{ webhookLabel() }}</span>
       <button
         type="button"
         class="btn btn-warning btn-sm"
@@ -42,8 +43,23 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
     @if (sdd.lastScan()?.error) {
       <div class="alert alert-danger py-2">Scan: {{ sdd.lastScan()?.error }}</div>
     }
+    @if (sdd.lastScan()?.lastWebhookError) {
+      <div class="alert alert-warning py-2">Webhook: {{ sdd.lastScan()?.lastWebhookError }}</div>
+    }
     @if (sdd.error()) {
       <div class="alert alert-danger py-2">{{ sdd.error() }}</div>
+    }
+    @if (sdd.accountsError()) {
+      <div class="alert alert-danger py-2">{{ sdd.accountsError() }}</div>
+    }
+    @if (sdd.scanLoadError()) {
+      <div class="alert alert-danger py-2">{{ sdd.scanLoadError() }}</div>
+    }
+    @if (sdd.signalsError()) {
+      <div class="alert alert-danger py-2">{{ sdd.signalsError() }}</div>
+    }
+    @if (sdd.positionsError()) {
+      <div class="alert alert-danger py-2">{{ sdd.positionsError() }}</div>
     }
 
     <div class="row g-3">
@@ -119,7 +135,11 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
                     </tr>
                   </thead>
                   <tbody>
-                    @if (positions(book.id).length === 0) {
+                    @if (sdd.positionsError()) {
+                      <tr>
+                        <td colspan="5" class="text-danger text-center">{{ sdd.positionsError() }}</td>
+                      </tr>
+                    } @else if (positions(book.id).length === 0) {
                       <tr>
                         <td colspan="5" class="text-muted text-center">brak pozycji</td>
                       </tr>
@@ -168,7 +188,11 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
               </tr>
             </thead>
             <tbody>
-              @if ((sdd.lastScan()?.symbols || []).length === 0) {
+              @if (sdd.scanLoadError()) {
+                <tr>
+                  <td colspan="11" class="text-danger text-center">{{ sdd.scanLoadError() }}</td>
+                </tr>
+              } @else if ((sdd.lastScan()?.symbols || []).length === 0) {
                 <tr>
                   <td colspan="11" class="text-muted text-center">No scan yet</td>
                 </tr>
@@ -213,7 +237,11 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
               </tr>
             </thead>
             <tbody>
-              @if (sdd.signals().length === 0) {
+              @if (sdd.signalsError()) {
+                <tr>
+                  <td colspan="6" class="text-danger text-center">{{ sdd.signalsError() }}</td>
+                </tr>
+              } @else if (sdd.signals().length === 0) {
                 <tr>
                   <td colspan="6" class="text-muted text-center">No HA flips or full stacks yet</td>
                 </tr>
@@ -263,7 +291,15 @@ export class SddDashboardComponent implements OnInit {
 
   haltOrError(id: 'demo' | 'live'): string | null {
     const book = this.sdd.lastScan()?.books?.find((b) => b.id === id);
-    return book?.halt || book?.error || this.account(id)?.error || null;
+    return book?.halt || book?.error || this.account(id)?.error || this.sdd.accountsError() || null;
+  }
+
+  webhookLabel(): string {
+    const health = this.sdd.health();
+    if (health && health.webhookConfigured === false) {
+      return 'off';
+    }
+    return health?.lastWebhook || this.sdd.lastScan()?.lastWebhookError || '…';
   }
 
   latestSignals(): SddScan[] {
