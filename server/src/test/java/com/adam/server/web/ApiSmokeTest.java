@@ -48,7 +48,8 @@ class ApiSmokeTest {
                 .andExpect(content().string(containsString("/api/accounts")))
                 .andExpect(content().string(containsString("brak pozycji")))
                 .andExpect(content().string(containsString("HTTP ")))
-                .andExpect(content().string(containsString("GET /api/accounts failed")));
+                .andExpect(content().string(containsString("GET /api/accounts failed")))
+                .andExpect(content().string(containsString("cdn.jsdelivr.net/npm/bootstrap@5.3.3")));
     }
 
     @Test
