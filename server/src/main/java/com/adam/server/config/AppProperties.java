@@ -21,7 +21,6 @@ public class AppProperties {
     private double hardHaltPln = -50;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
-    private final Dashboard dashboard = new Dashboard();
 
     public String getBroker() {
         return broker;
@@ -123,39 +122,6 @@ public class AppProperties {
 
     public SddEpics getSdd() {
         return sdd;
-    }
-
-    public Dashboard getDashboard() {
-        return dashboard;
-    }
-
-    public static class Dashboard {
-        private String username = "";
-        private String password = "";
-
-        public String getUsername() {
-            return username;
-        }
-
-        public void setUsername(String username) {
-            this.username = username;
-        }
-
-        public String getPassword() {
-            return password;
-        }
-
-        public void setPassword(String password) {
-            this.password = password;
-        }
-
-        public boolean configured() {
-            return notBlank(username) && notBlank(password);
-        }
-
-        private static boolean notBlank(String s) {
-            return s != null && !s.isBlank();
-        }
     }
 
     public static class Scan {

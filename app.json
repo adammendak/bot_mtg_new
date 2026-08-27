@@ -58,14 +58,6 @@
     "AGENT_SIGNAL_WEBHOOK_URLS": {
       "description": "Comma-separated URLs. JSON posted on new full stack or skip-worthy HA flip.",
       "required": false
-    },
-    "DASHBOARD_USERNAME": {
-      "description": "Dashboard UI login. If unset with DASHBOARD_PASSWORD, login is rejected (fail closed). Scan and health stay open. Never commit.",
-      "required": false
-    },
-    "DASHBOARD_PASSWORD": {
-      "description": "Dashboard UI login password. Never commit. Never put this in the Angular app.",
-      "required": false
     }
   },
   "addons": [

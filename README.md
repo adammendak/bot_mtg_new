@@ -2,9 +2,7 @@
 
 Spring Boot 4 (Java 21) API plus the existing Angular `ui/bot` dashboard. One Heroku web dyno serves both. Capital.com is the default live broker behind a broker-agnostic SPI.
 
-OAuth2 client remains on the classpath from the original app but is **unused**. Spring Security stays `permitAll` for `/api/**`, `/health`, `/actuator/health`, and the dashboard static files so Heroku cron, Computron health checks, DurableScanWriter snapshots, and outbound `AGENT_SIGNAL` webhooks are never 401/403'd.
-
-Dashboard views (`/`, `/signals`, `/history`, `/payments`) have an Angular login page and route guard. Credentials are checked on the server: `POST /api/login` against `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`. If those env vars are missing, login is **fail-closed** (every attempt is rejected) but the process still boots and the scan keeps running. Do not put a username or password in the Angular bundle.
+OAuth2 client remains on the classpath from the original app but is **unused**. `/api/**`, `/health`, and the dashboard are `permitAll` so an unfinished login cannot block the bot.
 
 ## SDD-M15 (do not regress)
 
@@ -24,7 +22,7 @@ Scheduler: 1 minute after M15 close, `Europe/Warsaw`, cron minutes 1,16,31,46, h
 
 ```bash
 # API (paper adapter, no Capital creds)
-BROKER=paper DASHBOARD_USERNAME=... DASHBOARD_PASSWORD=... ./mvnw -pl server spring-boot:run
+BROKER=paper ./mvnw -pl server spring-boot:run
 
 # UI with proxy to :8080
 cd ui/bot && npm ci && npx ng serve
@@ -42,7 +40,6 @@ heroku addons:create heroku-postgresql -a bot-reinvented
 # Heroku then sets DATABASE_URL. Do not put DATABASE_URL in git.
 heroku config:set TZ=Europe/Warsaw -a bot-reinvented
 heroku config:set BROKER=capital EXECUTION_ENABLED=false -a bot-reinvented
-heroku config:set DASHBOARD_USERNAME=... DASHBOARD_PASSWORD=... -a bot-reinvented
 ```
 
 Or a new app:
@@ -53,7 +50,6 @@ heroku addons:create heroku-postgresql
 heroku config:set TZ=Europe/Warsaw
 heroku config:set BROKER=capital
 heroku config:set EXECUTION_ENABLED=false
-heroku config:set DASHBOARD_USERNAME=... DASHBOARD_PASSWORD=...
 heroku config:set CAPITAL_DEMO_HOST=https://demo-api-capital.backend-capital.com
 heroku config:set CAPITAL_API_KEY=... CAPITAL_EMAIL=... CAPITAL_API_PASSWORD=...
 heroku config:set CAPITAL_LIVE_HOST=https://api-capital.backend-capital.com
@@ -109,10 +105,6 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 | `EXECUTION_ENABLED` | `false` | Must be true to place orders (demo book only) |
 | `PORT` | Heroku sets this | HTTP bind |
 | `DATABASE_URL` | Heroku Postgres addon | Production JDBC. Local omit this (H2). Never commit. |
-| `DASHBOARD_USERNAME` | empty (fail closed) | Dashboard UI login. Required with `DASHBOARD_PASSWORD` or `POST /api/login` rejects everyone. Scan/health stay open. Never commit. |
-| `DASHBOARD_PASSWORD` | empty (fail closed) | Dashboard UI login password. Never commit. Never put this in the Angular app. |
-
-The test profile uses a non-secret dummy user in `server/src/test/resources/application-test.properties` only. That is not a production password.
 
 ## REST
 
@@ -122,10 +114,7 @@ The test profile uses a non-secret dummy user in `server/src/test/resources/appl
 - `GET /api/scan/last` — shared SDD symbols plus `books[]` (per-book halt/error, no mixed P/L)
 - `GET /api/signals`
 - `POST /api/scan` (manual trigger; also a Scheduler backup)
-- `GET /api/history?book=demo|live` — last `broker_snapshots` row per Warsaw day
 - `GET /api/broker` — both books
-- `POST /api/login` — `{username, password}` against `DASHBOARD_*` env vars; 200 `{username}` or 401
-- `POST /api/logout` — 204; client-side sessionStorage is what the SPA guard uses
 - `GET /api/v1` and `GET /api/legacy` — not a Bybit/Binance API. This repo never had those clients (see below).
 
 Dashboard: two columns Demo \| Live. `/signals` and `/payments` unchanged.

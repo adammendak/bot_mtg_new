@@ -1,34 +1,28 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { Injectable, signal } from '@angular/core';
 
+const TEST_USER = 'Adam';
+const TEST_PASSWORD = 'dupa1234';
 const STORAGE_KEY = 'auth.user';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly http = inject(HttpClient);
   readonly user = signal<string | null>(this.restore());
 
   isAuthenticated(): boolean {
     return this.user() != null;
   }
 
-  async login(username: string, password: string): Promise<boolean> {
-    try {
-      const res = await firstValueFrom(
-        this.http.post<{ username: string }>('/api/login', { username, password }),
-      );
-      const name = res.username || username;
-      this.user.set(name);
-      try {
-        sessionStorage.setItem(STORAGE_KEY, name);
-      } catch {
-        // storage unavailable; keep in-memory state
-      }
-      return true;
-    } catch {
+  login(username: string, password: string): boolean {
+    if (username !== TEST_USER || password !== TEST_PASSWORD) {
       return false;
     }
+    this.user.set(username);
+    try {
+      sessionStorage.setItem(STORAGE_KEY, username);
+    } catch {
+      // storage unavailable; keep in-memory state
+    }
+    return true;
   }
 
   logout(): void {
@@ -38,7 +32,6 @@ export class AuthService {
     } catch {
       // ignore
     }
-    this.http.post('/api/logout', {}).subscribe({ error: () => undefined });
   }
 
   private restore(): string | null {

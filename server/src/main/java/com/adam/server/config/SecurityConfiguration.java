@@ -8,11 +8,8 @@ import org.springframework.security.config.annotation.web.configurers.HeadersCon
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * OAuth2 client is on the classpath from the original app but is unused.
- * Keep Spring Security {@code permitAll} so Heroku cron ({@code POST /api/scan}),
- * {@code GET /health}, {@code GET /actuator/health}, DurableScanWriter snapshots,
- * and outbound AGENT_SIGNAL webhooks are never 401/403'd. Dashboard credentials
- * are checked in {@code POST /api/login} only.
+ * OAuth2 client is on the classpath from the original app but is unfinished.
+ * The dashboard and {@code /api/**} stay usable without a login.
  */
 @Configuration
 public class SecurityConfiguration {
