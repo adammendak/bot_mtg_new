@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { catchError, of } from 'rxjs';
 import {
   AccountView,
   HealthInfo,
@@ -30,10 +31,13 @@ export class SddService {
       next: (h) => this.health.set(h),
       error: () => this.health.set(null),
     });
-    this.http.get<AccountView[]>('/api/accounts').subscribe({
-      next: (a) => this.accounts.set(a),
-      error: () => this.accounts.set([]),
-    });
+    this.http
+      .get<AccountView[] | AccountView>('/api/accounts')
+      .pipe(
+        catchError(() => this.http.get<AccountView[] | AccountView>('/api/account')),
+        catchError(() => of([] as AccountView[])),
+      )
+      .subscribe((a) => this.accounts.set(this.normalizeAccounts(a)));
     this.http.get<ScanSnapshot>('/api/scan/last').subscribe({
       next: (s) => this.lastScan.set(s),
       error: (e) => this.error.set(e.message ?? 'scan/last failed'),
@@ -62,5 +66,12 @@ export class SddService {
         this.error.set(e.message ?? 'scan failed');
       },
     });
+  }
+
+  private normalizeAccounts(data: AccountView[] | AccountView | null): AccountView[] {
+    if (data == null) {
+      return [];
+    }
+    return Array.isArray(data) ? data : [data];
   }
 }

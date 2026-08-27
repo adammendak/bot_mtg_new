@@ -1,11 +1,28 @@
-<header>
-  <h1>SDD-M15</h1>
-  <nav>
-    <a routerLink="/">Dashboard</a>
-    <a routerLink="/signals">Signals</a>
-    <a routerLink="/payments">Payments</a>
-  </nav>
-</header>
-<main>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" routerLink="/">SDD-M15</a>
+    <button
+      class="navbar-toggler"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#sddNav"
+      aria-controls="sddNav"
+      aria-expanded="false"
+      aria-label="Toggle navigation"
+    >
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="sddNav">
+      <div class="navbar-nav">
+        <a class="nav-link" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+          Dashboard
+        </a>
+        <a class="nav-link" routerLink="/signals" routerLinkActive="active">Signals</a>
+        <a class="nav-link" routerLink="/payments" routerLinkActive="active">Payments</a>
+      </div>
+    </div>
+  </div>
+</nav>
+<main class="container-fluid py-3">
   <router-outlet></router-outlet>
 </main>
