@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import {
   AccountView,
   HealthInfo,
+  HistoryResponse,
   PositionsByBook,
   ScanSnapshot,
   SddScan,
@@ -19,9 +20,21 @@ export class SddService {
   readonly positions = signal<PositionsByBook>({ demo: [], live: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+  readonly history = signal<HistoryResponse | null>(null);
+  readonly historyBook = signal<'demo' | 'live'>('demo');
+  readonly historyError = signal<string | null>(null);
 
   account(id: 'demo' | 'live'): AccountView | undefined {
     return this.accounts().find((a) => a.id === id);
+  }
+
+  loadHistory(book: 'demo' | 'live'): void {
+    this.historyBook.set(book);
+    this.historyError.set(null);
+    this.http.get<HistoryResponse>(`/api/history?book=${book}`).subscribe({
+      next: (h) => this.history.set(h),
+      error: (e) => this.historyError.set(e.message ?? 'history failed'),
+    });
   }
 
   refresh(): void {

@@ -1,10 +1,15 @@
 <header>
   <h1>SDD-M15</h1>
-  <nav>
-    <a routerLink="/">Dashboard</a>
-    <a routerLink="/signals">Signals</a>
-    <a routerLink="/payments">Payments</a>
-  </nav>
+  @if (auth.isAuthenticated()) {
+    <nav>
+      <a routerLink="/">Dashboard</a>
+      <a routerLink="/signals">Signals</a>
+      <a routerLink="/history">History</a>
+      <a routerLink="/payments">Payments</a>
+    </nav>
+    <span class="user">{{ auth.user() }}</span>
+    <button type="button" (click)="signOut()">Sign out</button>
+  }
 </header>
 <main>
   <router-outlet></router-outlet>
