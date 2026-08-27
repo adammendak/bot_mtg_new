@@ -223,7 +223,7 @@ public class AppProperties {
         private String xau = "GOLD";
         private String us100 = "US100";
         private String eurusd = "EURUSD";
-        private String btc = "BITCOIN";
+        private String btc = "BTCUSD";
 
         public String getGer40() {
             return ger40;

@@ -1,7 +1,11 @@
 package com.adam.server.broker.capital;
 
+import com.adam.server.broker.model.Account;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -9,7 +13,142 @@ import java.util.List;
  */
 final class CapitalJson {
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
     private CapitalJson() {
+    }
+
+    static List<Account> parseAccounts(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        JsonNode root;
+        try {
+            root = JSON.readTree(raw);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Capital.com accounts JSON could not be parsed", e);
+        }
+        if (root == null || root.isNull() || root.isMissingNode()) {
+            return List.of();
+        }
+        JsonNode accounts = root.get("accounts");
+        if (accounts == null || accounts.isNull() || accounts.isMissingNode()) {
+            if (root.isArray()) {
+                accounts = root;
+            } else {
+                return List.of();
+            }
+        }
+        if (!accounts.isArray()) {
+            return List.of();
+        }
+        List<Account> out = new ArrayList<>();
+        for (JsonNode n : accounts) {
+            if (n == null || n.isNull() || !n.isObject()) {
+                continue;
+            }
+            JsonNode balance = n.get("balance");
+            if (balance == null || balance.isNull() || !balance.isObject()) {
+                balance = n.get("accountInfo");
+            }
+            out.add(new Account(
+                    text(n, "accountId", "id"),
+                    text(n, "accountName", "name"),
+                    text(n, "currency", "currencyIsoCode"),
+                    num(balance, "balance"),
+                    num(balance, "available"),
+                    num(balance, "profitLoss"),
+                    bool(n, "preferred")
+            ));
+        }
+        return out;
+    }
+
+    static String errorCode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode node = JSON.readTree(raw);
+            String code = text(node, "errorCode", "error");
+            return code == null ? "" : code;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    static boolean isNotFoundEpic(String raw) {
+        String code = errorCode(raw);
+        if (code.contains("not-found.epic") || code.contains("error.not-found")) {
+            return true;
+        }
+        return raw != null && raw.contains("error.not-found.epic");
+    }
+
+    private static String text(JsonNode node, String... names) {
+        if (node == null) {
+            return null;
+        }
+        for (String name : names) {
+            JsonNode n = node.get(name);
+            if (n == null || n.isNull() || n.isMissingNode()) {
+                continue;
+            }
+            String value = stringOf(n);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static double num(JsonNode parent, String field) {
+        if (parent == null) {
+            return 0;
+        }
+        JsonNode n = parent.get(field);
+        if (n == null || n.isNull() || n.isMissingNode()) {
+            return 0;
+        }
+        if (n.isNumber()) {
+            return n.doubleValue();
+        }
+        String raw = stringOf(n);
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            return Double.parseDouble(raw);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static boolean bool(JsonNode parent, String field) {
+        if (parent == null) {
+            return false;
+        }
+        JsonNode n = parent.get(field);
+        if (n == null || n.isNull() || n.isMissingNode()) {
+            return false;
+        }
+        if (n.isBoolean()) {
+            return n.booleanValue();
+        }
+        if (n.isNumber()) {
+            return n.intValue() != 0;
+        }
+        return "true".equalsIgnoreCase(stringOf(n));
+    }
+
+    private static String stringOf(JsonNode n) {
+        if (n == null || n.isNull() || n.isMissingNode()) {
+            return null;
+        }
+        if (n.isString() || n.isNumber() || n.isBoolean()) {
+            return n.asString();
+        }
+        return n.toString();
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

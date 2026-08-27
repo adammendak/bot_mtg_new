@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -147,13 +148,45 @@ public class ScanService {
     }
 
     private SddScan scanSymbol(BrokerClient market, SddSymbol symbol, String epic, Instant now) {
-        Instant fromM15 = now.minus(Duration.ofDays(10));
-        Instant fromH1 = now.minus(Duration.ofDays(40));
-        Instant fromH4 = now.minus(Duration.ofDays(80));
-        List<Candle> m15 = market.candles(epic, Resolution.M15, fromM15, now, 1000);
-        List<Candle> h1 = market.candles(epic, Resolution.H1, fromH1, now, 500);
-        List<Candle> h4 = market.candles(epic, Resolution.H4, fromH4, now, 300);
-        return engine.evaluate(symbol, epic, m15, h1, h4, now);
+        try {
+            Instant fromM15 = now.minus(Duration.ofDays(10));
+            Instant fromH1 = now.minus(Duration.ofDays(40));
+            Instant fromH4 = now.minus(Duration.ofDays(80));
+            List<Candle> m15 = market.candles(epic, Resolution.M15, fromM15, now, 1000);
+            List<Candle> h1 = market.candles(epic, Resolution.H1, fromH1, now, 500);
+            List<Candle> h4 = market.candles(epic, Resolution.H4, fromH4, now, 300);
+            return engine.evaluate(symbol, epic, m15, h1, h4, now);
+        } catch (RuntimeException e) {
+            if (isUnknownEpic(e)) {
+                log.warn("Skipping unknown Capital.com epic {} ({})", epic, symbol.code());
+                return engine.skippedEpic(symbol, epic, now, "epic not found: " + epic);
+            }
+            throw e;
+        }
+    }
+
+    static boolean isUnknownEpic(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof RestClientResponseException rest) {
+                if (rest.getStatusCode().value() == 404) {
+                    return true;
+                }
+                String body = rest.getResponseBodyAsString();
+                if (body != null && body.contains("not-found.epic")) {
+                    return true;
+                }
+            }
+            String msg = t.getMessage();
+            if (msg != null && (msg.contains("error.not-found.epic")
+                    || msg.contains("epic not found")
+                    || msg.contains("not-found.epic"))) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
     }
 
     private String haltFor(AccountView view) {

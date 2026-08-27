@@ -7,6 +7,8 @@ import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.Position;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.web.dto.AccountView;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -15,6 +17,8 @@ import java.util.Map;
 
 @Service
 public class AccountQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(AccountQueryService.class);
 
     private final BrokerBooks books;
     private final RiskPolicy risk;
@@ -56,19 +60,21 @@ public class AccountQueryService {
                     );
                 }
                 Account a = pick.account();
-                client.selectAccount(a.id());
+                trySelect(client, a.id());
                 return connected(client, a);
             }
             Account demo = risk.pickDemoAccount(accounts);
             if (demo == null) {
                 return disconnected(client, "no DEMO account");
             }
-            client.selectAccount(demo.id());
+            trySelect(client, demo.id());
             return connected(client, demo);
         } catch (BrokerException e) {
-            return disconnected(client, e.getMessage());
+            log.warn("Account query failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
+            return disconnected(client, publicMessage(e));
         } catch (Exception e) {
-            return disconnected(client, live ? "LIVE unavailable" : "DEMO unavailable");
+            log.warn("Account query failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
+            return disconnected(client, publicMessage(e));
         }
     }
 
@@ -81,6 +87,7 @@ public class AccountQueryService {
         try {
             return client.openPositions();
         } catch (Exception e) {
+            log.warn("Open positions failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
             return List.of();
         }
     }
@@ -90,6 +97,24 @@ public class AccountQueryService {
         out.put("demo", positions("demo"));
         out.put("live", positions("live"));
         return out;
+    }
+
+    private void trySelect(BrokerClient client, String accountId) {
+        try {
+            client.selectAccount(accountId);
+        } catch (Exception e) {
+            log.warn("Account select failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
+        }
+    }
+
+    static String publicMessage(Throwable e) {
+        if (e.getMessage() != null && !e.getMessage().isBlank()) {
+            return e.getMessage();
+        }
+        if (e.getCause() != null && e.getCause().getMessage() != null && !e.getCause().getMessage().isBlank()) {
+            return e.getCause().getMessage();
+        }
+        return e.getClass().getSimpleName();
     }
 
     private static AccountView connected(BrokerClient client, Account a) {
