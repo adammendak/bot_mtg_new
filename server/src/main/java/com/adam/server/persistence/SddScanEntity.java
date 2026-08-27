@@ -5,7 +5,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
@@ -33,11 +32,10 @@ public class SddScanEntity {
     @Column(name = "news_blackout", nullable = false)
     private boolean newsBlackout;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String error;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String payload;
 
     @Column(name = "created_at", nullable = false)

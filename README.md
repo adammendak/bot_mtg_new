@@ -49,7 +49,7 @@ heroku ps:scale web=1
 git push heroku main
 ```
 
-Heroku Postgres sets `DATABASE_URL` (`postgres://…`). The app converts it to `jdbc:postgresql://` (user/password as separate datasource properties so the JDBC URL is never logged with a secret). Liquibase creates `payments`, `sdd_scans`, `sdd_signals`, `broker_snapshots` plus its own `databasechangelog` tables on an empty database. Hibernate `ddl-auto=none` in that mode. Optional manual SQL: `server/src/main/resources/db/schema-postgres.sql`.
+Heroku Postgres sets `DATABASE_URL` (`postgres://…`). The app converts it to `jdbc:postgresql://` (user/password as separate datasource properties so the JDBC URL is never logged with a secret). Liquibase XML changelog (`db/changelog/db.changelog-master.xml`) creates `payments`, `sdd_scans`, `sdd_signals`, `broker_snapshots` plus its own `databasechangelog` tables on an empty database. Hibernate `ddl-auto=none` in that mode. Optional manual SQL: `server/src/main/resources/db/schema-postgres.sql`.
 
 Local without `DATABASE_URL` stays H2 (`ddl-auto=update`). Never commit `DATABASE_URL`.
 

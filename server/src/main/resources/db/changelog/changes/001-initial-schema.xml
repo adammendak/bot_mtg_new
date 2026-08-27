@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- Keep the original id so a DB that already tagged 001 does not checksum-fail. -->
+    <changeSet id="001-initial-schema" author="amendak">
+        <validCheckSum>ANY</validCheckSum>
+        <tagDatabase tag="version-0.0.1"/>
+    </changeSet>
+</databaseChangeLog>

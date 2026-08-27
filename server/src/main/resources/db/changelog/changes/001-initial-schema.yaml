@@ -1,7 +1,0 @@
-databaseChangeLog:
-  - changeSet:
-      id: 001-initial-schema
-      author: amendak
-      changes:
-        - tagDatabase:
-            tag: version-0.0.1
