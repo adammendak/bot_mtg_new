@@ -1,0 +1,55 @@
+{
+  "name": "bot-mtg-new",
+  "description": "Capital.com SDD-M15 scanner with Angular dashboard (one web dyno).",
+  "repository": "https://github.com/adammendak/bot_mtg_new",
+  "keywords": ["java", "spring-boot", "angular", "capital.com", "sdd"],
+  "success_url": "/",
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "env": {
+    "TZ": {
+      "description": "Timezone for the M15 scheduler and Warsaw 21:00 PP roll.",
+      "value": "Europe/Warsaw"
+    },
+    "BROKER": {
+      "description": "SPI adapter: capital (default live) or paper (in-process stub).",
+      "value": "capital"
+    },
+    "EXECUTION_ENABLED": {
+      "description": "false = scan + dashboard + webhooks only. true = may place orders.",
+      "value": "false"
+    },
+    "CAPITAL_API_KEY": {
+      "description": "Capital.com API key. Never commit this.",
+      "required": false
+    },
+    "CAPITAL_EMAIL": {
+      "description": "Capital.com login email.",
+      "required": false
+    },
+    "CAPITAL_API_PASSWORD": {
+      "description": "Capital.com API key custom password (not the account password).",
+      "required": false
+    },
+    "CAPITAL_DEMO_HOST": {
+      "description": "Demo REST host.",
+      "value": "https://demo-api-capital.backend-capital.com"
+    },
+    "CAPITAL_LIVE_HOST": {
+      "description": "Live REST host.",
+      "value": "https://api-capital.backend-capital.com"
+    },
+    "CAPITAL_LIVE": {
+      "description": "true to use the live host and LIVE account gates.",
+      "value": "false"
+    },
+    "AGENT_SIGNAL_WEBHOOK_URLS": {
+      "description": "Comma-separated URLs. JSON posted on new full stack or skip-worthy HA flip.",
+      "required": false
+    }
+  }
+}
