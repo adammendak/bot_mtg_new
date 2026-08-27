@@ -13,6 +13,9 @@ import { SddService } from '../service/sdd.service';
         Refresh
       </button>
     </div>
+    @if (sdd.signalsError()) {
+      <div class="alert alert-danger py-2">{{ sdd.signalsError() }}</div>
+    }
     <div class="card shadow-sm">
       <div class="card-header bg-dark text-white">HA flips and full stacks</div>
       <div class="card-body p-0">
@@ -29,7 +32,11 @@ import { SddService } from '../service/sdd.service';
               </tr>
             </thead>
             <tbody>
-              @if (sdd.signals().length === 0) {
+              @if (sdd.signalsError()) {
+                <tr>
+                  <td colspan="6" class="text-danger text-center">{{ sdd.signalsError() }}</td>
+                </tr>
+              } @else if (sdd.signals().length === 0) {
                 <tr>
                   <td colspan="6" class="text-muted text-center">
                     No HA flips or full stacks stored yet.

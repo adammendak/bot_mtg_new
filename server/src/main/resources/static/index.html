@@ -159,8 +159,8 @@
     } catch (e) {
       try {
         return asArray(await fetchJson('/api/account'));
-      } catch {
-        return [];
+      } catch (e2) {
+        throw e;
       }
     }
   }
@@ -179,9 +179,11 @@
     return Array.isArray(positions[id]) ? positions[id] : [];
   }
 
-  function renderBook(id, title, headerClass, account, positions, scan) {
+  function renderBook(id, title, headerClass, account, positions, scan, accountsFailed, positionsFailed) {
     const book = bookMeta(scan, id);
-    const halt = (book && (book.halt || book.error)) || (account && account.error) || '';
+    const halt = (book && (book.halt || book.error))
+      || (account && account.error)
+      || (accountsFailed ? accountsFailed : '');
     const rows = [
       ['Name', esc(account && account.accountName ? account.accountName : '—')],
       ['Connected', account ? badgeConn(!!account.connected) : badgeConn(false)],
@@ -196,7 +198,9 @@
     ).join('');
 
     let posBody;
-    if (!positions.length) {
+    if (positionsFailed) {
+      posBody = '<tr><td colspan="5" class="text-danger text-center">' + esc(positionsFailed) + '</td></tr>';
+    } else if (!positions.length) {
       posBody = '<tr><td colspan="5" class="text-muted text-center">brak pozycji</td></tr>';
     } else {
       posBody = positions.map((p) =>
@@ -230,9 +234,13 @@
       '</div>';
   }
 
-  function renderSdd(scan) {
-    const symbols = (scan && scan.symbols) || [];
+  function renderSdd(scan, scanFailed) {
     const tbody = document.getElementById('sddBody');
+    if (scanFailed) {
+      tbody.innerHTML = '<tr><td colspan="11" class="text-danger text-center">' + esc(scanFailed) + '</td></tr>';
+      return;
+    }
+    const symbols = (scan && scan.symbols) || [];
     if (!symbols.length) {
       tbody.innerHTML = '<tr><td colspan="11" class="text-muted text-center">No scan yet</td></tr>';
       return;
@@ -255,8 +263,12 @@
     }).join('');
   }
 
-  function renderSignals(signals) {
+  function renderSignals(signals, signalsFailed) {
     const tbody = document.getElementById('sigBody');
+    if (signalsFailed) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-danger text-center">' + esc(signalsFailed) + '</td></tr>';
+      return;
+    }
     const list = signals || [];
     if (!list.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No HA flips or full stacks yet</td></tr>';
@@ -285,6 +297,9 @@
     if (scan && scan.error) {
       bits.push('<div class="alert alert-danger py-2">Scan: ' + esc(scan.error) + '</div>');
     }
+    if (scan && scan.lastWebhookError) {
+      bits.push('<div class="alert alert-warning py-2">Webhook: ' + esc(scan.lastWebhookError) + '</div>');
+    }
     (messages || []).forEach((m) => {
       bits.push('<div class="alert alert-danger py-2">' + esc(m) + '</div>');
     });
@@ -301,7 +316,11 @@
     const on = !!(health && health.executionEnabled) || !!(scan && scan.executionEnabled);
     eb.className = 'badge ' + (on ? 'text-bg-danger' : 'text-bg-secondary');
     eb.textContent = on ? 'EXECUTION ON' : 'execution off';
-    sm.textContent = 'Last scan: ' + when(scan && scan.scannedAt);
+    let webhook = 'webhook …';
+    if (health && health.webhookConfigured === false) webhook = 'webhook off';
+    else if (health && health.lastWebhook) webhook = 'webhook ' + health.lastWebhook;
+    else if (scan && scan.lastWebhookError) webhook = 'webhook ' + scan.lastWebhookError;
+    sm.textContent = 'Last scan: ' + when(scan && scan.scannedAt) + ' · ' + webhook;
   }
 
   async function refresh() {
@@ -318,23 +337,36 @@
     const positions = posR.status === 'fulfilled' ? posR.value : { demo: [], live: [] };
     const scan = scanR.status === 'fulfilled' ? scanR.value : null;
     const signals = sigR.status === 'fulfilled' ? asArray(sigR.value) : [];
-    if (healthR.status === 'rejected') errors.push('GET /health failed');
-    if (posR.status === 'rejected') errors.push('GET /api/positions failed');
-    if (scanR.status === 'rejected') errors.push('GET /api/scan/last failed');
-    if (sigR.status === 'rejected') errors.push('GET /api/signals failed');
+    const failMsg = (result, fallback) => {
+      if (result.status !== 'rejected') return '';
+      const r = result.reason;
+      return (r && r.message) ? r.message : fallback;
+    };
+    const healthFailed = failMsg(healthR, 'GET /health failed');
+    const accountsFailed = failMsg(accR, 'GET /api/accounts failed');
+    const positionsFailed = failMsg(posR, 'GET /api/positions failed');
+    const scanFailed = failMsg(scanR, 'GET /api/scan/last failed');
+    const signalsFailed = failMsg(sigR, 'GET /api/signals failed');
+    if (healthFailed) errors.push(healthFailed);
+    if (accountsFailed) errors.push(accountsFailed);
+    if (positionsFailed) errors.push(positionsFailed);
+    if (scanFailed) errors.push(scanFailed);
+    if (signalsFailed) errors.push(signalsFailed);
 
     setNav(health, scan);
     setAlerts(errors, scan);
     document.getElementById('card-demo').innerHTML = renderBook(
       'demo', 'Demo', 'bg-primary text-white',
-      accountFor(accounts, 'demo'), positionsFor(positions, 'demo'), scan
+      accountFor(accounts, 'demo'), positionsFor(positions, 'demo'), scan,
+      accountsFailed, positionsFailed
     );
     document.getElementById('card-live').innerHTML = renderBook(
       'live', 'Live', 'bg-dark text-white',
-      accountFor(accounts, 'live'), positionsFor(positions, 'live'), scan
+      accountFor(accounts, 'live'), positionsFor(positions, 'live'), scan,
+      accountsFailed, positionsFailed
     );
-    renderSdd(scan);
-    renderSignals(signals);
+    renderSdd(scan, scanFailed);
+    renderSignals(signals, signalsFailed);
   }
 
   async function scanNow() {

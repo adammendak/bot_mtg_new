@@ -94,16 +94,20 @@ public class ScanService {
                 SddScan result = scanSymbol(market, symbol, epic, now);
                 symbols.add(result);
                 if (result.fullStack() || result.flip()) {
-                    webhooks.publish(result);
+                    try {
+                        webhooks.publish(result);
+                    } catch (Exception e) {
+                        log.warn("Webhook publish failed: {}", e.getClass().getSimpleName());
+                    }
                     log.info("{}", result.reason());
                 }
             }
         } catch (BrokerException e) {
-            error = e.getMessage();
-            log.warn("Scan aborted: {}", e.getMessage());
+            error = AccountQueryService.publicMessage(e);
+            log.warn("Scan aborted: {}", error);
         } catch (Exception e) {
-            error = "scan failed";
-            log.warn("Scan failed", e);
+            error = AccountQueryService.publicMessage(e);
+            log.warn("Scan failed: {}", e.getClass().getSimpleName());
         }
 
         AccountView demoView = accounts.view(books.demo());
@@ -138,7 +142,26 @@ public class ScanService {
                 blackout,
                 List.copyOf(symbols),
                 error,
-                bookScans
+                bookScans,
+                webhooks.lastWebhookAt(),
+                webhooks.lastWebhookError()
+        );
+        try {
+            webhooks.onScanFinished(snapshot);
+        } catch (Exception e) {
+            log.warn("Scan webhook follow-up failed: {}", e.getClass().getSimpleName());
+        }
+        snapshot = new ScanSnapshot(
+                snapshot.scannedAt(),
+                snapshot.brokerId(),
+                snapshot.brokerName(),
+                snapshot.executionEnabled(),
+                snapshot.newsBlackout(),
+                snapshot.symbols(),
+                snapshot.error(),
+                snapshot.books(),
+                webhooks.lastWebhookAt(),
+                webhooks.lastWebhookError()
         );
         store.save(snapshot);
         if (durable != null) {
@@ -161,7 +184,9 @@ public class ScanService {
                 log.warn("Skipping unknown Capital.com epic {} ({})", epic, symbol.code());
                 return engine.skippedEpic(symbol, epic, now, "epic not found: " + epic);
             }
-            throw e;
+            String reason = shorten(AccountQueryService.publicMessage(e));
+            log.warn("Skipping {} after broker error: {}", symbol.code(), e.getClass().getSimpleName());
+            return engine.skippedBroker(symbol, epic, now, reason);
         }
     }
 
@@ -187,6 +212,13 @@ public class ScanService {
             }
         }
         return false;
+    }
+
+    private static String shorten(String message) {
+        if (message == null || message.isBlank()) {
+            return "broker error";
+        }
+        return message.length() > 180 ? message.substring(0, 180) : message;
     }
 
     private String haltFor(AccountView view) {

@@ -16,7 +16,7 @@ OAuth2 client remains on the classpath from the original app but is **unused**. 
 - Do not flatten TQQQ / CRCL / SPOT / SHOP. No Fintokei. No QQQ restore.
 - News blackout T−30 / T+30 around red USD/EUR: no new SDD.
 
-Scheduler: 1 minute after every M15 close, `Europe/Warsaw`, Spring 6-field cron `0 1,16,31,46 * * * *` (all hours, all week — BTC weekends and the Asian session). Override with `SCAN_CRON`. Closed-market / unknown-epic 404s skip that symbol, not the whole scan. Quiet if nothing. JSON webhooks to `AGENT_SIGNAL_WEBHOOK_URLS` on a new full stack or skip-worthy HA flip.
+Scheduler: 1 minute after every M15 close, `Europe/Warsaw`, Spring 6-field cron `0 1,16,31,46 * * * *` (all hours, all week — BTC weekends and the Asian session). Override with `SCAN_CRON`. Closed-market / unknown-epic 404s skip that symbol, not the whole scan. Quiet if nothing. JSON webhooks to `AGENT_SIGNAL_WEBHOOK_URLS` on a new full stack or skip-worthy HA flip. Hard scan failures POST `type=failover` (Computron resumes his loop); a later healthy scan POSTs `type=scan_ok` once. Cursor automation sender key is `AGENT_SIGNAL_WEBHOOK_SECRET` (host config only).
 
 ## Local run
 
@@ -97,6 +97,7 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 | --- | --- | --- |
 | `BROKER` | `capital` | `capital` (demo+live Capital beans) or `paper` |
 | `AGENT_SIGNAL_WEBHOOK_URLS` | empty | Comma-separated webhook URLs |
+| `AGENT_SIGNAL_WEBHOOK_SECRET` | empty | Cursor automation sender key. Host config only. Never commit. |
 | `TZ` | `Europe/Warsaw` | Scheduler + PP session (`app.scan.zone`) |
 | `SCAN_CRON` | `0 1,16,31,46 * * * *` | Spring 6-field cron: every M15 close, 24/7 Warsaw |
 | `EXECUTION_ENABLED` | `false` | Must be true to place orders (demo book only) |
@@ -105,7 +106,7 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 
 ## REST
 
-- `GET /health` — app up, plus `demoConfigured` / `liveConfigured`
+- `GET /health` — app up, plus `demoConfigured` / `liveConfigured`, `webhookConfigured` (boolean only), and `lastWebhook` (`ok` / `never` / short error)
 - `GET /actuator/health` — Spring Actuator liveness (`{"status":"UP"}`). Health only; no env/heapdump/beans. Safe for a Heroku health check.
 - `GET /api/accounts` — `[{id: demo\|live, broker, accountName, equity, available, dayPnl, connected, error?}, …]`
 - `GET /api/positions?account=demo\|live` — omit `account` for `{demo: [...], live: [...]}`

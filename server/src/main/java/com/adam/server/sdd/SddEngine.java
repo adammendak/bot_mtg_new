@@ -182,6 +182,10 @@ public class SddEngine {
         return empty(symbol, epic, now, List.of("epic_not_found"), reason);
     }
 
+    public SddScan skippedBroker(SddSymbol symbol, String epic, Instant now, String reason) {
+        return empty(symbol, epic, now, List.of("broker_error"), reason);
+    }
+
     private static SddScan empty(SddSymbol symbol, String epic, Instant now, List<String> failed, String reason) {
         return new SddScan(
                 now,

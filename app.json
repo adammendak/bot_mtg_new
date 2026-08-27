@@ -56,7 +56,11 @@
       "value": "https://api-capital.backend-capital.com"
     },
     "AGENT_SIGNAL_WEBHOOK_URLS": {
-      "description": "Comma-separated URLs. JSON posted on new full stack or skip-worthy HA flip.",
+      "description": "Comma-separated URLs. JSON posted on new full stack, HA flip, failover, or scan_ok.",
+      "required": false
+    },
+    "AGENT_SIGNAL_WEBHOOK_SECRET": {
+      "description": "Cursor automation sender key. Set on the host only. Never commit.",
       "required": false
     }
   },
