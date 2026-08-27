@@ -4,13 +4,7 @@
 # Log file
 *.log
 
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
+# Package Files
 *.jar
 *.war
 *.nar
@@ -18,7 +12,19 @@
 *.zip
 *.tar.gz
 *.rar
+!**/maven-wrapper.jar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# Maven / Node
+target/
+node_modules/
+ui/bot/dist/
+ui/bot/.angular/
+.env
+.env.*
+
+# virtual machine crash logs
 hs_err_pid*
 replay_pid*
+
+.idea/
+*.iml
