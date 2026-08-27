@@ -16,7 +16,7 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
       <span class="badge" [class]="execBadgeClass()">
         {{ executionOn() ? 'EXECUTION ON' : 'execution off' }}
       </span>
-      <span class="small text-muted">Last scan: {{ sdd.lastScan()?.scannedAt || 'never' }}</span>
+      <span class="small text-muted">Last scan: {{ (sdd.lastScan()?.scannedAt | date: 'short') || 'never' }}</span>
       <button
         type="button"
         class="btn btn-warning btn-sm"
