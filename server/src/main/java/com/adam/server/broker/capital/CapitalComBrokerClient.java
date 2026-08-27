@@ -113,28 +113,24 @@ public class CapitalComBrokerClient implements BrokerClient {
 
     @Override
     public List<Account> accounts() {
-        CapitalJson.AccountsResponse body = authed()
-                .get()
-                .uri("/api/v1/accounts")
-                .retrieve()
-                .body(CapitalJson.AccountsResponse.class);
-        if (body == null || body.accounts() == null) {
-            return List.of();
+        try {
+            // String body so text/plain (Capital session-style) still parses; typed
+            // AccountsResponse.class rejects non-JSON content types and missing
+            // record fields like preferred/balance.
+            String raw = authed()
+                    .get()
+                    .uri("/api/v1/accounts")
+                    .retrieve()
+                    .body(String.class);
+            return CapitalJson.parseAccounts(raw);
+        } catch (RestClientResponseException e) {
+            throw wrap("accounts", e);
+        } catch (BrokerException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("Capital.com {} accounts failed: {}", book, e.getClass().getSimpleName());
+            throw new BrokerException("Capital.com " + book + " accounts failed: " + publicMessage(e), e);
         }
-        List<Account> out = new ArrayList<>();
-        for (CapitalJson.AccountJson a : body.accounts()) {
-            CapitalJson.BalanceJson b = a.balance();
-            out.add(new Account(
-                    a.accountId(),
-                    a.accountName(),
-                    a.currency(),
-                    nz(b == null ? null : b.balance()),
-                    nz(b == null ? null : b.available()),
-                    nz(b == null ? null : b.profitLoss()),
-                    a.preferred()
-            ));
-        }
-        return out;
     }
 
     @Override
@@ -142,13 +138,30 @@ public class CapitalComBrokerClient implements BrokerClient {
         if (accountId == null || accountId.isBlank()) {
             return;
         }
-        authed()
-                .put()
-                .uri("/api/v1/session")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("accountId", accountId))
-                .retrieve()
-                .toBodilessEntity();
+        try {
+            ResponseEntity<String> entity = authed()
+                    .put()
+                    .uri("/api/v1/session")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("accountId", accountId))
+                    .retrieve()
+                    .toEntity(String.class);
+            String newCst = firstHeader(entity, "CST");
+            String newToken = firstHeader(entity, "X-SECURITY-TOKEN");
+            if (newCst != null) {
+                this.cst = newCst;
+            }
+            if (newToken != null) {
+                this.securityToken = newToken;
+            }
+        } catch (RestClientResponseException e) {
+            throw wrap("selectAccount", e);
+        } catch (BrokerException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("Capital.com {} selectAccount failed: {}", book, e.getClass().getSimpleName());
+            throw new BrokerException("Capital.com " + book + " selectAccount failed: " + publicMessage(e), e);
+        }
     }
 
     @Override
@@ -159,16 +172,25 @@ public class CapitalComBrokerClient implements BrokerClient {
             case H4 -> "HOUR_4";
             case D1 -> "DAY";
         };
-        CapitalJson.PricesResponse body = authed()
-                .get()
-                .uri(uri -> uri.path("/api/v1/prices/{epic}")
-                        .queryParam("resolution", capRes)
-                        .queryParam("max", Math.min(Math.max(max, 1), 1000))
-                        .queryParam("from", CAPITAL_TIME.format(LocalDateTime.ofInstant(from, ZoneOffset.UTC)))
-                        .queryParam("to", CAPITAL_TIME.format(LocalDateTime.ofInstant(to, ZoneOffset.UTC)))
-                        .build(epic))
-                .retrieve()
-                .body(CapitalJson.PricesResponse.class);
+        CapitalJson.PricesResponse body;
+        try {
+            body = authed()
+                    .get()
+                    .uri(uri -> uri.path("/api/v1/prices/{epic}")
+                            .queryParam("resolution", capRes)
+                            .queryParam("max", Math.min(Math.max(max, 1), 1000))
+                            .queryParam("from", CAPITAL_TIME.format(LocalDateTime.ofInstant(from, ZoneOffset.UTC)))
+                            .queryParam("to", CAPITAL_TIME.format(LocalDateTime.ofInstant(to, ZoneOffset.UTC)))
+                            .build(epic))
+                    .retrieve()
+                    .body(CapitalJson.PricesResponse.class);
+        } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404 || CapitalJson.isNotFoundEpic(e.getResponseBodyAsString())) {
+                log.warn("Capital.com {} candles 404 for epic {}", book, epic);
+                throw new BrokerException("Capital.com epic not found: " + epic, e);
+            }
+            throw wrap("candles " + epic, e);
+        }
         if (body == null || body.prices() == null) {
             return List.of();
         }
@@ -368,7 +390,29 @@ public class CapitalComBrokerClient implements BrokerClient {
         return restClient.mutate()
                 .defaultHeader("CST", cst)
                 .defaultHeader("X-SECURITY-TOKEN", securityToken)
+                .defaultHeader("X-CAP-API-KEY", endpoint.getApiKey() == null ? "" : endpoint.getApiKey())
+                .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
                 .build();
+    }
+
+    private BrokerException wrap(String action, RestClientResponseException e) {
+        String code = CapitalJson.errorCode(e.getResponseBodyAsString());
+        String extra = code.isBlank() ? "" : " " + code;
+        log.warn("Capital.com {} {} failed: HTTP {}{}", book, action, e.getStatusCode().value(), extra);
+        return new BrokerException(
+                "Capital.com " + book + " " + action + " failed: HTTP " + e.getStatusCode().value() + extra,
+                e
+        );
+    }
+
+    private static String publicMessage(Throwable e) {
+        if (e.getMessage() != null && !e.getMessage().isBlank()) {
+            return e.getMessage();
+        }
+        if (e.getCause() != null && e.getCause().getMessage() != null && !e.getCause().getMessage().isBlank()) {
+            return e.getCause().getMessage();
+        }
+        return e.getClass().getSimpleName();
     }
 
     private synchronized void ensureSession() {

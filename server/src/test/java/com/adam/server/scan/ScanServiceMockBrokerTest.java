@@ -14,8 +14,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,7 +36,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class ScanServiceMockBrokerTest {
 
     @Mock
@@ -48,16 +54,79 @@ class ScanServiceMockBrokerTest {
         when(broker.book()).thenReturn("demo");
         when(broker.configured()).thenReturn(true);
         when(broker.accounts()).thenReturn(List.of(new Account("1", "paper", "PLN", 1000, 1000, 0, true)));
-        when(broker.candles(any(), eq(Resolution.M15), any(), any(), anyInt())).thenReturn(rising(now, Duration.ofMinutes(15), 200));
-        when(broker.candles(any(), eq(Resolution.H1), any(), any(), anyInt())).thenReturn(rising(now, Duration.ofHours(1), 180));
-        when(broker.candles(any(), eq(Resolution.H4), any(), any(), anyInt())).thenReturn(rising(now, Duration.ofHours(4), 80));
+        stubCandles(now, "MISSING");
 
-        RestClient.Builder builder = RestClient.builder();
         ScanStore store = new ScanStore();
+        ScanService service = newService(props, clock, store);
+
+        ScanSnapshot snapshot = service.scan();
+        assertThat(snapshot.brokerId()).isEqualTo("mock");
+        assertThat(snapshot.symbols()).hasSize(5);
+        assertThat(snapshot.symbols().stream().map(SddScan::symbol)).containsExactly("GER40", "XAU", "US100", "EURUSD", "BTC");
+        assertThat(snapshot.error()).isNull();
+        assertThat(snapshot.books()).hasSize(2);
+        assertThat(store.last()).isEqualTo(snapshot);
+    }
+
+    @Test
+    void scanContinuesWhenOneEpic404s(CapturedOutput output) {
+        Instant now = ZonedDateTime.of(2026, 8, 26, 12, 0, 0, 0, ZoneId.of("Europe/Warsaw")).toInstant();
+        Clock clock = Clock.fixed(now, ZoneId.of("Europe/Warsaw"));
+        AppProperties props = new AppProperties();
+        props.setBroker("paper");
+        props.setNewsCalendarUrl("");
+        props.getSdd().getEpics().setBtc("MISSING");
+        when(broker.id()).thenReturn("mock");
+        when(broker.displayName()).thenReturn("Mock broker");
+        when(broker.book()).thenReturn("demo");
+        when(broker.configured()).thenReturn(true);
+        when(broker.accounts()).thenReturn(List.of(new Account("1", "paper", "PLN", 1000, 1000, 0, true)));
+        stubCandles(now, "MISSING");
+
+        ScanSnapshot snapshot = newService(props, clock, new ScanStore()).scan();
+
+        assertThat(snapshot.error()).isNull();
+        assertThat(snapshot.symbols()).hasSize(5);
+        assertThat(snapshot.symbols().stream().map(SddScan::symbol))
+                .containsExactly("GER40", "XAU", "US100", "EURUSD", "BTC");
+        SddScan btc = snapshot.symbols().getLast();
+        assertThat(btc.epic()).isEqualTo("MISSING");
+        assertThat(btc.failed()).contains("epic_not_found");
+        assertThat(btc.reason()).contains("epic not found: MISSING");
+        assertThat(btc.fullStack()).isFalse();
+        assertThat(snapshot.symbols().stream().filter(s -> !"BTC".equals(s.symbol())))
+                .allSatisfy(s -> assertThat(s.failed()).doesNotContain("epic_not_found"));
+        assertThat(output.getOut() + output.getErr()).contains("MISSING");
+        assertThat(output.getOut() + output.getErr()).doesNotContain("scan failed");
+    }
+
+    private void stubCandles(Instant now, String missingEpic) {
+        when(broker.candles(any(), eq(Resolution.M15), any(), any(), anyInt())).thenAnswer(inv -> {
+            if (missingEpic.equals(inv.getArgument(0))) {
+                throw notFoundEpic();
+            }
+            return rising(now, Duration.ofMinutes(15), 200);
+        });
+        when(broker.candles(any(), eq(Resolution.H1), any(), any(), anyInt())).thenAnswer(inv -> {
+            if (missingEpic.equals(inv.getArgument(0))) {
+                throw notFoundEpic();
+            }
+            return rising(now, Duration.ofHours(1), 180);
+        });
+        when(broker.candles(any(), eq(Resolution.H4), any(), any(), anyInt())).thenAnswer(inv -> {
+            if (missingEpic.equals(inv.getArgument(0))) {
+                throw notFoundEpic();
+            }
+            return rising(now, Duration.ofHours(4), 80);
+        });
+    }
+
+    private ScanService newService(AppProperties props, Clock clock, ScanStore store) {
+        RestClient.Builder builder = RestClient.builder();
         BrokerBooks books = new BrokerBooks(broker, new UnavailableBrokerClient("live", "test"));
         RiskPolicy risk = new RiskPolicy(props);
         AccountQueryService accounts = new AccountQueryService(books, risk);
-        ScanService service = new ScanService(
+        return new ScanService(
                 books,
                 props,
                 store,
@@ -69,13 +138,16 @@ class ScanServiceMockBrokerTest {
                 clock,
                 null
         );
+    }
 
-        ScanSnapshot snapshot = service.scan();
-        assertThat(snapshot.brokerId()).isEqualTo("mock");
-        assertThat(snapshot.symbols()).hasSize(5);
-        assertThat(snapshot.symbols().stream().map(SddScan::symbol)).containsExactly("GER40", "XAU", "US100", "EURUSD", "BTC");
-        assertThat(snapshot.books()).hasSize(2);
-        assertThat(store.last()).isEqualTo(snapshot);
+    private static HttpClientErrorException notFoundEpic() {
+        return HttpClientErrorException.create(
+                HttpStatus.NOT_FOUND,
+                "Not Found",
+                new HttpHeaders(),
+                "{\"errorCode\":\"error.not-found.epic\"}".getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8
+        );
     }
 
     private static List<Candle> rising(Instant now, Duration step, int count) {
