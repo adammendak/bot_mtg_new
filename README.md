@@ -2,7 +2,7 @@
 
 Spring Boot 4 (Java 21) API plus the existing Angular `ui/bot` dashboard. One Heroku web dyno serves both. Capital.com is the default live broker behind a broker-agnostic SPI.
 
-OAuth2 client remains on the classpath from the original app but is **unused**. `/api/**`, `/health`, and the dashboard are `permitAll` so an unfinished login cannot block the bot.
+OAuth2 client remains on the classpath from the original app but is **unused**. `/api/**`, `/health`, `/actuator/health`, and the dashboard are `permitAll` so an unfinished login cannot block the bot.
 
 ## SDD-M15 (do not regress)
 
@@ -16,7 +16,7 @@ OAuth2 client remains on the classpath from the original app but is **unused**. 
 - Do not flatten TQQQ / CRCL / SPOT / SHOP. No Fintokei. No QQQ restore.
 - News blackout T−30 / T+30 around red USD/EUR: no new SDD.
 
-Scheduler: 1 minute after M15 close, `Europe/Warsaw`, cron minutes 1,16,31,46, hours 8–22 weekdays. Quiet if nothing. JSON webhooks to `AGENT_SIGNAL_WEBHOOK_URLS` on a new full stack or skip-worthy HA flip.
+Scheduler: 1 minute after every M15 close, `Europe/Warsaw`, Spring 6-field cron `0 1,16,31,46 * * * *` (all hours, all week — BTC weekends and the Asian session). Override with `SCAN_CRON`. Closed-market / unknown-epic 404s skip that symbol, not the whole scan. Quiet if nothing. JSON webhooks to `AGENT_SIGNAL_WEBHOOK_URLS` on a new full stack or skip-worthy HA flip. Hard scan failures POST `type=failover` (Computron resumes his loop); a later healthy scan POSTs `type=scan_ok` once. Cursor automation sender key is `AGENT_SIGNAL_WEBHOOK_SECRET` (host config only).
 
 ## Local run
 
@@ -97,14 +97,17 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 | --- | --- | --- |
 | `BROKER` | `capital` | `capital` (demo+live Capital beans) or `paper` |
 | `AGENT_SIGNAL_WEBHOOK_URLS` | empty | Comma-separated webhook URLs |
-| `TZ` | `Europe/Warsaw` | Scheduler + PP session |
+| `AGENT_SIGNAL_WEBHOOK_SECRET` | empty | Cursor automation sender key. Host config only. Never commit. |
+| `TZ` | `Europe/Warsaw` | Scheduler + PP session (`app.scan.zone`) |
+| `SCAN_CRON` | `0 1,16,31,46 * * * *` | Spring 6-field cron: every M15 close, 24/7 Warsaw |
 | `EXECUTION_ENABLED` | `false` | Must be true to place orders (demo book only) |
 | `PORT` | Heroku sets this | HTTP bind |
 | `DATABASE_URL` | Heroku Postgres addon | Production JDBC. Local omit this (H2). Never commit. |
 
 ## REST
 
-- `GET /health` — app up, plus `demoConfigured` / `liveConfigured`
+- `GET /health` — app up, plus `demoConfigured` / `liveConfigured`, `webhookConfigured` (boolean only), and `lastWebhook` (`ok` / `never` / short error)
+- `GET /actuator/health` — Spring Actuator liveness (`{"status":"UP"}`). Health only; no env/heapdump/beans. Safe for a Heroku health check.
 - `GET /api/accounts` — `[{id: demo\|live, broker, accountName, equity, available, dayPnl, connected, error?}, …]`
 - `GET /api/positions?account=demo\|live` — omit `account` for `{demo: [...], live: [...]}`
 - `GET /api/scan/last` — shared SDD symbols plus `books[]` (per-book halt/error, no mixed P/L)

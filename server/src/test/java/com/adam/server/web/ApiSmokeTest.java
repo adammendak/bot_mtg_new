@@ -9,9 +9,12 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,13 +40,49 @@ class ApiSmokeTest {
     }
 
     @Test
+    void staticDashboardServesBootstrapTables() throws Exception {
+        mvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("SDD-M15")))
+                .andExpect(content().string(containsString("table table-sm table-striped table-hover")))
+                .andExpect(content().string(containsString("/api/accounts")))
+                .andExpect(content().string(containsString("brak pozycji")))
+                .andExpect(content().string(containsString("HTTP ")))
+                .andExpect(content().string(containsString("GET /api/accounts failed")))
+                .andExpect(content().string(containsString("cdn.jsdelivr.net/npm/bootstrap@5.3.3")));
+    }
+
+    @Test
     void healthIsOpen() throws Exception {
         mvc.perform(get("/health"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.time").isString())
                 .andExpect(jsonPath("$.broker").value("paper"))
+                .andExpect(jsonPath("$.executionEnabled").value(false))
                 .andExpect(jsonPath("$.demoConfigured").value(true))
-                .andExpect(jsonPath("$.liveConfigured").value(false));
+                .andExpect(jsonPath("$.liveConfigured").value(false))
+                .andExpect(jsonPath("$.webhookConfigured").value(false))
+                .andExpect(jsonPath("$.lastWebhook").value("never"))
+                .andExpect(jsonPath("$.lastWebhookAt").value(nullValue()));
+    }
+
+    @Test
+    void actuatorHealthIsUpWithoutDetails() throws Exception {
+        mvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("<html"))))
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components").doesNotExist())
+                .andExpect(jsonPath("$.details").doesNotExist());
+    }
+
+    @Test
+    void actuatorDoesNotExposeSensitiveEndpoints() throws Exception {
+        mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/heapdump")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/beans")).andExpect(status().isNotFound());
     }
 
     @Test

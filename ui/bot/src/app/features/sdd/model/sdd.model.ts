@@ -41,6 +41,8 @@ export interface ScanSnapshot {
   symbols: SddScan[];
   error: string | null;
   books: BookScan[];
+  lastWebhookAt?: string | null;
+  lastWebhookError?: string | null;
 }
 
 export interface BrokerBookInfo {
@@ -63,6 +65,9 @@ export interface HealthInfo {
   executionEnabled: boolean;
   demoConfigured: boolean;
   liveConfigured: boolean;
+  webhookConfigured?: boolean;
+  lastWebhook?: string;
+  lastWebhookAt?: string | null;
 }
 
 export interface Position {

@@ -1,16 +1,35 @@
-<header>
-  <h1>SDD-M15</h1>
-  @if (auth.isAuthenticated()) {
-    <nav>
-      <a routerLink="/">Dashboard</a>
-      <a routerLink="/signals">Signals</a>
-      <a routerLink="/history">History</a>
-      <a routerLink="/payments">Payments</a>
-    </nav>
-    <span class="user">{{ auth.user() }}</span>
-    <button type="button" (click)="signOut()">Sign out</button>
-  }
-</header>
-<main>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" routerLink="/">SDD-M15</a>
+    <button
+      class="navbar-toggler"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#sddNav"
+      aria-controls="sddNav"
+      aria-expanded="false"
+      aria-label="Toggle navigation"
+    >
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="sddNav">
+      @if (auth.isAuthenticated()) {
+        <div class="navbar-nav">
+          <a class="nav-link" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+            Dashboard
+          </a>
+          <a class="nav-link" routerLink="/signals" routerLinkActive="active">Signals</a>
+          <a class="nav-link" routerLink="/history" routerLinkActive="active">History</a>
+          <a class="nav-link" routerLink="/payments" routerLinkActive="active">Payments</a>
+        </div>
+        <div class="d-flex ms-auto align-items-center gap-2">
+          <span class="navbar-text">{{ auth.user() }}</span>
+          <button type="button" class="btn btn-outline-light btn-sm" (click)="signOut()">Sign out</button>
+        </div>
+      }
+    </div>
+  </div>
+</nav>
+<main class="container-fluid py-3">
   <router-outlet></router-outlet>
 </main>

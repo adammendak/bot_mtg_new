@@ -11,17 +11,24 @@ public class ScanScheduler {
     private static final Logger log = LoggerFactory.getLogger(ScanScheduler.class);
 
     private final ScanService scanService;
+    private final SignalWebhookPublisher webhooks;
 
-    public ScanScheduler(ScanService scanService) {
+    public ScanScheduler(ScanService scanService, SignalWebhookPublisher webhooks) {
         this.scanService = scanService;
+        this.webhooks = webhooks;
     }
 
-    @Scheduled(cron = "${app.scan.cron:0 1,16,31,46 8-22 * * MON-FRI}", zone = "${app.scan.zone:Europe/Warsaw}")
+    @Scheduled(cron = "${app.scan.cron:0 1,16,31,46 * * * *}", zone = "${app.scan.zone:Europe/Warsaw}")
     public void onM15Close() {
         try {
             scanService.scan();
         } catch (Exception e) {
-            log.warn("Scheduled scan failed");
+            log.warn("Scheduled scan failed: {}", e.getClass().getSimpleName());
+            try {
+                webhooks.publishFailover("scan_failed", AccountQueryService.publicMessage(e));
+            } catch (Exception webhookEx) {
+                log.warn("Failover webhook POST failed: {}", webhookEx.getClass().getSimpleName());
+            }
         }
     }
 }

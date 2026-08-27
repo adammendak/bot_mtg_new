@@ -1,9 +1,10 @@
+@import "bootstrap/dist/css/bootstrap.min.css";
+
 body {
-  font-family: system-ui, sans-serif;
-  margin: 0;
-  color: #222;
+  background: #f4f6f8;
 }
 
-a {
-  color: #0645ad;
+.table td,
+.table th {
+  vertical-align: middle;
 }

@@ -1,11 +1,393 @@
 <!doctype html>
-<html lang="en">
+<html lang="pl">
 <head>
   <meta charset="utf-8">
-  <title>SDD-M15 bot</title>
-  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SDD-M15</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f4f6f8; }
+    .table td, .table th { white-space: nowrap; vertical-align: middle; }
+    .table td.reason { white-space: normal; max-width: 22rem; }
+    .navbar-text { color: rgba(255, 255, 255, .75); }
+    .book-card .table-sm td:first-child { width: 40%; color: #6c757d; }
+  </style>
 </head>
 <body>
-  <p>Angular dashboard is not packaged yet. Run <code>mvn package</code> or serve <code>ui/bot</code>.</p>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 h1">SDD-M15</span>
+    <div class="d-flex align-items-center gap-2 flex-wrap ms-lg-3">
+      <span id="healthBadge" class="badge text-bg-secondary">health …</span>
+      <span id="execBadge" class="badge text-bg-secondary">exec …</span>
+      <span id="scanMeta" class="navbar-text small">Last scan: never</span>
+      <button id="scanBtn" type="button" class="btn btn-warning btn-sm">Scan now</button>
+      <button id="refreshBtn" type="button" class="btn btn-outline-light btn-sm">Refresh</button>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid py-3">
+  <div id="alerts"></div>
+  <p class="small text-muted mb-3">
+    Demo and Live are separate books — P/L is never mixed. Scan runs once (same candles).
+    Execution stays off unless <code>EXECUTION_ENABLED=true</code> (demo only).
+  </p>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card shadow-sm book-card" id="card-demo"></div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card shadow-sm book-card" id="card-live"></div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mt-3">
+    <div class="card-header bg-dark text-white">SDD stack (shared scan)</div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover mb-0">
+          <thead class="table-dark">
+            <tr>
+              <th>Symbol</th>
+              <th>HA</th>
+              <th>RMA</th>
+              <th>H1</th>
+              <th>PP</th>
+              <th>Full</th>
+              <th>Direction</th>
+              <th>Entry</th>
+              <th>Stop</th>
+              <th>1R</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="sddBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mt-3">
+    <div class="card-header bg-dark text-white">Signals</div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover mb-0">
+          <thead class="table-dark">
+            <tr>
+              <th>Time</th>
+              <th>Symbol</th>
+              <th>Direction</th>
+              <th>FULL/flip</th>
+              <th>Entry</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="sigBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function () {
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+
+  function num(v, digits) {
+    if (v == null || v === '' || Number.isNaN(Number(v))) return '—';
+    return Number(v).toLocaleString('pl-PL', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+
+  function pnl(v, digits) {
+    if (v == null || v === '' || Number.isNaN(Number(v))) return '—';
+    const n = Number(v);
+    const cls = n > 0 ? 'text-success' : n < 0 ? 'text-danger' : '';
+    const sign = n > 0 ? '+' : '';
+    return '<span class="' + cls + '">' + sign + num(n, digits) + '</span>';
+  }
+
+  function when(v) {
+    if (!v) return 'never';
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return esc(v);
+    return d.toLocaleString('pl-PL');
+  }
+
+  function badgeYn(ok) {
+    return ok
+      ? '<span class="badge text-bg-success">Y</span>'
+      : '<span class="badge text-bg-secondary">n</span>';
+  }
+
+  function badgeDir(d) {
+    const u = String(d || '').toUpperCase();
+    if (u === 'BUY') return '<span class="badge text-bg-success">BUY</span>';
+    if (u === 'SELL') return '<span class="badge text-bg-danger">SELL</span>';
+    return '<span class="badge text-bg-secondary">' + esc(d || '—') + '</span>';
+  }
+
+  function badgeConn(ok) {
+    return ok
+      ? '<span class="badge text-bg-success">connected</span>'
+      : '<span class="badge text-bg-danger">disconnected</span>';
+  }
+
+  async function fetchJson(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const err = new Error(url + ' HTTP ' + res.status);
+      err.status = res.status;
+      throw err;
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+
+  function asArray(data) {
+    if (data == null) return [];
+    return Array.isArray(data) ? data : [data];
+  }
+
+  async function loadAccounts() {
+    try {
+      return asArray(await fetchJson('/api/accounts'));
+    } catch (e) {
+      try {
+        return asArray(await fetchJson('/api/account'));
+      } catch (e2) {
+        throw e;
+      }
+    }
+  }
+
+  function accountFor(accounts, id) {
+    return (accounts || []).find((a) => a && a.id === id) || null;
+  }
+
+  function bookMeta(scan, id) {
+    return ((scan && scan.books) || []).find((b) => b && b.id === id) || null;
+  }
+
+  function positionsFor(positions, id) {
+    if (!positions) return [];
+    if (Array.isArray(positions)) return id === 'demo' ? positions : [];
+    return Array.isArray(positions[id]) ? positions[id] : [];
+  }
+
+  function renderBook(id, title, headerClass, account, positions, scan, accountsFailed, positionsFailed) {
+    const book = bookMeta(scan, id);
+    const halt = (book && (book.halt || book.error))
+      || (account && account.error)
+      || (accountsFailed ? accountsFailed : '');
+    const rows = [
+      ['Name', esc(account && account.accountName ? account.accountName : '—')],
+      ['Connected', account ? badgeConn(!!account.connected) : badgeConn(false)],
+      ['Equity', num(account && account.equity, 2)],
+      ['Available', num(account && account.available, 2)],
+      ['Day P/L', pnl(account && account.dayPnl, 2)],
+      ['Currency', esc(account && account.currency ? account.currency : '—')],
+      ['Halt / error', halt ? '<span class="text-danger">' + esc(halt) + '</span>' : '—']
+    ];
+    const summary = rows.map((r) =>
+      '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>'
+    ).join('');
+
+    let posBody;
+    if (positionsFailed) {
+      posBody = '<tr><td colspan="5" class="text-danger text-center">' + esc(positionsFailed) + '</td></tr>';
+    } else if (!positions.length) {
+      posBody = '<tr><td colspan="5" class="text-muted text-center">brak pozycji</td></tr>';
+    } else {
+      posBody = positions.map((p) =>
+        '<tr>' +
+          '<td>' + esc(p.epic) + '</td>' +
+          '<td>' + badgeDir(p.direction) + '</td>' +
+          '<td>' + num(p.size, 2) + '</td>' +
+          '<td>' + num(p.level, 5) + '</td>' +
+          '<td>' + pnl(p.unrealizedPnl, 2) + '</td>' +
+        '</tr>'
+      ).join('');
+    }
+
+    return '' +
+      '<div class="card-header ' + headerClass + '">' + esc(title) + '</div>' +
+      '<div class="card-body pb-2">' +
+        '<h6 class="text-muted text-uppercase small mb-2">Account</h6>' +
+        '<div class="table-responsive">' +
+          '<table class="table table-sm table-striped table-hover mb-3">' +
+            '<thead class="table-dark"><tr><th>Field</th><th>Value</th></tr></thead>' +
+            '<tbody>' + summary + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<h6 class="text-muted text-uppercase small mb-2">Positions</h6>' +
+        '<div class="table-responsive">' +
+          '<table class="table table-sm table-striped table-hover mb-0">' +
+            '<thead class="table-dark"><tr><th>Epic</th><th>Dir</th><th>Size</th><th>Level</th><th>uP/L</th></tr></thead>' +
+            '<tbody>' + posBody + '</tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderSdd(scan, scanFailed) {
+    const tbody = document.getElementById('sddBody');
+    if (scanFailed) {
+      tbody.innerHTML = '<tr><td colspan="11" class="text-danger text-center">' + esc(scanFailed) + '</td></tr>';
+      return;
+    }
+    const symbols = (scan && scan.symbols) || [];
+    if (!symbols.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="text-muted text-center">No scan yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = symbols.map((row) => {
+      const st = row.setup || {};
+      return '<tr>' +
+        '<td>' + esc(row.symbol) + '</td>' +
+        '<td>' + badgeYn(!!st.ha) + '</td>' +
+        '<td>' + badgeYn(!!st.rma) + '</td>' +
+        '<td>' + badgeYn(!!st.h1) + '</td>' +
+        '<td>' + badgeYn(!!st.pp) + '</td>' +
+        '<td>' + badgeYn(!!row.fullStack) + '</td>' +
+        '<td>' + badgeDir(row.direction) + '</td>' +
+        '<td>' + num(row.entry, 5) + '</td>' +
+        '<td>' + num(row.stop, 5) + '</td>' +
+        '<td>' + num(row.oneR, 5) + '</td>' +
+        '<td class="reason">' + esc(row.reason || '') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function renderSignals(signals, signalsFailed) {
+    const tbody = document.getElementById('sigBody');
+    if (signalsFailed) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-danger text-center">' + esc(signalsFailed) + '</td></tr>';
+      return;
+    }
+    const list = signals || [];
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No HA flips or full stacks yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map((s) =>
+      '<tr>' +
+        '<td>' + when(s.timestamp) + '</td>' +
+        '<td>' + esc(s.symbol) + '</td>' +
+        '<td>' + badgeDir(s.direction) + '</td>' +
+        '<td>' + (s.fullStack
+          ? '<span class="badge text-bg-success">FULL</span>'
+          : '<span class="badge text-bg-secondary">flip</span>') + '</td>' +
+        '<td>' + num(s.entry, 5) + '</td>' +
+        '<td class="reason">' + esc(s.reason || '') + '</td>' +
+      '</tr>'
+    ).join('');
+  }
+
+  function setAlerts(messages, scan) {
+    const box = document.getElementById('alerts');
+    const bits = [];
+    if (scan && scan.newsBlackout) {
+      bits.push('<div class="alert alert-warning py-2">News blackout is active (no new SDD).</div>');
+    }
+    if (scan && scan.error) {
+      bits.push('<div class="alert alert-danger py-2">Scan: ' + esc(scan.error) + '</div>');
+    }
+    if (scan && scan.lastWebhookError) {
+      bits.push('<div class="alert alert-warning py-2">Webhook: ' + esc(scan.lastWebhookError) + '</div>');
+    }
+    (messages || []).forEach((m) => {
+      bits.push('<div class="alert alert-danger py-2">' + esc(m) + '</div>');
+    });
+    box.innerHTML = bits.join('');
+  }
+
+  function setNav(health, scan) {
+    const hb = document.getElementById('healthBadge');
+    const eb = document.getElementById('execBadge');
+    const sm = document.getElementById('scanMeta');
+    const up = health && String(health.status).toUpperCase() === 'UP';
+    hb.className = 'badge ' + (up ? 'text-bg-success' : 'text-bg-danger');
+    hb.textContent = health ? ('health ' + health.status) : 'health ?';
+    const on = !!(health && health.executionEnabled) || !!(scan && scan.executionEnabled);
+    eb.className = 'badge ' + (on ? 'text-bg-danger' : 'text-bg-secondary');
+    eb.textContent = on ? 'EXECUTION ON' : 'execution off';
+    let webhook = 'webhook …';
+    if (health && health.webhookConfigured === false) webhook = 'webhook off';
+    else if (health && health.lastWebhook) webhook = 'webhook ' + health.lastWebhook;
+    else if (scan && scan.lastWebhookError) webhook = 'webhook ' + scan.lastWebhookError;
+    sm.textContent = 'Last scan: ' + when(scan && scan.scannedAt) + ' · ' + webhook;
+  }
+
+  async function refresh() {
+    const errors = [];
+    const [healthR, accR, posR, scanR, sigR] = await Promise.allSettled([
+      fetchJson('/health'),
+      loadAccounts(),
+      fetchJson('/api/positions'),
+      fetchJson('/api/scan/last'),
+      fetchJson('/api/signals')
+    ]);
+    const health = healthR.status === 'fulfilled' ? healthR.value : null;
+    const accounts = accR.status === 'fulfilled' ? accR.value : [];
+    const positions = posR.status === 'fulfilled' ? posR.value : { demo: [], live: [] };
+    const scan = scanR.status === 'fulfilled' ? scanR.value : null;
+    const signals = sigR.status === 'fulfilled' ? asArray(sigR.value) : [];
+    const failMsg = (result, fallback) => {
+      if (result.status !== 'rejected') return '';
+      const r = result.reason;
+      return (r && r.message) ? r.message : fallback;
+    };
+    const healthFailed = failMsg(healthR, 'GET /health failed');
+    const accountsFailed = failMsg(accR, 'GET /api/accounts failed');
+    const positionsFailed = failMsg(posR, 'GET /api/positions failed');
+    const scanFailed = failMsg(scanR, 'GET /api/scan/last failed');
+    const signalsFailed = failMsg(sigR, 'GET /api/signals failed');
+    if (healthFailed) errors.push(healthFailed);
+    if (accountsFailed) errors.push(accountsFailed);
+    if (positionsFailed) errors.push(positionsFailed);
+    if (scanFailed) errors.push(scanFailed);
+    if (signalsFailed) errors.push(signalsFailed);
+
+    setNav(health, scan);
+    setAlerts(errors, scan);
+    document.getElementById('card-demo').innerHTML = renderBook(
+      'demo', 'Demo', 'bg-primary text-white',
+      accountFor(accounts, 'demo'), positionsFor(positions, 'demo'), scan,
+      accountsFailed, positionsFailed
+    );
+    document.getElementById('card-live').innerHTML = renderBook(
+      'live', 'Live', 'bg-dark text-white',
+      accountFor(accounts, 'live'), positionsFor(positions, 'live'), scan,
+      accountsFailed, positionsFailed
+    );
+    renderSdd(scan, scanFailed);
+    renderSignals(signals, signalsFailed);
+  }
+
+  async function scanNow() {
+    const btn = document.getElementById('scanBtn');
+    btn.disabled = true;
+    btn.textContent = 'Scanning…';
+    try {
+      await fetchJson('/api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      await refresh();
+    } catch (e) {
+      setAlerts(['POST /api/scan failed: ' + (e.message || e)], null);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Scan now';
+    }
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', () => refresh());
+  document.getElementById('scanBtn').addEventListener('click', () => scanNow());
+  refresh();
+})();
+</script>
 </body>
 </html>

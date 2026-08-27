@@ -8,50 +8,49 @@ import { AuthService } from './auth.service';
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="login-box">
-      <h2>Sign in</h2>
-      <form (ngSubmit)="onSubmit()">
-        <label>
-          Username
-          <input name="username" type="text" [(ngModel)]="username" autocomplete="username" required />
-        </label>
-        <label>
-          Password
-          <input
-            name="password"
-            type="password"
-            [(ngModel)]="password"
-            autocomplete="current-password"
-            required
-          />
-        </label>
-        @if (error) {
-          <p class="error">Invalid username or password.</p>
-        }
-        <button type="submit" [disabled]="!username || !password">Sign in</button>
-      </form>
-      <p class="note">Test user: Adam</p>
+    <div class="row justify-content-center">
+      <div class="col-sm-10 col-md-6 col-lg-4">
+        <div class="card shadow-sm mt-4">
+          <div class="card-header bg-dark text-white">Sign in</div>
+          <div class="card-body">
+            <form (ngSubmit)="onSubmit()">
+              <div class="mb-3">
+                <label class="form-label" for="username">Username</label>
+                <input
+                  id="username"
+                  name="username"
+                  class="form-control"
+                  type="text"
+                  [(ngModel)]="username"
+                  autocomplete="username"
+                  required
+                />
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  class="form-control"
+                  type="password"
+                  [(ngModel)]="password"
+                  autocomplete="current-password"
+                  required
+                />
+              </div>
+              @if (error) {
+                <div class="alert alert-danger py-2">Invalid username or password.</div>
+              }
+              <button type="submit" class="btn btn-primary" [disabled]="!username || !password">
+                Sign in
+              </button>
+            </form>
+            <p class="small text-muted mt-3 mb-0">Test user: Adam</p>
+          </div>
+        </div>
+      </div>
     </div>
   `,
-  styles: [
-    `
-      .login-box {
-        max-width: 300px;
-        margin: 4rem auto;
-        padding: 1rem;
-        border: 1px solid #ccc;
-      }
-      .login-box label {
-        display: block;
-        margin-bottom: 0.75rem;
-      }
-      .login-box input {
-        width: 100%;
-        box-sizing: border-box;
-        margin-top: 0.25rem;
-      }
-    `,
-  ],
 })
 export class LoginComponent {
   private readonly auth = inject(AuthService);

@@ -12,6 +12,7 @@ public class AppProperties {
     private boolean executionEnabled = false;
     private String timezone = "Europe/Warsaw";
     private String webhookUrls = "";
+    private String webhookSecret = "";
     private final Scan scan = new Scan();
     private final Capital capital = new Capital();
     private String liveAccountName = "bot trading konto";
@@ -62,6 +63,29 @@ public class AppProperties {
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .toList();
+    }
+
+    public boolean webhookConfigured() {
+        return !webhookUrlList().isEmpty();
+    }
+
+    public String getWebhookSecret() {
+        return webhookSecret;
+    }
+
+    public void setWebhookSecret(String webhookSecret) {
+        this.webhookSecret = webhookSecret;
+    }
+
+    public String webhookSenderToken() {
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            return "";
+        }
+        String trimmed = webhookSecret.trim();
+        if (trimmed.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return trimmed.substring(7).trim();
+        }
+        return trimmed;
     }
 
     public Scan getScan() {
@@ -125,7 +149,7 @@ public class AppProperties {
     }
 
     public static class Scan {
-        private String cron = "0 1,16,31,46 8-22 * * MON-FRI";
+        private String cron = "0 1,16,31,46 * * * *";
         private String zone = "Europe/Warsaw";
 
         public String getCron() {
@@ -223,7 +247,7 @@ public class AppProperties {
         private String xau = "GOLD";
         private String us100 = "US100";
         private String eurusd = "EURUSD";
-        private String btc = "BITCOIN";
+        private String btc = "BTCUSD";
 
         public String getGer40() {
             return ger40;

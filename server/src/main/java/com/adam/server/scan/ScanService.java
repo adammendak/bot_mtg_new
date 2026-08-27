@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -93,16 +94,20 @@ public class ScanService {
                 SddScan result = scanSymbol(market, symbol, epic, now);
                 symbols.add(result);
                 if (result.fullStack() || result.flip()) {
-                    webhooks.publish(result);
+                    try {
+                        webhooks.publish(result);
+                    } catch (Exception e) {
+                        log.warn("Webhook publish failed: {}", e.getClass().getSimpleName());
+                    }
                     log.info("{}", result.reason());
                 }
             }
         } catch (BrokerException e) {
-            error = e.getMessage();
-            log.warn("Scan aborted: {}", e.getMessage());
+            error = AccountQueryService.publicMessage(e);
+            log.warn("Scan aborted: {}", error);
         } catch (Exception e) {
-            error = "scan failed";
-            log.warn("Scan failed", e);
+            error = AccountQueryService.publicMessage(e);
+            log.warn("Scan failed: {}", e.getClass().getSimpleName());
         }
 
         AccountView demoView = accounts.view(books.demo());
@@ -137,7 +142,26 @@ public class ScanService {
                 blackout,
                 List.copyOf(symbols),
                 error,
-                bookScans
+                bookScans,
+                webhooks.lastWebhookAt(),
+                webhooks.lastWebhookError()
+        );
+        try {
+            webhooks.onScanFinished(snapshot);
+        } catch (Exception e) {
+            log.warn("Scan webhook follow-up failed: {}", e.getClass().getSimpleName());
+        }
+        snapshot = new ScanSnapshot(
+                snapshot.scannedAt(),
+                snapshot.brokerId(),
+                snapshot.brokerName(),
+                snapshot.executionEnabled(),
+                snapshot.newsBlackout(),
+                snapshot.symbols(),
+                snapshot.error(),
+                snapshot.books(),
+                webhooks.lastWebhookAt(),
+                webhooks.lastWebhookError()
         );
         store.save(snapshot);
         if (durable != null) {
@@ -147,13 +171,54 @@ public class ScanService {
     }
 
     private SddScan scanSymbol(BrokerClient market, SddSymbol symbol, String epic, Instant now) {
-        Instant fromM15 = now.minus(Duration.ofDays(10));
-        Instant fromH1 = now.minus(Duration.ofDays(40));
-        Instant fromH4 = now.minus(Duration.ofDays(80));
-        List<Candle> m15 = market.candles(epic, Resolution.M15, fromM15, now, 1000);
-        List<Candle> h1 = market.candles(epic, Resolution.H1, fromH1, now, 500);
-        List<Candle> h4 = market.candles(epic, Resolution.H4, fromH4, now, 300);
-        return engine.evaluate(symbol, epic, m15, h1, h4, now);
+        try {
+            Instant fromM15 = now.minus(Duration.ofDays(10));
+            Instant fromH1 = now.minus(Duration.ofDays(40));
+            Instant fromH4 = now.minus(Duration.ofDays(80));
+            List<Candle> m15 = market.candles(epic, Resolution.M15, fromM15, now, 1000);
+            List<Candle> h1 = market.candles(epic, Resolution.H1, fromH1, now, 500);
+            List<Candle> h4 = market.candles(epic, Resolution.H4, fromH4, now, 300);
+            return engine.evaluate(symbol, epic, m15, h1, h4, now);
+        } catch (RuntimeException e) {
+            if (isUnknownEpic(e)) {
+                log.warn("Skipping unknown Capital.com epic {} ({})", epic, symbol.code());
+                return engine.skippedEpic(symbol, epic, now, "epic not found: " + epic);
+            }
+            String reason = shorten(AccountQueryService.publicMessage(e));
+            log.warn("Skipping {} after broker error: {}", symbol.code(), e.getClass().getSimpleName());
+            return engine.skippedBroker(symbol, epic, now, reason);
+        }
+    }
+
+    static boolean isUnknownEpic(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof RestClientResponseException rest) {
+                if (rest.getStatusCode().value() == 404) {
+                    return true;
+                }
+                String body = rest.getResponseBodyAsString();
+                if (body != null && body.contains("not-found.epic")) {
+                    return true;
+                }
+            }
+            String msg = t.getMessage();
+            if (msg != null && (msg.contains("error.not-found.epic")
+                    || msg.contains("epic not found")
+                    || msg.contains("not-found.epic"))) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    private static String shorten(String message) {
+        if (message == null || message.isBlank()) {
+            return "broker error";
+        }
+        return message.length() > 180 ? message.substring(0, 180) : message;
     }
 
     private String haltFor(AccountView view) {

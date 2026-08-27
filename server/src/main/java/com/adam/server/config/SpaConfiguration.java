@@ -17,6 +17,7 @@ public class SpaConfiguration implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**").allowedOrigins("*").allowedMethods("GET", "POST");
         registry.addMapping("/health").allowedOrigins("*").allowedMethods("GET");
+        registry.addMapping("/actuator/health").allowedOrigins("*").allowedMethods("GET");
     }
 
     @Override
@@ -43,6 +44,8 @@ public class SpaConfiguration implements WebMvcConfigurer {
     private static boolean isApiPath(String resourcePath) {
         return resourcePath.equals("health")
                 || resourcePath.startsWith("api/")
-                || resourcePath.startsWith("h2-console");
+                || resourcePath.startsWith("h2-console")
+                || resourcePath.equals("actuator")
+                || resourcePath.startsWith("actuator/");
     }
 }
