@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -54,6 +55,7 @@ class ApiSmokeTest {
     void healthIsOpen() throws Exception {
         mvc.perform(get("/health"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.time").isString())
                 .andExpect(jsonPath("$.broker").value("paper"))
@@ -61,13 +63,15 @@ class ApiSmokeTest {
                 .andExpect(jsonPath("$.demoConfigured").value(true))
                 .andExpect(jsonPath("$.liveConfigured").value(false))
                 .andExpect(jsonPath("$.webhookConfigured").value(false))
-                .andExpect(jsonPath("$.lastWebhook").value("never"));
+                .andExpect(jsonPath("$.lastWebhook").value("never"))
+                .andExpect(jsonPath("$.lastWebhookAt").value(nullValue()));
     }
 
     @Test
     void actuatorHealthIsUpWithoutDetails() throws Exception {
         mvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.components").doesNotExist())
                 .andExpect(jsonPath("$.details").doesNotExist());
