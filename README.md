@@ -65,13 +65,9 @@ Local without `DATABASE_URL` stays H2 (`ddl-auto=update`). Never commit `DATABAS
 
 Heroku sets `PORT`. The app binds `server.port=${PORT:8080}`.
 
-GitHub Actions: PRs run `mvn -B test`. Push to `main` runs tests then deploys to Heroku. Set repository secrets:
+GitHub Actions: PRs and pushes to `main` run `mvn -B test` only. Production deploys of `bot-reinvented` come from Heroku's GitHub integration on `main`, not from Actions.
 
-- `HEROKU_API_KEY`
-- `HEROKU_APP_NAME`
-- `HEROKU_EMAIL`
-
-Never commit secrets. Config vars live on Heroku / GitHub secrets only.
+Never commit secrets. Config vars live on Heroku only.
 
 ### Config vars
 
