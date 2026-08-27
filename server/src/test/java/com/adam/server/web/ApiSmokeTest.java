@@ -92,6 +92,17 @@ class ApiSmokeTest {
     }
 
     @Test
+    void historyEndpointIsOpen() throws Exception {
+        mvc.perform(get("/api/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.book").value("demo"))
+                .andExpect(jsonPath("$.points").isArray());
+        mvc.perform(get("/api/history").param("book", "live"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.book").value("live"));
+    }
+
+    @Test
     void manualScanWithPaperBroker() throws Exception {
         mvc.perform(post("/api/scan"))
                 .andExpect(status().isOk())

@@ -11,6 +11,11 @@ export const routes: Routes = [
       import('./features/sdd/ui/signal-list.component').then((m) => m.SignalListComponent),
   },
   {
+    path: 'history',
+    loadComponent: () =>
+      import('./features/sdd/ui/history.component').then((m) => m.HistoryComponent),
+  },
+  {
     path: 'payments',
     loadChildren: () => import('./features/payments/payment.routes').then((m) => m.PAYMENTS_ROUTES),
   },

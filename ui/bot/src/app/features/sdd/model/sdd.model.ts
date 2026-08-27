@@ -90,3 +90,17 @@ export interface AccountView {
   connected: boolean;
   error: string | null;
 }
+
+export interface DailyEquityPoint {
+  date: string;
+  equity: number | null;
+  dayPnl: number | null;
+  pctChange: number | null;
+}
+
+export interface HistoryResponse {
+  book: string;
+  currency: string | null;
+  connected: boolean;
+  points: DailyEquityPoint[];
+}

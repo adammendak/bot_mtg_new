@@ -57,6 +57,44 @@ button {
   font-size: 0.9rem;
 }
 
+button.active {
+  font-weight: bold;
+}
+
+.error {
+  color: #b00020;
+}
+
+.chart {
+  width: 100%;
+  max-width: 800px;
+  height: auto;
+  border: 1px solid #eee;
+  background: #fcfcfc;
+}
+
+.chart .axis {
+  stroke: #999;
+  stroke-width: 1;
+}
+
+.chart .zero {
+  stroke: #bbb;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.chart .line {
+  stroke: #0645ad;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart .dot {
+  fill: #0645ad;
+}
+
 @media (max-width: 800px) {
   .books {
     grid-template-columns: 1fr;
