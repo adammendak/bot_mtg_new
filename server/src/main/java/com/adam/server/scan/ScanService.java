@@ -11,11 +11,13 @@ import com.adam.server.config.AppProperties;
 import com.adam.server.sdd.NewsBlackout;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.sdd.SddEngine;
+import com.adam.server.persistence.DurableScanWriter;
 import com.adam.server.sdd.SddScan;
 import com.adam.server.sdd.SddSymbol;
 import com.adam.server.web.dto.AccountView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -39,6 +41,7 @@ public class ScanService {
     private final ExecutionGate execution;
     private final AccountQueryService accounts;
     private final Clock clock;
+    private final DurableScanWriter durable;
     private final SddEngine engine;
 
     public ScanService(
@@ -50,7 +53,8 @@ public class ScanService {
             RiskPolicy risk,
             ExecutionGate execution,
             AccountQueryService accounts,
-            Clock clock
+            Clock clock,
+            ObjectProvider<DurableScanWriter> durable
     ) {
         this.books = books;
         this.properties = properties;
@@ -61,6 +65,7 @@ public class ScanService {
         this.execution = execution;
         this.accounts = accounts;
         this.clock = clock;
+        this.durable = durable == null ? null : durable.getIfAvailable();
         this.engine = new SddEngine(ZoneId.of(properties.getTimezone()));
     }
 
@@ -135,6 +140,9 @@ public class ScanService {
                 bookScans
         );
         store.save(snapshot);
+        if (durable != null) {
+            durable.write(snapshot, demoView, liveView);
+        }
         return snapshot;
     }
 

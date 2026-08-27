@@ -1,0 +1,207 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-app-tables
+      author: amendak
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: sdd_scans
+      changes:
+        - createTable:
+            tableName: payments
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: type
+                  type: varchar(16)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last4
+                  type: varchar(4)
+              - column:
+                  name: phone
+                  type: varchar(32)
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+        - createTable:
+            tableName: sdd_scans
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: scanned_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: broker_id
+                  type: varchar(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: broker_name
+                  type: varchar(128)
+              - column:
+                  name: execution_enabled
+                  type: boolean
+                  constraints:
+                    nullable: false
+              - column:
+                  name: news_blackout
+                  type: boolean
+                  constraints:
+                    nullable: false
+              - column:
+                  name: error
+                  type: clob
+              - column:
+                  name: payload
+                  type: clob
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+        - createTable:
+            tableName: sdd_signals
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: scan_id
+                  type: bigint
+              - column:
+                  name: scanned_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: symbol
+                  type: varchar(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: epic
+                  type: varchar(64)
+              - column:
+                  name: direction
+                  type: varchar(8)
+              - column:
+                  name: full_stack
+                  type: boolean
+                  constraints:
+                    nullable: false
+              - column:
+                  name: flip
+                  type: boolean
+                  constraints:
+                    nullable: false
+              - column:
+                  name: reason
+                  type: clob
+              - column:
+                  name: payload
+                  type: clob
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            constraintName: fk_sdd_signals_scan
+            baseTableName: sdd_signals
+            baseColumnNames: scan_id
+            referencedTableName: sdd_scans
+            referencedColumnNames: id
+        - createTable:
+            tableName: broker_snapshots
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: book
+                  type: varchar(16)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: broker
+                  type: varchar(64)
+              - column:
+                  name: account_name
+                  type: varchar(128)
+              - column:
+                  name: equity
+                  type: double
+              - column:
+                  name: available
+                  type: double
+              - column:
+                  name: day_pnl
+                  type: double
+              - column:
+                  name: currency
+                  type: varchar(16)
+              - column:
+                  name: connected
+                  type: boolean
+                  constraints:
+                    nullable: false
+              - column:
+                  name: error
+                  type: clob
+              - column:
+                  name: captured_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: payload
+                  type: clob
+        - createIndex:
+            indexName: idx_sdd_scans_scanned_at
+            tableName: sdd_scans
+            columns:
+              - column:
+                  name: scanned_at
+        - createIndex:
+            indexName: idx_sdd_signals_scanned_at
+            tableName: sdd_signals
+            columns:
+              - column:
+                  name: scanned_at
+        - createIndex:
+            indexName: idx_broker_snapshots_captured_at
+            tableName: broker_snapshots
+            columns:
+              - column:
+                  name: captured_at

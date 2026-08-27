@@ -4,9 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -20,6 +22,19 @@ class ApiSmokeTest {
 
     @Autowired
     MockMvc mvc;
+
+    @Autowired
+    JdbcTemplate jdbc;
+
+    @Test
+    void liquibaseCreatedAppTables() {
+        Integer n = jdbc.queryForObject(
+                "select count(*) from information_schema.tables where lower(table_name) in ('payments','sdd_scans','sdd_signals','broker_snapshots')",
+                Integer.class
+        );
+        assertThat(n).isEqualTo(4);
+        assertThat(jdbc.queryForObject("select count(*) from payments", Integer.class)).isZero();
+    }
 
     @Test
     void healthIsOpen() throws Exception {

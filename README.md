@@ -36,6 +36,7 @@ One web dyno. The in-process scheduler only runs while the web dyno is up (Eco s
 
 ```bash
 heroku create your-app-name
+heroku addons:create heroku-postgresql
 heroku config:set TZ=Europe/Warsaw
 heroku config:set BROKER=capital
 heroku config:set EXECUTION_ENABLED=false
@@ -47,6 +48,10 @@ heroku config:set AGENT_SIGNAL_WEBHOOK_URLS=https://example.com/hook
 heroku ps:scale web=1
 git push heroku main
 ```
+
+Heroku Postgres sets `DATABASE_URL` (`postgres://…`). The app converts it to `jdbc:postgresql://` (user/password as separate datasource properties so the JDBC URL is never logged with a secret). Liquibase creates `payments`, `sdd_scans`, `sdd_signals`, `broker_snapshots` plus its own `databasechangelog` tables on an empty database. Hibernate `ddl-auto=none` in that mode. Optional manual SQL: `server/src/main/resources/db/schema-postgres.sql`.
+
+Local without `DATABASE_URL` stays H2 (`ddl-auto=update`). Never commit `DATABASE_URL`.
 
 Heroku sets `PORT`. The app binds `server.port=${PORT:8080}`.
 
@@ -89,6 +94,7 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 | `TZ` | `Europe/Warsaw` | Scheduler + PP session |
 | `EXECUTION_ENABLED` | `false` | Must be true to place orders (demo book only) |
 | `PORT` | Heroku sets this | HTTP bind |
+| `DATABASE_URL` | Heroku Postgres addon | Production JDBC. Local omit this (H2). Never commit. |
 
 ## REST
 
@@ -109,3 +115,5 @@ Dashboard: two columns Demo \| Live. `/signals` and `/payments` unchanged.
 3. Set `BROKER=your-id`. Strategy, scheduler, REST, and Angular talk to `BrokerBooks` + the SDD engine.
 
 `PaperBrokerClient` is the stub that proves the swap; it is not a second live broker.
+
+This repository's git history (all commits/branches/tags) has no Bybit, Binance, ccxt, or exchange client classes. Capital.com is the only live adapter. Those names were not deleted here; they were never in `bot_mtg_new`.

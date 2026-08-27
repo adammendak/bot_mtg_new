@@ -66,7 +66,8 @@ class ScanServiceMockBrokerTest {
                 risk,
                 new ExecutionGate(props, books, risk),
                 accounts,
-                clock
+                clock,
+                null
         );
 
         ScanSnapshot snapshot = service.scan();

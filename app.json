@@ -59,5 +59,8 @@
       "description": "Comma-separated URLs. JSON posted on new full stack or skip-worthy HA flip.",
       "required": false
     }
-  }
+  },
+  "addons": [
+    "heroku-postgresql"
+  ]
 }
