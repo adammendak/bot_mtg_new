@@ -9,9 +9,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,6 +36,16 @@ class ApiSmokeTest {
         );
         assertThat(n).isEqualTo(4);
         assertThat(jdbc.queryForObject("select count(*) from payments", Integer.class)).isZero();
+    }
+
+    @Test
+    void staticDashboardServesBootstrapTables() throws Exception {
+        mvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("SDD-M15")))
+                .andExpect(content().string(containsString("table table-sm table-striped table-hover")))
+                .andExpect(content().string(containsString("/api/accounts")))
+                .andExpect(content().string(containsString("brak pozycji")));
     }
 
     @Test
