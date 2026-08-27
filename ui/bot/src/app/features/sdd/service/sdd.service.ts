@@ -1,6 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { catchError, of } from 'rxjs';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   AccountView,
   HealthInfo,
@@ -8,6 +7,18 @@ import {
   ScanSnapshot,
   SddScan,
 } from '../model/sdd.model';
+
+export function formatHttpError(path: string, err: unknown): string {
+  if (err instanceof HttpErrorResponse) {
+    const status = err.status ? `HTTP ${err.status}` : 'network error';
+    const detail = err.statusText && err.statusText !== 'Unknown Error' ? err.statusText : err.message;
+    return `${path} ${status}: ${detail}`;
+  }
+  if (err && typeof err === 'object' && 'message' in err) {
+    return `${path}: ${String((err as { message: unknown }).message)}`;
+  }
+  return `${path} request failed`;
+}
 
 @Injectable({ providedIn: 'root' })
 export class SddService {
@@ -20,6 +31,10 @@ export class SddService {
   readonly positions = signal<PositionsByBook>({ demo: [], live: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+  readonly accountsError = signal<string | null>(null);
+  readonly scanLoadError = signal<string | null>(null);
+  readonly signalsError = signal<string | null>(null);
+  readonly positionsError = signal<string | null>(null);
 
   account(id: 'demo' | 'live'): AccountView | undefined {
     return this.accounts().find((a) => a.id === id);
@@ -29,26 +44,35 @@ export class SddService {
     this.error.set(null);
     this.http.get<HealthInfo>('/health').subscribe({
       next: (h) => this.health.set(h),
-      error: () => this.health.set(null),
+      error: (e) => {
+        this.health.set(null);
+        this.error.set(formatHttpError('/health', e));
+      },
     });
-    this.http
-      .get<AccountView[] | AccountView>('/api/accounts')
-      .pipe(
-        catchError(() => this.http.get<AccountView[] | AccountView>('/api/account')),
-        catchError(() => of([] as AccountView[])),
-      )
-      .subscribe((a) => this.accounts.set(this.normalizeAccounts(a)));
+    this.accountsError.set(null);
+    this.http.get<AccountView[] | AccountView>('/api/accounts').subscribe({
+      next: (a) => this.accounts.set(this.normalizeAccounts(a)),
+      error: () => {
+        this.http.get<AccountView[] | AccountView>('/api/account').subscribe({
+          next: (a) => this.accounts.set(this.normalizeAccounts(a)),
+          error: (e) => this.accountsError.set(formatHttpError('/api/accounts', e)),
+        });
+      },
+    });
+    this.scanLoadError.set(null);
     this.http.get<ScanSnapshot>('/api/scan/last').subscribe({
       next: (s) => this.lastScan.set(s),
-      error: (e) => this.error.set(e.message ?? 'scan/last failed'),
+      error: (e) => this.scanLoadError.set(formatHttpError('/api/scan/last', e)),
     });
+    this.signalsError.set(null);
     this.http.get<SddScan[]>('/api/signals').subscribe({
       next: (s) => this.signals.set(s),
-      error: () => this.signals.set([]),
+      error: (e) => this.signalsError.set(formatHttpError('/api/signals', e)),
     });
+    this.positionsError.set(null);
     this.http.get<PositionsByBook>('/api/positions').subscribe({
       next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [] }),
-      error: () => this.positions.set({ demo: [], live: [] }),
+      error: (e) => this.positionsError.set(formatHttpError('/api/positions', e)),
     });
   }
 
@@ -63,7 +87,7 @@ export class SddService {
       },
       error: (e) => {
         this.busy.set(false);
-        this.error.set(e.message ?? 'scan failed');
+        this.error.set(formatHttpError('/api/scan', e));
       },
     });
   }

@@ -45,7 +45,9 @@ class ApiSmokeTest {
                 .andExpect(content().string(containsString("SDD-M15")))
                 .andExpect(content().string(containsString("table table-sm table-striped table-hover")))
                 .andExpect(content().string(containsString("/api/accounts")))
-                .andExpect(content().string(containsString("brak pozycji")));
+                .andExpect(content().string(containsString("brak pozycji")))
+                .andExpect(content().string(containsString("HTTP ")))
+                .andExpect(content().string(containsString("GET /api/accounts failed")));
     }
 
     @Test
@@ -57,7 +59,9 @@ class ApiSmokeTest {
                 .andExpect(jsonPath("$.broker").value("paper"))
                 .andExpect(jsonPath("$.executionEnabled").value(false))
                 .andExpect(jsonPath("$.demoConfigured").value(true))
-                .andExpect(jsonPath("$.liveConfigured").value(false));
+                .andExpect(jsonPath("$.liveConfigured").value(false))
+                .andExpect(jsonPath("$.webhookConfigured").value(false))
+                .andExpect(jsonPath("$.lastWebhook").value("never"));
     }
 
     @Test
