@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -111,5 +112,34 @@ class ApiSmokeTest {
                 .andExpect(jsonPath("$.books", hasSize(2)))
                 .andExpect(jsonPath("$.books[0].id").value("demo"))
                 .andExpect(jsonPath("$.books[1].id").value("live"));
+    }
+
+    @Test
+    void dashboardLoginAcceptsTestProfileCredentials() throws Exception {
+        mvc.perform(post("/api/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"test-user\",\"password\":\"test-password\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("test-user"));
+        mvc.perform(post("/api/logout")).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void dashboardLoginRejectsWrongCredentials() throws Exception {
+        mvc.perform(post("/api/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"test-user\",\"password\":\"wrong\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void actuatorHealthIsNotBlockedBySecurity() throws Exception {
+        mvc.perform(get("/actuator/health"))
+                .andExpect(result -> {
+                    int status = result.getResponse().getStatus();
+                    if (status == 401 || status == 403) {
+                        throw new AssertionError("actuator/health must not be 401/403, was " + status);
+                    }
+                });
     }
 }

@@ -28,9 +28,8 @@ import { AuthService } from './auth.service';
         @if (error) {
           <p class="error">Invalid username or password.</p>
         }
-        <button type="submit" [disabled]="!username || !password">Sign in</button>
+        <button type="submit" [disabled]="!username || !password || pending">Sign in</button>
       </form>
-      <p class="note">Test user: Adam</p>
     </div>
   `,
   styles: [
@@ -60,10 +59,18 @@ export class LoginComponent {
   username = '';
   password = '';
   error = false;
+  pending = false;
 
-  onSubmit(): void {
-    if (this.auth.login(this.username, this.password)) {
-      this.router.navigate(['/']);
+  async onSubmit(): Promise<void> {
+    if (this.pending) {
+      return;
+    }
+    this.pending = true;
+    this.error = false;
+    const ok = await this.auth.login(this.username, this.password);
+    this.pending = false;
+    if (ok) {
+      await this.router.navigate(['/']);
     } else {
       this.error = true;
     }
