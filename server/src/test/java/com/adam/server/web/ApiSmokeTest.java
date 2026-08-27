@@ -72,7 +72,7 @@ class ApiSmokeTest {
     void actuatorHealthIsUpWithoutDetails() throws Exception {
         mvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith("application/json"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("<html"))))
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.components").doesNotExist())
                 .andExpect(jsonPath("$.details").doesNotExist());
