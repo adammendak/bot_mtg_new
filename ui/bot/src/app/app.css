@@ -16,6 +16,11 @@ nav {
   gap: 1rem;
 }
 
+.user {
+  margin-left: auto;
+  font-weight: 600;
+}
+
 main {
   padding: 1rem;
 }
