@@ -4,14 +4,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -26,23 +26,43 @@ class ApiSmokeTest {
         mvc.perform(get("/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.broker").value("paper"));
+                .andExpect(jsonPath("$.broker").value("paper"))
+                .andExpect(jsonPath("$.demoConfigured").value(true))
+                .andExpect(jsonPath("$.liveConfigured").value(false));
     }
 
     @Test
-    void brokerEndpointUsesSpi() throws Exception {
+    void brokerEndpointListsBothBooks() throws Exception {
         mvc.perform(get("/api/broker"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("paper"))
-                .andExpect(jsonPath("$.name").value("Paper (stub)"))
-                .andExpect(jsonPath("$.executionEnabled").value(false));
+                .andExpect(jsonPath("$.executionEnabled").value(false))
+                .andExpect(jsonPath("$.books", hasSize(2)))
+                .andExpect(jsonPath("$.books[0].id").value("demo"))
+                .andExpect(jsonPath("$.books[1].id").value("live"));
+    }
+
+    @Test
+    void accountsEndpointReturnsDemoAndLive() throws Exception {
+        mvc.perform(get("/api/accounts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].id").value("demo"))
+                .andExpect(jsonPath("$[0].connected").value(true))
+                .andExpect(jsonPath("$[0].accountName").value("paper"))
+                .andExpect(jsonPath("$[0].equity").value(1000))
+                .andExpect(jsonPath("$[1].id").value("live"))
+                .andExpect(jsonPath("$[1].connected").value(false));
     }
 
     @Test
     void lastScanAndSignalsAreOpen() throws Exception {
         mvc.perform(get("/api/scan/last")).andExpect(status().isOk());
         mvc.perform(get("/api/signals")).andExpect(status().isOk());
-        mvc.perform(get("/api/positions")).andExpect(status().isOk());
+        mvc.perform(get("/api/positions")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.demo").isArray())
+                .andExpect(jsonPath("$.live").isArray());
+        mvc.perform(get("/api/positions").param("account", "demo")).andExpect(status().isOk());
+        mvc.perform(get("/api/positions").param("account", "live")).andExpect(status().isOk());
     }
 
     @Test
@@ -50,6 +70,9 @@ class ApiSmokeTest {
         mvc.perform(post("/api/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.brokerId").value("paper"))
-                .andExpect(jsonPath("$.symbols").isArray());
+                .andExpect(jsonPath("$.symbols").isArray())
+                .andExpect(jsonPath("$.books", hasSize(2)))
+                .andExpect(jsonPath("$.books[0].id").value("demo"))
+                .andExpect(jsonPath("$.books[1].id").value("live"));
     }
 }

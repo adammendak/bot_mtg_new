@@ -27,6 +27,31 @@ class RiskPolicyTest {
     }
 
     @Test
+    void liveDashboardHidesHighEquityWrongNameAndFintokei() {
+        Account tooBig = new Account("1", "bot trading konto", "PLN", 10_000, 10_000, 0, true);
+        assertThat(risk.pickLiveAccount(List.of(tooBig)).visible()).isFalse();
+        assertThat(risk.pickLiveAccount(List.of(tooBig)).hideReason()).contains("hidden");
+        assertThat(risk.pickLiveAccount(List.of(tooBig)).hideReason()).doesNotContain("10000");
+
+        Account wrong = new Account("2", "preferred 10k", "PLN", 4000, 4000, 0, true);
+        assertThat(risk.pickLiveAccount(List.of(wrong)).hideReason()).contains("bot trading konto");
+
+        Account fintokei = new Account("3", "Fintokei main", "PLN", 1000, 1000, 0, true);
+        assertThat(risk.isFintokei(fintokei.name())).isTrue();
+        assertThat(risk.pickLiveAccount(List.of(fintokei)).visible()).isFalse();
+
+        Account ok = new Account("4", "bot trading konto", "PLN", 4000, 4000, 12, true);
+        assertThat(risk.pickLiveAccount(List.of(fintokei, ok)).account()).isEqualTo(ok);
+    }
+
+    @Test
+    void demoPickerSkipsFintokei() {
+        Account fintokei = new Account("1", "Fintokei", "PLN", 100, 100, 0, true);
+        Account demo = new Account("2", "demo", "PLN", 1000, 1000, 5, false);
+        assertThat(risk.pickDemoAccount(List.of(fintokei, demo))).isEqualTo(demo);
+    }
+
+    @Test
     void dayHaltThresholds() {
         assertThat(risk.dayHalt(-10)).isNull();
         assertThat(risk.dayHalt(-30)).contains("halt");

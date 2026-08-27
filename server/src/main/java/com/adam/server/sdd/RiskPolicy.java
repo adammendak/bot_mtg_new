@@ -48,6 +48,75 @@ public class RiskPolicy {
         return null;
     }
 
+    public boolean isFintokei(String name) {
+        return name != null && name.toLowerCase(Locale.ROOT).contains("fintokei");
+    }
+
+    /**
+     * LIVE dashboard pick: only {@code bot trading konto}, hide equity ≥ 5000, never Fintokei.
+     */
+    public LivePick pickLiveAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return LivePick.hidden("LIVE requires account '" + properties.getLiveAccountName() + "'");
+        }
+        Account named = null;
+        for (Account a : accounts) {
+            if (isFintokei(a.name())) {
+                continue;
+            }
+            if (properties.getLiveAccountName().equals(a.name())) {
+                named = a;
+                break;
+            }
+        }
+        if (named == null) {
+            return LivePick.hidden("LIVE requires account '" + properties.getLiveAccountName() + "'");
+        }
+        if (named.balance() >= properties.getLiveEquityRefuse()) {
+            return LivePick.hidden("LIVE account hidden (equity >= " + (int) properties.getLiveEquityRefuse() + ")");
+        }
+        return LivePick.visible(named);
+    }
+
+    public Account pickDemoAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        Account preferred = null;
+        for (Account a : accounts) {
+            if (isFintokei(a.name())) {
+                continue;
+            }
+            if (a.preferred()) {
+                preferred = a;
+                break;
+            }
+        }
+        if (preferred != null) {
+            return preferred;
+        }
+        for (Account a : accounts) {
+            if (!isFintokei(a.name())) {
+                return a;
+            }
+        }
+        return null;
+    }
+
+    public record LivePick(Account account, String hideReason) {
+        static LivePick visible(Account account) {
+            return new LivePick(account, null);
+        }
+
+        static LivePick hidden(String reason) {
+            return new LivePick(null, reason);
+        }
+
+        public boolean visible() {
+            return account != null;
+        }
+    }
+
     public String dayHalt(double dayPnl) {
         if (dayPnl <= properties.getHardHaltPln()) {
             return "hard halt day P/L " + dayPnl;

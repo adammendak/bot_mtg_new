@@ -35,3 +35,30 @@ td {
 button {
   margin-right: 0.5rem;
 }
+
+.books {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.book {
+  border: 1px solid #ccc;
+  padding: 0.75rem;
+}
+
+.book h3 {
+  margin-top: 0;
+}
+
+.note {
+  color: #555;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 800px) {
+  .books {
+    grid-template-columns: 1fr;
+  }
+}

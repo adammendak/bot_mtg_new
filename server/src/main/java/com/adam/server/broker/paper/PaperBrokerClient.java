@@ -48,6 +48,16 @@ public class PaperBrokerClient implements BrokerClient {
     }
 
     @Override
+    public String book() {
+        return "demo";
+    }
+
+    @Override
+    public boolean configured() {
+        return true;
+    }
+
+    @Override
     public void login() {
         sessionOpen = true;
     }

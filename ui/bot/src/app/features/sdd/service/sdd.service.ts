@@ -1,6 +1,12 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { BrokerInfo, HealthInfo, Position, ScanSnapshot, SddScan } from '../model/sdd.model';
+import {
+  AccountView,
+  HealthInfo,
+  PositionsByBook,
+  ScanSnapshot,
+  SddScan,
+} from '../model/sdd.model';
 
 @Injectable({ providedIn: 'root' })
 export class SddService {
@@ -8,11 +14,15 @@ export class SddService {
 
   readonly lastScan = signal<ScanSnapshot | null>(null);
   readonly signals = signal<SddScan[]>([]);
-  readonly broker = signal<BrokerInfo | null>(null);
   readonly health = signal<HealthInfo | null>(null);
-  readonly positions = signal<Position[]>([]);
+  readonly accounts = signal<AccountView[]>([]);
+  readonly positions = signal<PositionsByBook>({ demo: [], live: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+
+  account(id: 'demo' | 'live'): AccountView | undefined {
+    return this.accounts().find((a) => a.id === id);
+  }
 
   refresh(): void {
     this.error.set(null);
@@ -20,9 +30,9 @@ export class SddService {
       next: (h) => this.health.set(h),
       error: () => this.health.set(null),
     });
-    this.http.get<BrokerInfo>('/api/broker').subscribe({
-      next: (b) => this.broker.set(b),
-      error: () => this.broker.set(null),
+    this.http.get<AccountView[]>('/api/accounts').subscribe({
+      next: (a) => this.accounts.set(a),
+      error: () => this.accounts.set([]),
     });
     this.http.get<ScanSnapshot>('/api/scan/last').subscribe({
       next: (s) => this.lastScan.set(s),
@@ -32,9 +42,9 @@ export class SddService {
       next: (s) => this.signals.set(s),
       error: () => this.signals.set([]),
     });
-    this.http.get<Position[]>('/api/positions').subscribe({
-      next: (p) => this.positions.set(p),
-      error: () => this.positions.set([]),
+    this.http.get<PositionsByBook>('/api/positions').subscribe({
+      next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [] }),
+      error: () => this.positions.set({ demo: [], live: [] }),
     });
   }
 

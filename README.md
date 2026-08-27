@@ -40,9 +40,9 @@ heroku config:set TZ=Europe/Warsaw
 heroku config:set BROKER=capital
 heroku config:set EXECUTION_ENABLED=false
 heroku config:set CAPITAL_DEMO_HOST=https://demo-api-capital.backend-capital.com
-heroku config:set CAPITAL_API_KEY=...
-heroku config:set CAPITAL_EMAIL=...
-heroku config:set CAPITAL_API_PASSWORD=...
+heroku config:set CAPITAL_API_KEY=... CAPITAL_EMAIL=... CAPITAL_API_PASSWORD=...
+heroku config:set CAPITAL_LIVE_HOST=https://api-capital.backend-capital.com
+heroku config:set CAPITAL_LIVE_API_KEY=... CAPITAL_LIVE_EMAIL=... CAPITAL_LIVE_PASSWORD=...
 heroku config:set AGENT_SIGNAL_WEBHOOK_URLS=https://example.com/hook
 heroku ps:scale web=1
 git push heroku main
@@ -60,35 +60,52 @@ Never commit secrets. Config vars live on Heroku / GitHub secrets only.
 
 ### Config vars
 
+The dashboard always shows **two books**: Demo and Live. P/L is never mixed. The app boots if one side is missing; that pane shows disconnected.
+
+Demo credentials (from `capital.env` on Adam's box — do not commit them):
+
 | Var | Default | Purpose |
 | --- | --- | --- |
-| `CAPITAL_API_KEY` | empty | API key |
-| `CAPITAL_EMAIL` | empty | Login email |
-| `CAPITAL_API_PASSWORD` | empty | API key custom password |
-| `CAPITAL_DEMO_HOST` | `https://demo-api-capital.backend-capital.com` | Demo host |
-| `CAPITAL_LIVE_HOST` | `https://api-capital.backend-capital.com` | Live host |
-| `CAPITAL_LIVE` | `false` | Use live host + LIVE gates |
-| `BROKER` | `capital` | `capital` or `paper` |
+| `CAPITAL_API_KEY` | empty | Demo API key (alias `CAPITAL_DEMO_API_KEY`) |
+| `CAPITAL_EMAIL` | empty | Demo login email (alias `CAPITAL_DEMO_EMAIL`) |
+| `CAPITAL_API_PASSWORD` | empty | Demo API-key custom password (alias `CAPITAL_DEMO_API_PASSWORD`) |
+| `CAPITAL_DEMO_HOST` | `https://demo-api-capital.backend-capital.com` | Demo REST host |
+
+Live credentials (separate API key; email may match demo):
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `CAPITAL_LIVE_API_KEY` | empty | Live API key |
+| `CAPITAL_LIVE_EMAIL` | falls back to `CAPITAL_EMAIL` | Live login email |
+| `CAPITAL_LIVE_PASSWORD` | empty | Live API-key custom password (alias `CAPITAL_LIVE_API_PASSWORD`) |
+| `CAPITAL_LIVE_HOST` | `https://api-capital.backend-capital.com` | Live REST host |
+
+LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden (the ~10k preferred account). Fintokei accounts are ignored. Execution, if ever enabled, is demo-only — not dual-fire.
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `BROKER` | `capital` | `capital` (demo+live Capital beans) or `paper` |
 | `AGENT_SIGNAL_WEBHOOK_URLS` | empty | Comma-separated webhook URLs |
 | `TZ` | `Europe/Warsaw` | Scheduler + PP session |
-| `EXECUTION_ENABLED` | `false` | Must be true to place orders |
+| `EXECUTION_ENABLED` | `false` | Must be true to place orders (demo book only) |
 | `PORT` | Heroku sets this | HTTP bind |
 
 ## REST
 
-- `GET /health`
-- `GET /api/scan/last`
+- `GET /health` — app up, plus `demoConfigured` / `liveConfigured`
+- `GET /api/accounts` — `[{id: demo\|live, broker, accountName, equity, available, dayPnl, connected, error?}, …]`
+- `GET /api/positions?account=demo\|live` — omit `account` for `{demo: [...], live: [...]}`
+- `GET /api/scan/last` — shared SDD symbols plus `books[]` (per-book halt/error, no mixed P/L)
 - `GET /api/signals`
 - `POST /api/scan` (manual trigger; also a Scheduler backup)
-- `GET /api/broker`
-- `GET /api/positions` (SPI positions; does not require execution)
+- `GET /api/broker` — both books
 
-Dashboard routes: `/` (stack + last scan), `/signals` (HA flips / full stacks), `/payments` (original list+form kept).
+Dashboard: two columns Demo \| Live. `/signals` and `/payments` unchanged.
 
 ## Add another broker
 
 1. Implement `com.adam.server.broker.BrokerClient` (session, accounts, candles, market price, working orders, positions, confirmations). Keep Capital JSON out of this interface.
-2. Register a `@Bean` `@ConditionalOnProperty(name = "app.broker", havingValue = "your-id")` next to `CapitalComBrokerClient` / `PaperBrokerClient`.
-3. Set `BROKER=your-id`. Strategy, scheduler, REST, and Angular already talk only to the SPI + SDD engine.
+2. Register `@Bean("demoBroker")` / `@Bean("liveBroker")` (or only demo + an `UnavailableBrokerClient` for live) next to the Capital adapters.
+3. Set `BROKER=your-id`. Strategy, scheduler, REST, and Angular talk to `BrokerBooks` + the SDD engine.
 
 `PaperBrokerClient` is the stub that proves the swap; it is not a second live broker.

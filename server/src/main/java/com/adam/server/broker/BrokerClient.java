@@ -46,4 +46,16 @@ public interface BrokerClient {
     List<Position> openPositions();
 
     Confirmation confirm(String dealReference);
+
+    /** demo or live. */
+    default String book() {
+        return "demo";
+    }
+
+    default boolean configured() {
+        return true;
+    }
+
+    default void selectAccount(String accountId) {
+    }
 }

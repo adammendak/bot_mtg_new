@@ -16,7 +16,7 @@
       "value": "Europe/Warsaw"
     },
     "BROKER": {
-      "description": "SPI adapter: capital (default live) or paper (in-process stub).",
+      "description": "SPI adapter: capital (demo + live beans) or paper (in-process stub).",
       "value": "capital"
     },
     "EXECUTION_ENABLED": {
@@ -24,28 +24,36 @@
       "value": "false"
     },
     "CAPITAL_API_KEY": {
-      "description": "Capital.com API key. Never commit this.",
+      "description": "Capital.com DEMO API key (or CAPITAL_DEMO_API_KEY). Never commit this.",
       "required": false
     },
     "CAPITAL_EMAIL": {
-      "description": "Capital.com login email.",
+      "description": "Capital.com DEMO login email (also used as LIVE email fallback).",
       "required": false
     },
     "CAPITAL_API_PASSWORD": {
-      "description": "Capital.com API key custom password (not the account password).",
+      "description": "Capital.com DEMO API key custom password.",
       "required": false
     },
     "CAPITAL_DEMO_HOST": {
       "description": "Demo REST host.",
       "value": "https://demo-api-capital.backend-capital.com"
     },
+    "CAPITAL_LIVE_API_KEY": {
+      "description": "Capital.com LIVE API key. App boots if unset; Live pane shows disconnected.",
+      "required": false
+    },
+    "CAPITAL_LIVE_EMAIL": {
+      "description": "Capital.com LIVE login email. Falls back to CAPITAL_EMAIL.",
+      "required": false
+    },
+    "CAPITAL_LIVE_PASSWORD": {
+      "description": "Capital.com LIVE API key custom password (alias CAPITAL_LIVE_API_PASSWORD).",
+      "required": false
+    },
     "CAPITAL_LIVE_HOST": {
       "description": "Live REST host.",
       "value": "https://api-capital.backend-capital.com"
-    },
-    "CAPITAL_LIVE": {
-      "description": "true to use the live host and LIVE account gates.",
-      "value": "false"
     },
     "AGENT_SIGNAL_WEBHOOK_URLS": {
       "description": "Comma-separated URLs. JSON posted on new full stack or skip-worthy HA flip.",
