@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      Portable types only: TEXT and DOUBLE PRECISION work on Postgres and H2.
+      Do not use CLOB or DOUBLE — Postgres rejects those type names and boot dies
+      in SpringLiquibase.afterPropertiesSet.
+    -->
+    <changeSet id="003-app-tables" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="sdd_scans"/>
+            </not>
+        </preConditions>
+        <createTable tableName="payments">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="type" type="VARCHAR(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last4" type="VARCHAR(4)"/>
+            <column name="phone" type="VARCHAR(32)"/>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createTable tableName="sdd_scans">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scanned_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="broker_id" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="broker_name" type="VARCHAR(128)"/>
+            <column name="execution_enabled" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="news_blackout" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error" type="TEXT"/>
+            <column name="payload" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createTable tableName="sdd_signals">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scan_id" type="BIGINT"/>
+            <column name="scanned_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="symbol" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="epic" type="VARCHAR(64)"/>
+            <column name="direction" type="VARCHAR(8)"/>
+            <column name="full_stack" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="flip" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="TEXT"/>
+            <column name="payload" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createTable tableName="broker_snapshots">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="book" type="VARCHAR(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="broker" type="VARCHAR(64)"/>
+            <column name="account_name" type="VARCHAR(128)"/>
+            <column name="equity" type="DOUBLE PRECISION"/>
+            <column name="available" type="DOUBLE PRECISION"/>
+            <column name="day_pnl" type="DOUBLE PRECISION"/>
+            <column name="currency" type="VARCHAR(16)"/>
+            <column name="connected" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error" type="TEXT"/>
+            <column name="captured_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload" type="TEXT"/>
+        </createTable>
+        <createIndex indexName="idx_sdd_scans_scanned_at" tableName="sdd_scans">
+            <column name="scanned_at"/>
+        </createIndex>
+        <createIndex indexName="idx_sdd_signals_scanned_at" tableName="sdd_signals">
+            <column name="scanned_at"/>
+        </createIndex>
+        <createIndex indexName="idx_broker_snapshots_captured_at" tableName="broker_snapshots">
+            <column name="captured_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

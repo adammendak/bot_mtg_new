@@ -25,22 +25,35 @@ export interface SddScan {
   h1Supporting: boolean;
 }
 
+export interface BookScan {
+  id: string;
+  broker: string;
+  halt: string | null;
+  error: string | null;
+}
+
 export interface ScanSnapshot {
   scannedAt: string | null;
   brokerId: string;
   brokerName: string;
   executionEnabled: boolean;
   newsBlackout: boolean;
-  halt: string | null;
   symbols: SddScan[];
   error: string | null;
+  books: BookScan[];
+}
+
+export interface BrokerBookInfo {
+  id: string;
+  broker: string;
+  name: string;
+  sessionOpen: boolean;
+  configured: boolean;
 }
 
 export interface BrokerInfo {
-  id: string;
-  name: string;
-  sessionOpen: boolean;
   executionEnabled: boolean;
+  books: BrokerBookInfo[];
 }
 
 export interface HealthInfo {
@@ -48,6 +61,8 @@ export interface HealthInfo {
   time: string;
   broker: string;
   executionEnabled: boolean;
+  demoConfigured: boolean;
+  liveConfigured: boolean;
 }
 
 export interface Position {
@@ -57,4 +72,21 @@ export interface Position {
   size: number;
   level: number;
   unrealizedPnl: number;
+}
+
+export interface PositionsByBook {
+  demo: Position[];
+  live: Position[];
+}
+
+export interface AccountView {
+  id: 'demo' | 'live' | string;
+  broker: string;
+  accountName: string | null;
+  equity: number | null;
+  available: number | null;
+  dayPnl: number | null;
+  currency: string | null;
+  connected: boolean;
+  error: string | null;
 }

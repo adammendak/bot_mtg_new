@@ -14,6 +14,10 @@ import java.util.List;
 /**
  * Broker-agnostic SPI. Strategy, scheduler, REST, and the Angular UI talk only
  * to this interface plus the SDD engine. Capital.com JSON must not leak out.
+ *
+ * <p>Bybit and Binance are not in this repository's git history. When a real
+ * adapter exists, implement this interface and register beans next to Capital.
+ * Do not ship a fake Bybit/Binance client.
  */
 public interface BrokerClient {
 
@@ -46,4 +50,16 @@ public interface BrokerClient {
     List<Position> openPositions();
 
     Confirmation confirm(String dealReference);
+
+    /** demo or live. */
+    default String book() {
+        return "demo";
+    }
+
+    default boolean configured() {
+        return true;
+    }
+
+    default void selectAccount(String accountId) {
+    }
 }

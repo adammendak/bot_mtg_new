@@ -1,5 +1,6 @@
 package com.adam.server.scan;
 
+import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Account;
@@ -19,8 +20,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Places orders only when {@code EXECUTION_ENABLED=true}. Default is scan + dashboard + webhooks.
- * Scale 50% at 2R, then BE + H1 trail. No auto-BE before that. No pyramid while a name is open.
+ * Places orders only when {@code EXECUTION_ENABLED=true}, and only on the DEMO book.
+ * Dual execution is not supported. LIVE is view-only.
  */
 @Component
 public class ExecutionGate {
@@ -32,9 +33,9 @@ public class ExecutionGate {
     private final RiskPolicy risk;
     private final Set<String> scaled = ConcurrentHashMap.newKeySet();
 
-    public ExecutionGate(AppProperties properties, BrokerClient broker, RiskPolicy risk) {
+    public ExecutionGate(AppProperties properties, BrokerBooks books, RiskPolicy risk) {
         this.properties = properties;
-        this.broker = broker;
+        this.broker = books.demo();
         this.risk = risk;
     }
 
@@ -54,11 +55,11 @@ public class ExecutionGate {
         if (risk.pyramidBlocked(scan.epic(), open)) {
             return "no pyramid while name is open";
         }
-        String liveGate = risk.liveGate(account, properties.getCapital().isLive());
+        String liveGate = risk.liveGate(account, false);
         if (liveGate != null) {
             return liveGate;
         }
-        double cash = risk.riskAmount(account, properties.getCapital().isLive());
+        double cash = risk.riskAmount(account, false);
         double size = risk.sizeFor(cash, scan.oneR(), SddEngine.STOP_ATR_MULT);
         if (size <= 0) {
             return "size is zero";

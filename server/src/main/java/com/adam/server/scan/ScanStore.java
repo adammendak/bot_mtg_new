@@ -18,6 +18,17 @@ public class ScanStore {
         return last;
     }
 
+    public void seed(ScanSnapshot snapshot, List<SddScan> stored) {
+        if (snapshot != null) {
+            this.last = snapshot;
+        }
+        if (stored != null && !stored.isEmpty()) {
+            signals.clear();
+            signals.addAll(stored);
+            trim();
+        }
+    }
+
     public void save(ScanSnapshot snapshot) {
         this.last = snapshot;
         for (SddScan scan : snapshot.symbols()) {

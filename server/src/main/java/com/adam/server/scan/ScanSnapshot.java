@@ -11,11 +11,14 @@ public record ScanSnapshot(
         String brokerName,
         boolean executionEnabled,
         boolean newsBlackout,
-        String halt,
         List<SddScan> symbols,
-        String error
+        String error,
+        List<BookScan> books
 ) {
+    public record BookScan(String id, String broker, String halt, String error) {
+    }
+
     public static ScanSnapshot empty(Instant at, String brokerId, String brokerName, boolean executionEnabled) {
-        return new ScanSnapshot(at, brokerId, brokerName, executionEnabled, false, null, List.of(), null);
+        return new ScanSnapshot(at, brokerId, brokerName, executionEnabled, false, List.of(), null, List.of());
     }
 }

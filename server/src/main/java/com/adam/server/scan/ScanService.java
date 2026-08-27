@@ -1,5 +1,6 @@
 package com.adam.server.scan;
 
+import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
 import com.adam.server.broker.Resolution;
@@ -10,10 +11,13 @@ import com.adam.server.config.AppProperties;
 import com.adam.server.sdd.NewsBlackout;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.sdd.SddEngine;
+import com.adam.server.persistence.DurableScanWriter;
 import com.adam.server.sdd.SddScan;
 import com.adam.server.sdd.SddSymbol;
+import com.adam.server.web.dto.AccountView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -28,34 +32,40 @@ public class ScanService {
 
     private static final Logger log = LoggerFactory.getLogger(ScanService.class);
 
-    private final BrokerClient broker;
+    private final BrokerBooks books;
     private final AppProperties properties;
     private final ScanStore store;
     private final SignalWebhookPublisher webhooks;
     private final NewsBlackout news;
     private final RiskPolicy risk;
     private final ExecutionGate execution;
+    private final AccountQueryService accounts;
     private final Clock clock;
+    private final DurableScanWriter durable;
     private final SddEngine engine;
 
     public ScanService(
-            BrokerClient broker,
+            BrokerBooks books,
             AppProperties properties,
             ScanStore store,
             SignalWebhookPublisher webhooks,
             NewsBlackout news,
             RiskPolicy risk,
             ExecutionGate execution,
-            Clock clock
+            AccountQueryService accounts,
+            Clock clock,
+            ObjectProvider<DurableScanWriter> durable
     ) {
-        this.broker = broker;
+        this.books = books;
         this.properties = properties;
         this.store = store;
         this.webhooks = webhooks;
         this.news = news;
         this.risk = risk;
         this.execution = execution;
+        this.accounts = accounts;
         this.clock = clock;
+        this.durable = durable == null ? null : durable.getIfAvailable();
         this.engine = new SddEngine(ZoneId.of(properties.getTimezone()));
     }
 
@@ -72,24 +82,19 @@ public class ScanService {
         boolean blackout = news.blocked(now);
         List<SddScan> symbols = new ArrayList<>();
         String error = null;
-        String halt = null;
-        List<Position> open = List.of();
-        Account account = null;
+        BrokerClient market = books.marketData();
         try {
-            broker.login();
-            List<Account> accounts = broker.accounts();
-            account = pickAccount(accounts);
-            open = broker.openPositions();
-            halt = risk.dayHalt(account == null ? 0 : account.profitLoss());
-            execution.manageOpen(open);
+            if (!market.configured()) {
+                throw new BrokerException("no market-data broker configured");
+            }
+            market.login();
             for (SddSymbol symbol : SddSymbol.universe()) {
                 String epic = symbol.epic(properties);
-                SddScan result = scanSymbol(symbol, epic, now);
+                SddScan result = scanSymbol(market, symbol, epic, now);
                 symbols.add(result);
                 if (result.fullStack() || result.flip()) {
                     webhooks.publish(result);
                     log.info("{}", result.reason());
-                    execution.maybeEnter(result, open, account, blackout, halt);
                 }
             }
         } catch (BrokerException e) {
@@ -99,50 +104,77 @@ public class ScanService {
             error = "scan failed";
             log.warn("Scan failed", e);
         }
+
+        AccountView demoView = accounts.view(books.demo());
+        AccountView liveView = accounts.view(books.live());
+        String demoHalt = haltFor(demoView);
+        String liveHalt = haltFor(liveView);
+
+        if (properties.isExecutionEnabled() && !symbols.isEmpty()) {
+            List<Position> demoOpen = accounts.positions("demo");
+            execution.manageOpen(demoOpen);
+            Account demoAccount = demoAccountFrom(demoView);
+            for (SddScan result : symbols) {
+                if (result.fullStack() || result.flip()) {
+                    execution.maybeEnter(result, demoOpen, demoAccount, blackout, demoHalt);
+                }
+            }
+        }
+
         boolean quiet = symbols.stream().noneMatch(s -> s.flip() || s.fullStack());
         if (!quiet && error == null) {
             log.info("SDD scan complete, {} symbols", symbols.size());
         }
+        List<ScanSnapshot.BookScan> bookScans = List.of(
+                new ScanSnapshot.BookScan(demoView.id(), demoView.broker(), demoHalt, demoView.error()),
+                new ScanSnapshot.BookScan(liveView.id(), liveView.broker(), liveHalt, liveView.error())
+        );
         ScanSnapshot snapshot = new ScanSnapshot(
                 now,
-                broker.id(),
-                broker.displayName(),
+                market.id(),
+                market.displayName(),
                 properties.isExecutionEnabled(),
                 blackout,
-                halt,
                 List.copyOf(symbols),
-                error
+                error,
+                bookScans
         );
         store.save(snapshot);
+        if (durable != null) {
+            durable.write(snapshot, demoView, liveView);
+        }
         return snapshot;
     }
 
-    private SddScan scanSymbol(SddSymbol symbol, String epic, Instant now) {
+    private SddScan scanSymbol(BrokerClient market, SddSymbol symbol, String epic, Instant now) {
         Instant fromM15 = now.minus(Duration.ofDays(10));
         Instant fromH1 = now.minus(Duration.ofDays(40));
         Instant fromH4 = now.minus(Duration.ofDays(80));
-        List<Candle> m15 = broker.candles(epic, Resolution.M15, fromM15, now, 1000);
-        List<Candle> h1 = broker.candles(epic, Resolution.H1, fromH1, now, 500);
-        List<Candle> h4 = broker.candles(epic, Resolution.H4, fromH4, now, 300);
+        List<Candle> m15 = market.candles(epic, Resolution.M15, fromM15, now, 1000);
+        List<Candle> h1 = market.candles(epic, Resolution.H1, fromH1, now, 500);
+        List<Candle> h4 = market.candles(epic, Resolution.H4, fromH4, now, 300);
         return engine.evaluate(symbol, epic, m15, h1, h4, now);
     }
 
-    private Account pickAccount(List<Account> accounts) {
-        if (accounts == null || accounts.isEmpty()) {
+    private String haltFor(AccountView view) {
+        if (view.dayPnl() == null) {
             return null;
         }
-        if (properties.getCapital().isLive()) {
-            for (Account a : accounts) {
-                if (properties.getLiveAccountName().equals(a.name())) {
-                    return a;
-                }
-            }
+        return risk.dayHalt(view.dayPnl());
+    }
+
+    private static Account demoAccountFrom(AccountView view) {
+        if (!view.connected() || view.equity() == null) {
+            return null;
         }
-        for (Account a : accounts) {
-            if (a.preferred()) {
-                return a;
-            }
-        }
-        return accounts.getFirst();
+        return new Account(
+                "demo",
+                view.accountName() == null ? "demo" : view.accountName(),
+                view.currency() == null ? "" : view.currency(),
+                view.equity(),
+                view.available() == null ? 0 : view.available(),
+                view.dayPnl() == null ? 0 : view.dayPnl(),
+                true
+        );
     }
 }

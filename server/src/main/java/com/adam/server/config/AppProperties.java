@@ -146,12 +146,28 @@ public class AppProperties {
     }
 
     public static class Capital {
+        private final Endpoint demo = new Endpoint();
+        private final Endpoint live = new Endpoint();
+
+        public Capital() {
+            demo.setHost("https://demo-api-capital.backend-capital.com");
+            live.setHost("https://api-capital.backend-capital.com");
+        }
+
+        public Endpoint getDemo() {
+            return demo;
+        }
+
+        public Endpoint getLive() {
+            return live;
+        }
+    }
+
+    public static class Endpoint {
         private String apiKey = "";
         private String email = "";
         private String password = "";
-        private String demoHost = "https://demo-api-capital.backend-capital.com";
-        private String liveHost = "https://api-capital.backend-capital.com";
-        private boolean live = false;
+        private String host = "";
 
         public String getApiKey() {
             return apiKey;
@@ -177,32 +193,12 @@ public class AppProperties {
             this.password = password;
         }
 
-        public String getDemoHost() {
-            return demoHost;
+        public String getHost() {
+            return host;
         }
 
-        public void setDemoHost(String demoHost) {
-            this.demoHost = demoHost;
-        }
-
-        public String getLiveHost() {
-            return liveHost;
-        }
-
-        public void setLiveHost(String liveHost) {
-            this.liveHost = liveHost;
-        }
-
-        public boolean isLive() {
-            return live;
-        }
-
-        public void setLive(boolean live) {
-            this.live = live;
-        }
-
-        public String host() {
-            return live ? liveHost : demoHost;
+        public void setHost(String host) {
+            this.host = host;
         }
 
         public boolean credentialsPresent() {

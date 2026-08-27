@@ -38,16 +38,25 @@ public class CapitalComBrokerClient implements BrokerClient {
     private static final DateTimeFormatter CAPITAL_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
     private final RestClient restClient;
-    private final AppProperties.Capital capital;
+    private final AppProperties.Endpoint endpoint;
+    private final String book;
+    private final String missingCredsMessage;
 
     private volatile String cst;
     private volatile String securityToken;
     private volatile Instant sessionAt = Instant.EPOCH;
 
-    public CapitalComBrokerClient(RestClient.Builder builder, AppProperties properties) {
-        this.capital = properties.getCapital();
+    public CapitalComBrokerClient(
+            RestClient.Builder builder,
+            String book,
+            AppProperties.Endpoint endpoint,
+            String missingCredsMessage
+    ) {
+        this.book = book;
+        this.endpoint = endpoint;
+        this.missingCredsMessage = missingCredsMessage;
         this.restClient = builder.clone()
-                .baseUrl(capital.host())
+                .baseUrl(endpoint.getHost())
                 .build();
     }
 
@@ -57,21 +66,31 @@ public class CapitalComBrokerClient implements BrokerClient {
     }
 
     @Override
+    public String book() {
+        return book;
+    }
+
+    @Override
     public String displayName() {
-        return capital.isLive() ? "Capital.com (live)" : "Capital.com (demo)";
+        return "live".equals(book) ? "Capital.com (live)" : "Capital.com (demo)";
+    }
+
+    @Override
+    public boolean configured() {
+        return endpoint.credentialsPresent();
     }
 
     @Override
     public synchronized void login() {
-        if (!capital.credentialsPresent()) {
-            throw new BrokerException("Capital.com credentials are not set (CAPITAL_API_KEY, CAPITAL_EMAIL, CAPITAL_API_PASSWORD)");
+        if (!endpoint.credentialsPresent()) {
+            throw new BrokerException(missingCredsMessage);
         }
         try {
             ResponseEntity<String> entity = restClient.post()
                     .uri("/api/v1/session")
-                    .header("X-CAP-API-KEY", capital.getApiKey())
+                    .header("X-CAP-API-KEY", endpoint.getApiKey())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new CapitalJson.SessionRequest(capital.getEmail(), capital.getPassword(), false))
+                    .body(new CapitalJson.SessionRequest(endpoint.getEmail(), endpoint.getPassword(), false))
                     .retrieve()
                     .toEntity(String.class);
             this.cst = firstHeader(entity, "CST");
@@ -80,10 +99,10 @@ public class CapitalComBrokerClient implements BrokerClient {
                 throw new BrokerException("Capital.com session did not return CST / X-SECURITY-TOKEN");
             }
             this.sessionAt = Instant.now();
-            log.info("Capital.com session opened against {}", capital.host());
+            log.info("Capital.com {} session opened against {}", book, endpoint.getHost());
         } catch (RestClientResponseException e) {
-            log.warn("Capital.com login failed: HTTP {}", e.getStatusCode().value());
-            throw new BrokerException("Capital.com login failed", e);
+            log.warn("Capital.com {} login failed: HTTP {}", book, e.getStatusCode().value());
+            throw new BrokerException("Capital.com " + book + " login failed", e);
         }
     }
 
@@ -116,6 +135,20 @@ public class CapitalComBrokerClient implements BrokerClient {
             ));
         }
         return out;
+    }
+
+    @Override
+    public void selectAccount(String accountId) {
+        if (accountId == null || accountId.isBlank()) {
+            return;
+        }
+        authed()
+                .put()
+                .uri("/api/v1/session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("accountId", accountId))
+                .retrieve()
+                .toBodilessEntity();
     }
 
     @Override

@@ -1,7 +1,9 @@
 package com.adam.server.scan;
 
+import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Resolution;
+import com.adam.server.broker.UnavailableBrokerClient;
 import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.config.AppProperties;
@@ -43,29 +45,36 @@ class ScanServiceMockBrokerTest {
         props.setNewsCalendarUrl("");
         when(broker.id()).thenReturn("mock");
         when(broker.displayName()).thenReturn("Mock broker");
+        when(broker.book()).thenReturn("demo");
+        when(broker.configured()).thenReturn(true);
         when(broker.accounts()).thenReturn(List.of(new Account("1", "paper", "PLN", 1000, 1000, 0, true)));
-        when(broker.openPositions()).thenReturn(List.of());
         when(broker.candles(any(), eq(Resolution.M15), any(), any(), anyInt())).thenReturn(rising(now, Duration.ofMinutes(15), 200));
         when(broker.candles(any(), eq(Resolution.H1), any(), any(), anyInt())).thenReturn(rising(now, Duration.ofHours(1), 180));
         when(broker.candles(any(), eq(Resolution.H4), any(), any(), anyInt())).thenReturn(rising(now, Duration.ofHours(4), 80));
 
         RestClient.Builder builder = RestClient.builder();
         ScanStore store = new ScanStore();
+        BrokerBooks books = new BrokerBooks(broker, new UnavailableBrokerClient("live", "test"));
+        RiskPolicy risk = new RiskPolicy(props);
+        AccountQueryService accounts = new AccountQueryService(books, risk);
         ScanService service = new ScanService(
-                broker,
+                books,
                 props,
                 store,
                 new SignalWebhookPublisher(props, builder),
                 new NewsBlackout(props, builder, clock),
-                new RiskPolicy(props),
-                new ExecutionGate(props, broker, new RiskPolicy(props)),
-                clock
+                risk,
+                new ExecutionGate(props, books, risk),
+                accounts,
+                clock,
+                null
         );
 
         ScanSnapshot snapshot = service.scan();
         assertThat(snapshot.brokerId()).isEqualTo("mock");
         assertThat(snapshot.symbols()).hasSize(5);
         assertThat(snapshot.symbols().stream().map(SddScan::symbol)).containsExactly("GER40", "XAU", "US100", "EURUSD", "BTC");
+        assertThat(snapshot.books()).hasSize(2);
         assertThat(store.last()).isEqualTo(snapshot);
     }
 
