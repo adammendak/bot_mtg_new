@@ -23,12 +23,9 @@ public class DashboardAuthService {
     private final String password;
 
     public DashboardAuthService(AppProperties properties) {
-        this(properties.getDashboard().getUsername(), properties.getDashboard().getPassword());
-    }
-
-    DashboardAuthService(String username, String password) {
-        this.username = username == null ? "" : username;
-        this.password = password == null ? "" : password;
+        AppProperties.Dashboard dashboard = properties.getDashboard();
+        this.username = dashboard.getUsername() == null ? "" : dashboard.getUsername();
+        this.password = dashboard.getPassword() == null ? "" : dashboard.getPassword();
     }
 
     @PostConstruct
