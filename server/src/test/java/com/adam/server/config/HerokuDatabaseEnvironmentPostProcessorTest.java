@@ -24,6 +24,7 @@ class HerokuDatabaseEnvironmentPostProcessorTest {
         assertThat(env.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("none");
         assertThat(env.getProperty("app.db")).isEqualTo("postgres");
         assertThat(env.getProperty("spring.h2.console.enabled")).isEqualTo("false");
+        assertThat(env.getProperty("spring.autoconfigure.exclude")).contains("H2ConsoleAutoConfiguration");
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.adam.server.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
@@ -16,7 +15,10 @@ import java.util.Optional;
  * When Heroku (or any host) sets {@code DATABASE_URL}, switch off hardcoded H2 and
  * bind PostgreSQL. Credentials are split out of the JDBC URL so they are not logged.
  */
-public class HerokuDatabaseEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
+public class HerokuDatabaseEnvironmentPostProcessor
+        implements org.springframework.boot.EnvironmentPostProcessor,
+        org.springframework.boot.env.EnvironmentPostProcessor,
+        Ordered {
 
     private static final Logger log = LoggerFactory.getLogger(HerokuDatabaseEnvironmentPostProcessor.class);
 
@@ -66,6 +68,7 @@ public class HerokuDatabaseEnvironmentPostProcessor implements EnvironmentPostPr
         props.put("spring.jpa.properties.hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
         props.put("spring.jpa.hibernate.ddl-auto", "none");
         props.put("spring.h2.console.enabled", "false");
+        props.put("spring.autoconfigure.exclude", "org.springframework.boot.h2console.autoconfigure.H2ConsoleAutoConfiguration");
         props.put("app.db", "postgres");
         props.put("logging.level.org.hibernate.orm.connections.pooling", "WARN");
         props.put("logging.level.com.zaxxer.hikari.HikariConfig", "WARN");

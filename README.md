@@ -35,6 +35,16 @@ cd ui/bot && npm ci && npx ng serve
 One web dyno. The in-process scheduler only runs while the web dyno is up (Eco sleeps). Optional backup: Heroku Scheduler `POST /api/scan`.
 
 ```bash
+# App: bot-reinvented (Europe). Attach Postgres if it is not already there.
+heroku addons:create heroku-postgresql -a bot-reinvented
+# Heroku then sets DATABASE_URL. Do not put DATABASE_URL in git.
+heroku config:set TZ=Europe/Warsaw -a bot-reinvented
+heroku config:set BROKER=capital EXECUTION_ENABLED=false -a bot-reinvented
+```
+
+Or a new app:
+
+```bash
 heroku create your-app-name
 heroku addons:create heroku-postgresql
 heroku config:set TZ=Europe/Warsaw
