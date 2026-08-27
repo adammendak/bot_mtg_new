@@ -125,7 +125,7 @@ public class AppProperties {
     }
 
     public static class Scan {
-        private String cron = "0 1,16,31,46 8-22 * * MON-FRI";
+        private String cron = "0 1,16,31,46 * * * *";
         private String zone = "Europe/Warsaw";
 
         public String getCron() {

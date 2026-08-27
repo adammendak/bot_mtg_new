@@ -53,9 +53,27 @@ class ApiSmokeTest {
         mvc.perform(get("/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.time").isString())
                 .andExpect(jsonPath("$.broker").value("paper"))
+                .andExpect(jsonPath("$.executionEnabled").value(false))
                 .andExpect(jsonPath("$.demoConfigured").value(true))
                 .andExpect(jsonPath("$.liveConfigured").value(false));
+    }
+
+    @Test
+    void actuatorHealthIsUpWithoutDetails() throws Exception {
+        mvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components").doesNotExist())
+                .andExpect(jsonPath("$.details").doesNotExist());
+    }
+
+    @Test
+    void actuatorDoesNotExposeSensitiveEndpoints() throws Exception {
+        mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/heapdump")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/beans")).andExpect(status().isNotFound());
     }
 
     @Test

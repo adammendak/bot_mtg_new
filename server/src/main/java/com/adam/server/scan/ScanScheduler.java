@@ -16,7 +16,7 @@ public class ScanScheduler {
         this.scanService = scanService;
     }
 
-    @Scheduled(cron = "${app.scan.cron:0 1,16,31,46 8-22 * * MON-FRI}", zone = "${app.scan.zone:Europe/Warsaw}")
+    @Scheduled(cron = "${app.scan.cron:0 1,16,31,46 * * * *}", zone = "${app.scan.zone:Europe/Warsaw}")
     public void onM15Close() {
         try {
             scanService.scan();
