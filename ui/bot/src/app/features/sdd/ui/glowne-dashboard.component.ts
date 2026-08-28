@@ -85,11 +85,11 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
             <div class="table-responsive">
               <table class="table table-sm table-striped table-hover mb-0">
                 <thead class="table-dark">
-                  <tr><th>Epic</th><th>Dir</th><th>Size</th><th>Level</th><th>Stop</th><th>uP/L</th></tr>
+                  <tr><th>Epic</th><th>Dir</th><th>Size</th><th>Level</th><th>Stop</th><th>1R</th><th>uP/L</th></tr>
                 </thead>
                 <tbody>
                   @if (positions().length === 0) {
-                    <tr><td colspan="6" class="text-muted text-center">brak pozycji</td></tr>
+                    <tr><td colspan="7" class="text-muted text-center">brak pozycji</td></tr>
                   } @else {
                     @for (p of positions(); track p.dealId) {
                       <tr [class]="p.stopLevel == null ? 'table-warning' : ''" [title]="p.stopLevel == null ? 'Brak stop loss!' : ''">
@@ -102,6 +102,13 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
                             <span class="badge text-bg-danger">brak SL</span>
                           } @else {
                             {{ p.stopLevel | number: '1.2-5' }}
+                          }
+                        </td>
+                        <td [class]="p.riskPln != null && p.riskPln > 0 ? 'text-danger fw-semibold' : ''" title="1R w walucie — maks. strata jeśli stop zadziała">
+                          @if (p.riskPln != null) {
+                            {{ p.riskPln | number: '1.2-2' }}
+                          } @else {
+                            <span class="text-muted">—</span>
                           }
                         </td>
                         <td [class]="pnlClass(p.unrealizedPnl)">{{ p.unrealizedPnl | number: '1.2-2' }}</td>

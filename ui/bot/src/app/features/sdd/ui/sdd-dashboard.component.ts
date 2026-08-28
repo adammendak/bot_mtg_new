@@ -150,17 +150,18 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
                       <th>Size</th>
                       <th>Level</th>
                       <th>Stop</th>
+                      <th>1R</th>
                       <th>uP/L</th>
                     </tr>
                   </thead>
                   <tbody>
                     @if (sdd.positionsError()) {
                       <tr>
-                        <td colspan="6" class="text-danger text-center">{{ sdd.positionsError() }}</td>
+                        <td colspan="7" class="text-danger text-center">{{ sdd.positionsError() }}</td>
                       </tr>
                     } @else if (positions(book.id).length === 0) {
                       <tr>
-                        <td colspan="6" class="text-muted text-center">brak pozycji</td>
+                        <td colspan="7" class="text-muted text-center">brak pozycji</td>
                       </tr>
                     } @else {
                       @for (p of positions(book.id); track p.dealId) {
@@ -176,6 +177,13 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
                               <span class="badge text-bg-danger">brak SL</span>
                             } @else {
                               {{ p.stopLevel | number: '1.2-5' }}
+                            }
+                          </td>
+                          <td [class]="p.riskPln != null && p.riskPln > 0 ? 'text-danger fw-semibold' : ''" title="1R w walucie — maks. strata jeśli stop zadziała">
+                            @if (p.riskPln != null) {
+                              {{ p.riskPln | number: '1.2-2' }}
+                            } @else {
+                              <span class="text-muted">—</span>
                             }
                           </td>
                           <td [class]="pnlClass(p.unrealizedPnl)">

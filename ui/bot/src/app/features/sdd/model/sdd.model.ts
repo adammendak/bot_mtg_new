@@ -78,6 +78,7 @@ export interface Position {
   level: number;
   stopLevel: number | null;
   unrealizedPnl: number;
+  riskPln: number | null;
 }
 
 export interface PositionsByBook {
