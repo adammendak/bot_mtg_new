@@ -25,7 +25,16 @@ describe('HistoryComponent', () => {
     expect(text).toContain('History');
     expect(text).toContain('Demo');
     expect(text).toContain('Live');
+    expect(text).toContain('Główne');
+    expect(text).toContain('Sync all');
     expect(text).toContain('No data yet.');
+  });
+
+  it('shows the sync-all result message when present', async () => {
+    const { fixture, service } = await setup({ book: 'demo', currency: 'EUR', connected: true, points: [] });
+    service.syncMessage.set('ok: synced demo · ok: synced live · ok: synced glowne');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('synced glowne');
   });
 
   it('renders chart svg and table rows when data is present', async () => {

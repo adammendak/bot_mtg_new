@@ -166,6 +166,24 @@ public class EquityHistoryService {
         return SyncResult.ok("synced " + book + " from " + firstDay + " to " + today, written, skipped);
     }
 
+    /**
+     * Syncs all books (demo, live, glowne) in one call. Each book is isolated:
+     * a failure on one book never aborts the others. Unconfigured books simply
+     * return a {@code failed} result and are skipped.
+     */
+    public List<SyncResult> syncAll(boolean replace) {
+        List<SyncResult> results = new ArrayList<>();
+        for (String book : new String[]{"demo", "live", "glowne"}) {
+            try {
+                results.add(sync(book, replace));
+            } catch (Exception e) {
+                log.warn("EquityHistory syncAll failed for {}: {}", book, e.getClass().getSimpleName());
+                results.add(SyncResult.failed("sync " + book + " failed: " + e.getClass().getSimpleName()));
+            }
+        }
+        return results;
+    }
+
     private boolean persistDay(String book, BrokerClient client, String accountName, String currency,
                                LocalDate day, double equity, double dayPnl) {
         try {
