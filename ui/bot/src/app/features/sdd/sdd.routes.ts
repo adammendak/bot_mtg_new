@@ -8,6 +8,11 @@ export const SDD_ROUTES: Routes = [
       import('./ui/sdd-dashboard.component').then((m) => m.SddDashboardComponent),
   },
   {
+    path: 'overview',
+    loadComponent: () =>
+      import('./ui/overview.component').then((m) => m.OverviewComponent),
+  },
+  {
     path: 'glowne',
     canActivate: [adminGuard],
     loadComponent: () =>

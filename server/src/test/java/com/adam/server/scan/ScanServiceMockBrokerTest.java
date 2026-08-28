@@ -308,7 +308,7 @@ class ScanServiceMockBrokerTest {
         BrokerBooks books = new BrokerBooks(broker, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"));
         RiskPolicy risk = new RiskPolicy(props);
-        AccountQueryService accounts = new AccountQueryService(books, risk);
+        AccountQueryService accounts = new AccountQueryService(books, risk, props);
         return new ScanService(
                 books,
                 props,

@@ -4,6 +4,7 @@ import {
   AccountView,
   HealthInfo,
   HistoryResponse,
+  OverviewView,
   PositionsByBook,
   ScanSnapshot,
   SddScan,
@@ -41,6 +42,8 @@ export class SddService {
   readonly scanLoadError = signal<string | null>(null);
   readonly signalsError = signal<string | null>(null);
   readonly positionsError = signal<string | null>(null);
+  readonly overview = signal<OverviewView[]>([]);
+  readonly overviewError = signal<string | null>(null);
 
   account(id: 'demo' | 'live' | 'glowne'): AccountView | undefined {
     return this.accounts().find((a) => a.id === id);
@@ -151,6 +154,15 @@ export class SddService {
           this.syncMessage.set(`Sync all failed: ${formatHttpError('/api/history/sync-all', e)}`);
         },
       });
+  }
+
+  /** All-accounts overview: kind (DEMO/LIVE/MAIN), strategy, positions tally. */
+  loadOverview(): void {
+    this.overviewError.set(null);
+    this.http.get<OverviewView[]>('/api/overview').subscribe({
+      next: (o) => this.overview.set(Array.isArray(o) ? o : []),
+      error: (e) => this.overviewError.set(formatHttpError('/api/overview', e)),
+    });
   }
 
   private normalizeAccounts(data: AccountView[] | AccountView | null): AccountView[] {
