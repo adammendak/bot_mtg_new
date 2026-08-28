@@ -82,9 +82,11 @@ public class EquityHistoryService {
         String currency = account.currency() == null ? "" : account.currency();
 
         LocalDate today = LocalDate.now(ZONE);
-        // Always fetch from the earliest available window so backfill is complete.
-        // Capital.com rejects ranges ending "now" — end at yesterday.
-        Instant earliest = Instant.parse("2026-08-20T00:00:00Z");
+        // Full backfill: start from 2020 so the earliest available transactions
+        // (the whole life of the account) are pulled. Capital.com rejects ranges
+        // ending exactly "now", so the range ends at yesterday and today's P/L
+        // (usually none) is handled by the daily snapshots the scanner writes.
+        Instant earliest = Instant.parse("2020-01-01T00:00:00Z");
         Instant to = today.minusDays(1).atTime(23, 59, 59).atZone(ZONE).toInstant();
 
         List<BrokerTransaction> tx;
