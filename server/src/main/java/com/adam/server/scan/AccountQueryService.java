@@ -50,6 +50,9 @@ public class AccountQueryService {
         int withoutStop = 0;
         String riskCurrency = v.currency();
         double[] exposure = new double[]{0.0, 0.0};
+        double halt = "live".equals(client.book()) ? properties.getLiveHaltPln() : properties.getHaltPln();
+        double hardHalt = properties.getHardHaltPln();
+        Double remainingToHalt = v.dayPnl() == null ? null : v.dayPnl() - halt;
         if (v.connected() && v.equity() != null) {
             try {
                 List<Position> open = client.openPositions();
@@ -96,7 +99,10 @@ public class AccountQueryService {
                 withoutStop,
                 riskCurrency,
                 exposure[0],
-                exposure[1]
+                exposure[1],
+                halt,
+                hardHalt,
+                remainingToHalt
         );
     }
 

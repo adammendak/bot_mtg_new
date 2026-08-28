@@ -41,17 +41,18 @@ import { OverviewView } from '../model/sdd.model';
                 <th>No SL</th>
                 <th>Skorelowane</th>
                 <th>Efekt. ryzyko</th>
+                <th>Budżet do halt</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               @if (sdd.overviewError()) {
                 <tr>
-                  <td colspan="15" class="text-danger text-center">{{ sdd.overviewError() }}</td>
+                  <td colspan="16" class="text-danger text-center">{{ sdd.overviewError() }}</td>
                 </tr>
               } @else if (rows().length === 0) {
                 <tr>
-                  <td colspan="15" class="text-muted text-center">No accounts configured.</td>
+                  <td colspan="16" class="text-muted text-center">No accounts configured.</td>
                 </tr>
               } @else {
                 @for (r of rows(); track r.id) {
@@ -80,6 +81,18 @@ import { OverviewView } from '../model/sdd.model';
                     </td>
                     <td [class]="riskClass(r.correlatedPln)" title="Skorelowana ekspozycja (np. US100+GER40 w tę samą stronę)">{{ fmt(r.correlatedPln) }}</td>
                     <td [class]="riskClass(r.effectiveRiskPln)" title="Efektywne ryzyko po korelacji (hedge liczy się netto)">{{ fmt(r.effectiveRiskPln) }}</td>
+                    <td>
+                      @if (r.dayPnl != null && r.haltPln != null) {
+                        <div class="d-flex align-items-center gap-2" title="Day P/L {{ fmt(r.dayPnl) }} / halt {{ fmt(r.haltPln) }} — zostało {{ fmt(r.remainingToHaltPln) }}">
+                          <div class="progress flex-grow-1" style="height: 8px; min-width: 70px">
+                            <div class="progress-bar" [class]="budgetBarClass(r)" [style.width.%]="budgetPct(r)"></div>
+                          </div>
+                          <span class="small text-nowrap" [class]="budgetTextClass(r)">{{ fmt(r.remainingToHaltPln) }}</span>
+                        </div>
+                      } @else {
+                        <span class="text-muted">—</span>
+                      }
+                    </td>
                     <td>
                       @if (r.connected) {
                         <span class="badge text-bg-success">connected</span>
@@ -142,6 +155,44 @@ export class OverviewComponent implements OnInit {
     }
     if (value > 0) {
       return 'text-danger fw-semibold';
+    }
+    return '';
+  }
+
+  /** Share of the day's risk budget (from 0 down to the halt threshold) already consumed. */
+  budgetPct(r: OverviewView): number {
+    const dayPnl = r.dayPnl;
+    const halt = r.haltPln;
+    if (dayPnl == null || halt == null || halt >= 0) {
+      return 0;
+    }
+    if (dayPnl >= 0) {
+      return 0;
+    }
+    if (dayPnl <= halt) {
+      return 100;
+    }
+    return Math.min(100, Math.round((-dayPnl / -halt) * 100));
+  }
+
+  budgetBarClass(r: OverviewView): string {
+    const pct = this.budgetPct(r);
+    if (pct >= 75) {
+      return 'bg-danger';
+    }
+    if (pct >= 50) {
+      return 'bg-warning';
+    }
+    return 'bg-success';
+  }
+
+  budgetTextClass(r: OverviewView): string {
+    const pct = this.budgetPct(r);
+    if (pct >= 75) {
+      return 'text-danger fw-semibold';
+    }
+    if (pct >= 50) {
+      return 'text-warning fw-semibold';
     }
     return '';
   }

@@ -119,6 +119,9 @@ export interface OverviewView {
   riskCurrency: string | null;
   correlatedPln: number | null;
   effectiveRiskPln: number | null;
+  haltPln: number | null;
+  hardHaltPln: number | null;
+  remainingToHaltPln: number | null;
 }
 
 export interface DailyEquityPoint {

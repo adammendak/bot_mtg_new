@@ -33,6 +33,9 @@ public record OverviewView(
         int positionsWithoutStop,
         String riskCurrency,
         Double correlatedPln,
-        Double effectiveRiskPln
+        Double effectiveRiskPln,
+        Double haltPln,
+        Double hardHaltPln,
+        Double remainingToHaltPln
 ) {
 }
