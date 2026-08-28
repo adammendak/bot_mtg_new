@@ -1,7 +1,9 @@
 import { Injectable, signal } from '@angular/core';
 
-const TEST_USER = 'Adam';
-const TEST_PASSWORD = 'dupa1234';
+const USERS: Record<string, string> = {
+  Adam: 'dupa1234',
+  test: 'dupa1234',
+};
 const STORAGE_KEY = 'auth.user';
 
 @Injectable({ providedIn: 'root' })
@@ -12,8 +14,13 @@ export class AuthService {
     return this.user() != null;
   }
 
+  /** Adam (full access incl. the Główne account) vs test (limited view). */
+  isAdmin(): boolean {
+    return this.user() === 'Adam';
+  }
+
   login(username: string, password: string): boolean {
-    if (username !== TEST_USER || password !== TEST_PASSWORD) {
+    if (!username || USERS[username] !== password) {
       return false;
     }
     this.user.set(username);

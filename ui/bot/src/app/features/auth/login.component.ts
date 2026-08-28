@@ -45,7 +45,6 @@ import { AuthService } from './auth.service';
                 Sign in
               </button>
             </form>
-            <p class="small text-muted mt-3 mb-0">Test user: Adam</p>
           </div>
         </div>
       </div>
