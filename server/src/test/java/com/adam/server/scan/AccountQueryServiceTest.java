@@ -106,6 +106,10 @@ class AccountQueryServiceTest {
         assertThat(demoRow.connected()).isTrue();
         assertThat(demoRow.positionsCount()).isEqualTo(2);
         assertThat(demoRow.positionsPnl()).isEqualTo(17.0);
+        // Risk panel: GER40 BUY 1.0 @ 18000 with stop 17900 -> 100 x 1.0 = 100 PLN worst case; US100 has no stop.
+        assertThat(demoRow.maxLossPln()).isEqualTo(100.0);
+        assertThat(demoRow.positionsWithoutStop()).isEqualTo(1);
+        assertThat(demoRow.riskCurrency()).isEqualTo("PLN");
         // live/glowne are unconfigured -> disconnected rows still carry kind + strategy
         assertThat(rows.stream().filter(r -> r.id().equals("live")).findFirst().orElseThrow().kind()).isEqualTo("LIVE");
         assertThat(rows.stream().filter(r -> r.id().equals("glowne")).findFirst().orElseThrow().kind()).isEqualTo("MAIN");

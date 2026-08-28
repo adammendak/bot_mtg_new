@@ -37,17 +37,19 @@ import { OverviewView } from '../model/sdd.model';
                 <th>Day P/L</th>
                 <th>Positions</th>
                 <th>uP/L</th>
+                <th>Max loss (stop)</th>
+                <th>No SL</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               @if (sdd.overviewError()) {
                 <tr>
-                  <td colspan="11" class="text-danger text-center">{{ sdd.overviewError() }}</td>
+                  <td colspan="13" class="text-danger text-center">{{ sdd.overviewError() }}</td>
                 </tr>
               } @else if (rows().length === 0) {
                 <tr>
-                  <td colspan="11" class="text-muted text-center">No accounts configured.</td>
+                  <td colspan="13" class="text-muted text-center">No accounts configured.</td>
                 </tr>
               } @else {
                 @for (r of rows(); track r.id) {
@@ -66,6 +68,14 @@ import { OverviewView } from '../model/sdd.model';
                     <td [class]="pnlClass(r.dayPnl)">{{ fmt(r.dayPnl) }}</td>
                     <td>{{ r.positionsCount }}</td>
                     <td [class]="pnlClass(r.positionsPnl)">{{ fmt(r.positionsPnl) }}</td>
+                    <td [class]="riskClass(r.maxLossPln)">{{ fmt(r.maxLossPln) }} {{ r.riskCurrency || '' }}</td>
+                    <td>
+                      @if (r.positionsWithoutStop > 0) {
+                        <span class="badge text-bg-danger" title="Open positions with no stop level">⚠ {{ r.positionsWithoutStop }}</span>
+                      } @else {
+                        <span class="text-muted">0</span>
+                      }
+                    </td>
                     <td>
                       @if (r.connected) {
                         <span class="badge text-bg-success">connected</span>
@@ -117,6 +127,16 @@ export class OverviewComponent implements OnInit {
       return 'text-success fw-semibold';
     }
     if (value < 0) {
+      return 'text-danger fw-semibold';
+    }
+    return '';
+  }
+
+  riskClass(value: number | null | undefined): string {
+    if (value == null) {
+      return '';
+    }
+    if (value > 0) {
       return 'text-danger fw-semibold';
     }
     return '';

@@ -6,6 +6,12 @@ package com.adam.server.web.dto;
  * attached to the book, whether execution is enabled for it, and a live count
  * of open positions with the summed unrealised P/L — all in a single response
  * so the overview page needs just one request.
+ * <p>
+ * Risk panel fields: {@code maxLossPln} is the worst case if every open
+ * position's stop level is hit (Σ (entry − stop) × size for positions with a
+ * stop), {@code positionsWithoutStop} counts open positions that have no stop
+ * level at all, and {@code riskCurrency} is the currency those numbers are
+ * denominated in.
  */
 public record OverviewView(
         String id,
@@ -22,6 +28,9 @@ public record OverviewView(
         boolean connected,
         String error,
         int positionsCount,
-        Double positionsPnl
+        Double positionsPnl,
+        Double maxLossPln,
+        int positionsWithoutStop,
+        String riskCurrency
 ) {
 }

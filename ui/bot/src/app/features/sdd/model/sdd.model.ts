@@ -113,6 +113,9 @@ export interface OverviewView {
   error: string | null;
   positionsCount: number;
   positionsPnl: number | null;
+  maxLossPln: number | null;
+  positionsWithoutStop: number;
+  riskCurrency: string | null;
 }
 
 export interface DailyEquityPoint {
