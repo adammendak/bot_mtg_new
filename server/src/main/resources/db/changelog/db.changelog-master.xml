@@ -8,4 +8,5 @@
     <include file="changes/001-initial-schema.xml" relativeToChangelogFile="true"/>
     <include file="changes/003-app-tables.xml" relativeToChangelogFile="true"/>
     <include file="changes/004-execution-entries.xml" relativeToChangelogFile="true"/>
+    <include file="changes/005-execution-flags.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

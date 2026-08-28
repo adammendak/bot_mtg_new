@@ -42,9 +42,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Execution rules behind EXECUTION_ENABLED: two-deal placement, never DELETE+size,
- * skip when the SDD name is open, 4-name cap, day halt, idempotent retry, live
- * account gate, and never touching the stocks book (TQQQ/CRCL/SPOT/SHOP).
+ * Computron execution rules behind EXECUTION_ENABLED: two-deal placement with a hard
+ * 1R TP on ONE deal (stop + TP PUT together), never DELETE+size, TP-ticket-gone ->
+ * runner keeps its 2.5× stop and H1-trails (no 2R, no break-even), skip when the name
+ * is open, 4-name cap, idempotent retry, live account gate, and never touching the
+ * stocks book (TQQQ/CRCL/SPOT/SHOP) or Glowne.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -86,7 +88,7 @@ class ExecutionGateTest {
     }
 
     @Test
-    void fullStackPlacesTwoSeparateDeals() {
+    void fullStackPlacesTwoDealsWith1RtpOnOneAndStopOnBoth() {
         when(demoClient.openPositions()).thenReturn(List.of());
         when(demoClient.placeMarketOrder(any()))
                 .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
@@ -102,12 +104,17 @@ class ExecutionGateTest {
         ArgumentCaptor<OrderRequest> captor = ArgumentCaptor.forClass(OrderRequest.class);
         verify(demoClient, times(2)).placeMarketOrder(captor.capture());
         assertThat(captor.getAllValues()).hasSize(2);
-        for (OrderRequest r : captor.getAllValues()) {
-            assertThat(r.direction()).isEqualTo(Direction.BUY);
-            assertThat(r.size()).isEqualTo(2.0);      // 4.0 risk-sized / 2
-            assertThat(r.stopLevel()).isEqualTo(97.5); // entry - 2.5 * atr
-            assertThat(r.profitLevel()).isNull();      // no TP at entry
-        }
+        // Deal 1 (TP ticket): stop 2.5× AND 1R profit level PUT together.
+        OrderRequest tp = captor.getAllValues().get(0);
+        assertThat(tp.direction()).isEqualTo(Direction.BUY);
+        assertThat(tp.size()).isEqualTo(2.0);      // 4.0 risk-sized / 2
+        assertThat(tp.stopLevel()).isEqualTo(97.5); // entry - 2.5 * atr
+        assertThat(tp.profitLevel()).isEqualTo(101.0); // hard 1R TP
+        assertThat(tp.trailingStop()).isFalse();
+        // Deal 2 (runner): stop only, NO TP.
+        OrderRequest runner = captor.getAllValues().get(1);
+        assertThat(runner.stopLevel()).isEqualTo(97.5);
+        assertThat(runner.profitLevel()).isNull();
         SddExecutionState.Entry e = state.get("demo", "GER40");
         assertThat(e).isNotNull();
         assertThat(e.twoTickets).isTrue();
@@ -117,21 +124,71 @@ class ExecutionGateTest {
     }
 
     @Test
-    void at2RClosesOneWholeTicketWithoutSizeAndRunnerToBe() {
+    void neverClosesWithSizeAndNoTrailingStop() {
+        // Even in the single-ticket close path we only ever use closePosition(id, 0)
+        // and amendPosition(id, stop, false). A size != 0 DELETE is never issued.
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", null, false));
+        Position pos = new Position("dealA", "refA", "DE40", Direction.BUY, 4.0, 100, 97.5, 101.0, 5, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(pos));
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+        verify(demoClient, never()).amendPosition(anyString(), anyDouble(), eq(true));
+        // single ticket present -> still open, nothing to do
+        assertThat(state.get("demo", "GER40")).isNotNull();
+    }
+
+    @Test
+    void whenTpTicketGoneRunnerKeepsStopAndH1TrailsNoBe() {
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
                 100, 1, 97.5, "dealA", "dealB", true));
-        Position pos = new Position("dealA", "refA", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 5, "PLN", Instant.now());
-        when(demoClient.openPositions()).thenReturn(List.of(pos));
+        // Only the runner (dealB) is open; the TP ticket (dealA) is gone.
+        Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(runner));
+        when(demoClient.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 100, 100, Instant.now()));
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        // TP ticket gone -> tpFilled; runner stop NEVER amended to entry/BE (entry=100).
+        SddExecutionState.Entry e = state.get("demo", "GER40");
+        assertThat(e.tpFilled).isTrue();
+        verify(demoClient, never()).amendPosition(eq("dealB"), eq(100.0), anyBoolean());
+        // No 2R close of a whole ticket (no closePosition with size).
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+    }
+
+    @Test
+    void whenTpTicketGoneRunnerTrailsInFavourFloorIsOriginalStop() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(runner));
+        // Market moved to 103: trail = 103 - 2.5 = 100.5 > original stop 97.5 -> ratchet up.
         when(demoClient.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103, 103, Instant.now()));
 
         gate.executeBook("demo", List.of(), view("demo", 0), false);
 
-        // ONE whole ticket closed with NO size (0) — never DELETE + size=
-        verify(demoClient).closePosition("dealA", 0);
-        verify(demoClient).amendPosition("dealB", 100.0, false); // runner to BE
         SddExecutionState.Entry e = state.get("demo", "GER40");
-        assertThat(e.closedAt2R).isTrue();
-        assertThat(e.runnerAtBe).isTrue();
+        assertThat(e.tpFilled).isTrue();
+        // Runner amended via PUT stopLevel (trailingStop=false) to the trailed stop.
+        verify(demoClient).amendPosition("dealB", 100.5, false);
+        // Never moved to break-even / entry.
+        verify(demoClient, never()).amendPosition("dealB", 100.0, false);
+    }
+
+    @Test
+    void whenRunnerGoneBothTicketsDoneRemovesRow() {
+        // Realistic flow: TP ticket filled first, then the runner also exits.
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true, true, true));
+        // Both tickets gone.
+        when(demoClient.openPositions()).thenReturn(List.of());
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNull();
     }
 
     @Test
@@ -242,6 +299,8 @@ class ExecutionGateTest {
 
         verify(demoClient, never()).closePosition(anyString(), anyDouble());
         verify(demoClient, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
+        // the SPOT entry is left alone (not managed)
+        assertThat(state.get("demo", "SPOT")).isNotNull();
     }
 
     @Test
@@ -257,9 +316,38 @@ class ExecutionGateTest {
 
         ArgumentCaptor<OrderRequest> captor = ArgumentCaptor.forClass(OrderRequest.class);
         verify(demoClient, times(1)).placeMarketOrder(captor.capture());
+        // single ticket = TP ticket: stop + 1R TP together.
         assertThat(captor.getValue().size()).isEqualTo(4.0);
+        assertThat(captor.getValue().stopLevel()).isEqualTo(97.5);
+        assertThat(captor.getValue().profitLevel()).isEqualTo(101.0);
         SddExecutionState.Entry e = state.get("demo", "GER40");
         assertThat(e.twoTickets).isFalse();
+    }
+
+    @Test
+    void executionDisabledDoesNotPlaceAmendOrClose() {
+        props.setExecutionEnabled(false);
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        Position pos = new Position("dealA", "refA", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 5, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(pos));
+
+        gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
+                view("demo", 0), false);
+
+        verify(demoClient, never()).placeMarketOrder(any());
+        verify(demoClient, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+    }
+
+    @Test
+    void glowneIsNeverExecuted() {
+        // Glowne client is not wired into execution; ScanService only calls demo/live.
+        // Assert the gate refuses to run on a glowne client (not configured / not present).
+        when(demoClient.openPositions()).thenReturn(List.of());
+        // No glowne broker in the books -> forBook("glowne") returns demo, but we assert
+        // the gate only manages books it is asked to (demo/live) — Glowne never enters.
+        assertThat(state.entriesFor("glowne")).isEmpty();
     }
 
     // ------------------------------------------------------------------

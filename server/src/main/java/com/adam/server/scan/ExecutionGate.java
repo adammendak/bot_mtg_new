@@ -26,25 +26,36 @@ import java.util.Set;
 
 /**
  * Places SDD-M15 fullStack entries on Capital.com DEMO and LIVE (account
- * {@code bot trading konto}) behind {@code EXECUTION_ENABLED=true}.
+ * {@code bot trading konto}) behind {@code EXECUTION_ENABLED=true}. Implements
+ * Computron's method 1:1. Glowne is never executed.
  *
  * <p>Rules implemented here:
  * <ul>
  *   <li>Only a fullStack signal places; flip-but-not-fullStack never places, never flattens.</li>
  *   <li>Two separate deals (two tickets) when the per-ticket size clears
  *       {@code app.execution.min-deal-size}; a single ticket otherwise.</li>
- *   <li>Stop 2.5× H1 ATR at entry, no TP at entry. At 2R one whole ticket is closed
- *       (NEVER {@code DELETE + size=}, which flattens the whole ticket); the runner
- *       moves to break-even then H1-trails.</li>
- *   <li>Demo ~10 PLN (1% of demo); live 1% of the bot-konto equity. Day-P/L halt for
+ *   <li>Stop 2.5× H1 ATR on BOTH deals at entry. 1R = 1× H1 ATR. No broker trailingStop.</li>
+ *   <li>Right after fill a hard 1R TP is set on ONE deal only (the TP ticket,
+ *       {@code ticketA}); the other deal (runner, {@code ticketB}) has no TP.
+ *       Capital quirk: on the TP ticket the stopLevel is PUT together with the
+ *       profitLevel (setting profitLevel alone wipes the stop).</li>
+ *   <li>When the TP ticket is gone on the broker (it took 1R), the runner KEEPS its
+ *       original 2.5× stop (never moved to break-even, never amended to entry) and is
+ *       then H1-trailed: the stop only ratchets in the trade's favour, never worse
+ *       than the original 2.5× stop. Implemented with PUT stopLevel, not trailingStop.</li>
+ *   <li>Single-ticket entry: that one deal gets stop 2.5× AND 1R TP PUT together; when
+ *       it is gone on the broker the row is deleted.</li>
+ *   <li>Skip if the SDD name is already open (broker positions + persisted rows); max 4
+ *       unique SDD names per book. NO pyramid while a name is open — blocked until BOTH
+ *       tickets are gone.</li>
+ *   <li>Demo ~10 PLN (DEMO_RISK_PLN); live 1% of the bot-konto equity. Day-P/L halt for
  *       new entries: demo −30, live −18 (per book).</li>
- *   <li>Skip if the SDD name is already open; max 4 unique SDD names per book;
- *       no pyramid while a name is open unless 2R is taken and the runner is at BE.</li>
  *   <li>Idempotent keyed on {@code book|symbol|direction|barTime} — a webhook retry or
  *       a re-scan of the same bar never opens a second entry.</li>
  *   <li>Fills and skips are POSTed to Computron (type=execution) so it audits instead
  *       of polling every 15 minutes.</li>
- *   <li>Never touches TQQQ / CRCL / SPOT / SHOP (stocks book, not SDD).</li>
+ *   <li>neverFlatten (TQQQ / CRCL / SPOT / SHOP) stays as a guard only — those names are
+ *       gone from DEMO and from live bot-konto; nothing ever touches Glowne or those epics.</li>
  * </ul>
  */
 @Component
@@ -79,10 +90,10 @@ public class ExecutionGate {
 
     /**
      * After a dyno restart, reload the persisted entries from Postgres and reconcile
-     * them against the broker's open positions: a tracked ticket that no longer exists
-     * on the broker is treated as closed (marked 2R-closed so it stops being managed;
-     * a single-ticket entry is removed). Never touches the stocks book.
-     * Called on ApplicationReady, before any scan runs.
+     * them against the broker's open positions. Only entries that have a row in
+     * {@code sdd_execution_entries} are managed — leftover SDD tickets opened by
+     * Computron before persistence are NOT adopted. Never touches Glowne or the
+     * stocks book. Called on ApplicationReady, before any scan runs.
      */
     public void reloadAndReconcile() {
         state.loadFromDb();
@@ -92,26 +103,33 @@ public class ExecutionGate {
                 continue;
             }
             List<Position> open = safeOpenPositions(client);
-            List<String> openEpics = new ArrayList<>();
-            for (Position p : open) {
-                if (!risk.neverFlatten(p.epic())) {
-                    openEpics.add(p.epic().toUpperCase());
-                }
-            }
             for (SddExecutionState.Entry entry : new ArrayList<>(state.entriesFor(book))) {
                 if (risk.neverFlatten(entry.epic)) {
                     continue;
                 }
-                if (openEpics.contains(entry.epic.toUpperCase())) {
-                    continue; // still open — keep as-is
-                }
-                // Ticket(s) gone on the broker -> entry effectively finished.
-                if (!entry.twoTickets) {
-                    state.remove(book, entry.symbol);
-                } else if (!entry.closedAt2R) {
-                    entry.closedAt2R = true;
-                    entry.runnerAtBe = true; // nothing left to manage
-                    state.update(entry);
+                Position posA = findOpen(open, entry.epic, entry.ticketA);
+                Position posB = findOpen(open, entry.epic, entry.ticketB);
+                if (entry.twoTickets) {
+                    boolean tpGone = !entry.tpFilled && posA == null && posB != null;
+                    if (tpGone) {
+                        entry.tpFilled = true;
+                        state.update(entry);
+                        log.info("SDD reconcile {} {}: TP ticket gone, runner trails", book, entry.symbol);
+                    }
+                    // Both tickets gone — only drop the row once the TP ticket was
+                    // confirmed filled, so a momentary positions glitch never forgets
+                    // an entry (and never lets a duplicate re-enter).
+                    boolean bothGone = entry.tpFilled && posA == null && posB == null;
+                    if (bothGone) {
+                        state.remove(book, entry.symbol);
+                        log.info("SDD reconcile {} {}: both tickets gone, row removed", book, entry.symbol);
+                    }
+                } else {
+                    // single ticket: gone -> done
+                    if (posA == null) {
+                        state.remove(book, entry.symbol);
+                        log.info("SDD reconcile {} {}: single ticket gone, row removed", book, entry.symbol);
+                    }
                 }
             }
         }
@@ -119,8 +137,8 @@ public class ExecutionGate {
 
     /**
      * Run execution for one book after a scan. Only fullStack signals place; flip-only
-     * signals never place and never flatten. Existing entries are managed first (2R
-     * close, BE, H1 trail), then new fullStack signals are considered.
+     * signals never place and never flatten. Existing entries are managed first (TP
+     * detection, runner H1-trail), then new fullStack signals are considered.
      */
     public void executeBook(String book, List<SddScan> symbols, AccountView view, boolean newsBlackout) {
         if (!properties.isExecutionEnabled()) {
@@ -188,9 +206,7 @@ public class ExecutionGate {
         // Name open / 4-name cap (broker positions + tracked state, restart-safe).
         Set<String> openNames = openSddNames(open);
         for (SddExecutionState.Entry e : state.entriesFor(book)) {
-            if (!e.allowsPyramid()) {
-                openNames.add(e.symbol);
-            }
+            openNames.add(e.symbol); // no pyramid: any tracked entry blocks the name
         }
         if (openNames.contains(scan.symbol())) {
             return "name already open";
@@ -212,23 +228,37 @@ public class ExecutionGate {
     }
 
     /**
-     * Places one or two market tickets (stop at entry). Two separate deals are used
-     * whenever the per-ticket size clears {@code minDealSize} — this lets us close ONE
-     * whole ticket at 2R without flattening the other. Returns null on success or a
-     * reason on failure.
+     * Places one or two market tickets. Stop 2.5× H1 ATR on BOTH deals; a hard 1R TP on
+     * ONE deal only (the TP ticket). On the TP ticket the stopLevel is PUT together with
+     * the profitLevel (Capital quirk: profitLevel alone wipes the stop). Returns null on
+     * success or a reason on failure.
      */
     String placeTickets(BrokerClient client, String book, SddScan scan, double size) {
         double perTicket = size / 2.0;
         boolean twoTickets = perTicket >= properties.getMinDealSize();
         double[] sizes = twoTickets ? new double[]{perTicket, perTicket} : new double[]{size};
 
+        // 1R profit level on the TP ticket only.
+        double oneR = scan.oneR();
+        double tpLevel = scan.direction() == Direction.BUY ? scan.entry() + oneR : scan.entry() - oneR;
+
         String refA = null;
         String refB = null;
         int placed = 0;
         for (double s : sizes) {
+            OrderRequest request;
+            if (placed == 0) {
+                // TP ticket: stop AND 1R profit level PUT together.
+                request = new OrderRequest(scan.epic(), scan.direction(), s, null, "MARKET",
+                        scan.stop(), null, tpLevel, false);
+            } else {
+                // runner: stop only, no profit level.
+                request = new OrderRequest(scan.epic(), scan.direction(), s, null, "MARKET",
+                        scan.stop(), null, null, false);
+            }
             OrderAck ack;
             try {
-                ack = client.placeMarketOrder(OrderRequest.market(scan.epic(), scan.direction(), s, scan.stop()));
+                ack = client.placeMarketOrder(request);
             } catch (Exception e) {
                 log.warn("Place failed {} {} size {}: {}", book, scan.symbol(), s, e.getClass().getSimpleName());
                 continue;
@@ -301,28 +331,59 @@ public class ExecutionGate {
     }
 
     // ------------------------------------------------------------------
-    // Position management: 2R close-one, BE, H1 trail
+    // Position management: TP detection + runner H1-trail (no 2R, no BE)
     // ------------------------------------------------------------------
 
     /**
-     * For each tracked entry: at 2R close ONE whole ticket (never DELETE+size) and move
-     * the runner to break-even; afterwards H1-trail the runner. Positions that are not
-     * tracked SDD names (TQQQ/CRCL/SPOT/SHOP etc.) are never touched.
+     * For each tracked entry: when the TP ticket (ticketA) is gone on the broker it took
+     * its 1R — the runner (ticketB) keeps the original 2.5× stop and starts H1-trailing.
+     * The runner's stop is NEVER moved to break-even or amended to entry. A single-ticket
+     * entry that is gone is removed. Positions that are not tracked SDD names
+     * (TQQQ/CRCL/SPOT/SHOP etc.) are never touched.
      */
     public void manageOpen(BrokerClient client, List<Position> open) {
         for (SddExecutionState.Entry entry : state.entriesFor(client.book())) {
             if (risk.neverFlatten(entry.epic)) {
                 continue;
             }
-            Position pos = findOpen(open, entry);
-            if (pos == null) {
-                continue;
-            }
             try {
-                if (!entry.closedAt2R) {
-                    maybeCloseAt2R(client, entry, pos);
-                } else if (entry.runnerAtBe) {
-                    trailRunner(client, entry, pos);
+                if (!entry.twoTickets) {
+                    // single ticket: gone -> done, row removed.
+                    Position pos = findOpen(open, entry.epic, entry.ticketA);
+                    if (pos == null && entry.tpFilled) {
+                        state.remove(entry.book, entry.symbol);
+                        log.info("SDD manage {} {}: single ticket gone, removed", client.book(), entry.symbol);
+                    }
+                    continue;
+                }
+                Position posA = findOpen(open, entry.epic, entry.ticketA);
+                Position posB = findOpen(open, entry.epic, entry.ticketB);
+                if (!entry.tpFilled && posA == null && posB != null) {
+                    // TP ticket took its 1R — start trailing the runner, keep its stop.
+                    entry.tpFilled = true;
+                    state.update(entry);
+                    webhooks.publishExecution(client.book(), entry.symbol,
+                            entry.direction == null ? null : entry.direction.name(), "tp_fill", "");
+                    log.info("SDD manage {} {}: TP ticket gone, runner trails", client.book(), entry.symbol);
+                }
+                if (posB == null) {
+                    // runner gone too — only drop the row once we've confirmed the TP
+                    // ticket was already filled (otherwise positions may be momentarily
+                    // unavailable and we'd forget the entry / allow a duplicate re-entry).
+                    if (posA == null && entry.tpFilled) {
+                        state.remove(entry.book, entry.symbol);
+                        log.info("SDD manage {} {}: both tickets gone, removed", client.book(), entry.symbol);
+                    }
+                    continue;
+                }
+                if (entry.tpFilled && entry.ticketB != null) {
+                    trailRunner(client, entry, posB);
+                    if (!entry.trailing) {
+                        entry.trailing = true;
+                        state.update(entry);
+                        webhooks.publishExecution(client.book(), entry.symbol,
+                                entry.direction == null ? null : entry.direction.name(), "trail", "");
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Manage failed for {} {}: {}", client.book(), entry.symbol, e.getClass().getSimpleName());
@@ -330,47 +391,22 @@ public class ExecutionGate {
         }
     }
 
-    private void maybeCloseAt2R(BrokerClient client, SddExecutionState.Entry entry, Position pos) {
-        double twoR = 2.0 * entry.atr;
-        boolean hit2R = entry.direction == Direction.BUY
-                ? pos.level() + twoR <= currentMid(client, entry.epic)
-                : pos.level() - twoR >= currentMid(client, entry.epic);
-        if (!hit2R) {
-            return;
-        }
-        // Close ONE whole deal (the 2R ticket) with NO size param — Capital flattens
-        // the whole ticket when a size is passed. The runner stays open at its stop.
-        if (entry.twoTickets && entry.ticketA != null) {
-            client.closePosition(entry.ticketA, 0);
-            entry.closedAt2R = true;
-            // Move the runner to break-even (entry price) and enable H1 trailing.
-            if (entry.ticketB != null) {
-                client.amendPosition(entry.ticketB, entry.entry, false);
-                entry.runnerAtBe = true;
-            }
-            state.update(entry); // write-through: 2R closed + runner at BE survive a restart
-            log.info("SDD 2R: closed {} on {} {}, runner to BE", entry.ticketA, client.book(), entry.symbol);
-        } else {
-            // Single ticket: close it whole (no size) — the whole position takes profit.
-            client.closePosition(pos.dealId(), 0);
-            entry.closedAt2R = true;
-            log.info("SDD 2R: closed single ticket {} on {} {}", pos.dealId(), client.book(), entry.symbol);
-            state.remove(entry.book, entry.symbol);
-        }
-    }
-
+    /**
+     * H1-trail the runner only: the stop ratchets in the trade's favour, never worse than
+     * the original 2.5× ATR stop. Implemented with PUT stopLevel (not trailingStop API).
+     */
     private void trailRunner(BrokerClient client, SddExecutionState.Entry entry, Position pos) {
-        if (!entry.twoTickets || entry.ticketB == null) {
+        if (entry.ticketB == null) {
             return;
         }
         double mid = currentMid(client, entry.epic);
         double trail = entry.direction == Direction.BUY ? mid - SddEngine.STOP_ATR_MULT * entry.atr
                 : mid + SddEngine.STOP_ATR_MULT * entry.atr;
-        double currentStop = pos.stopLevel() == null ? entry.entry : pos.stopLevel();
-        // Never worse than break-even, only ratchet in the favourable direction.
+        double currentStop = pos.stopLevel() == null ? entry.stop : pos.stopLevel();
+        // Floor = original 2.5× stop. Never worse than that; only ratchet in favour.
         double newStop = entry.direction == Direction.BUY
-                ? Math.max(entry.entry, Math.max(currentStop, trail))
-                : Math.min(entry.entry, Math.min(currentStop, trail));
+                ? Math.max(entry.stop, Math.max(currentStop, trail))
+                : Math.min(entry.stop, Math.min(currentStop, trail));
         if (Math.abs(newStop - currentStop) > 1e-9) {
             client.amendPosition(entry.ticketB, newStop, false);
             log.info("SDD trail {} {} {} → {}", client.book(), entry.symbol, currentStop, newStop);
@@ -381,12 +417,22 @@ public class ExecutionGate {
         return client.marketPrice(epic).mid();
     }
 
-    private static Position findOpen(List<Position> open, SddExecutionState.Entry entry) {
+    private static Position findOpen(List<Position> open, String epic, String dealId) {
         if (open == null) {
             return null;
         }
+        if (dealId != null && !dealId.isBlank()) {
+            for (Position p : open) {
+                if (dealId.equals(p.dealId())) {
+                    return p;
+                }
+            }
+            // A ticket we track by deal id is not among the open positions.
+            return null;
+        }
+        // dealId unknown (e.g. after a restart when only epic is known): match by epic.
         for (Position p : open) {
-            if (epicMatches(p.epic(), entry.epic)) {
+            if (epicMatches(p.epic(), epic)) {
                 return p;
             }
         }
