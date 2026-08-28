@@ -3,6 +3,7 @@ package com.adam.server.scan;
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
+import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
@@ -45,11 +46,28 @@ public class AccountQueryService {
         AccountView v = view(client);
         int count = 0;
         double positionsPnl = 0.0;
+        double maxLossPln = 0.0;
+        int withoutStop = 0;
+        String riskCurrency = v.currency();
         if (v.connected() && v.equity() != null) {
             try {
                 for (Position p : client.openPositions()) {
                     count++;
                     positionsPnl += p.unrealizedPnl();
+                    if (p.stopLevel() == null) {
+                        withoutStop++;
+                    } else {
+                        // Worst case if this stop is hit: entry -> stop, signed by direction.
+                        double distance = Direction.BUY == p.direction()
+                                ? p.level() - p.stopLevel()
+                                : p.stopLevel() - p.level();
+                        if (distance > 0) {
+                            maxLossPln += distance * p.size();
+                        }
+                        if (p.currency() != null && !p.currency().isBlank()) {
+                            riskCurrency = p.currency();
+                        }
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Open positions failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
@@ -70,7 +88,10 @@ public class AccountQueryService {
                 v.connected(),
                 v.error(),
                 count,
-                count == 0 ? 0.0 : positionsPnl
+                count == 0 ? 0.0 : positionsPnl,
+                maxLossPln,
+                withoutStop,
+                riskCurrency
         );
     }
 
