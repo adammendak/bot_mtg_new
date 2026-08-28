@@ -52,6 +52,15 @@ interface Bar {
         >
           Live
         </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="sdd.historyBook() === 'glowne'"
+          [class.btn-outline-secondary]="sdd.historyBook() !== 'glowne'"
+          (click)="select('glowne')"
+        >
+          Główne
+        </button>
       </div>
       <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reload()">Refresh</button>
       <div class="ms-2 d-inline-flex align-items-center gap-2 border rounded px-2 py-1">
