@@ -56,7 +56,7 @@ public class SddExecutionEntity {
     @Column(name = "tp_filled", nullable = false)
     private boolean tpFilled;
 
-    @Column(name = "trailing", nullable = false)
+    @Column(name = "trailing_runner", nullable = false)
     private boolean trailing;
 
     @Column(name = "created_at", nullable = false)

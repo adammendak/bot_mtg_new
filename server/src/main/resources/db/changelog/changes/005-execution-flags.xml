@@ -6,14 +6,19 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <!--
-      Computron method: replace the 2R/BE stage flags with tp_filled / trailing.
+      Computron method: replace the 2R/BE stage flags with tp_filled / trailing_runner.
       The TP ticket (ticketA) carries the hard 1R profit level and, once it is
       gone on the broker, tp_filled=1; the runner (ticketB) then H1-trails.
       There is no 2R close and no break-even — the runner keeps its 2.5x stop.
+      NOTE: the column is named trailing_runner, NOT "trailing" — TRAILING is a
+      PostgreSQL keyword (TRIM ... TRAILING) and raw SQL referencing it fails.
     -->
     <changeSet id="005-execution-flags" author="amendak">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="sdd_execution_entries"/>
+            <not>
+                <columnExists tableName="sdd_execution_entries" columnName="trailing_runner"/>
+            </not>
         </preConditions>
 
         <addColumn tableName="sdd_execution_entries">
@@ -22,20 +27,31 @@
             </column>
         </addColumn>
         <addColumn tableName="sdd_execution_entries">
-            <column name="trailing" type="BOOLEAN" defaultValueBoolean="false">
+            <column name="trailing_runner" type="BOOLEAN" defaultValueBoolean="false">
                 <constraints nullable="false"/>
             </column>
         </addColumn>
 
         <!-- legacy 2R/BE rows are treated as already-trailing runners (no 2R close anymore) -->
         <sql dbms="postgresql">
-            UPDATE sdd_execution_entries SET tp_filled = true, trailing = true WHERE closed_at_2r = true;
+            UPDATE sdd_execution_entries SET tp_filled = true, trailing_runner = true WHERE closed_at_2r = true;
         </sql>
         <sql dbms="h2">
-            UPDATE sdd_execution_entries SET tp_filled = true, trailing = true WHERE closed_at_2r = true;
+            UPDATE sdd_execution_entries SET tp_filled = true, trailing_runner = true WHERE closed_at_2r = true;
         </sql>
 
         <dropColumn tableName="sdd_execution_entries" columnName="closed_at_2r"/>
         <dropColumn tableName="sdd_execution_entries" columnName="runner_at_be"/>
+    </changeSet>
+
+    <!-- Cleanup: a failed first run of 005 (before the column was renamed from
+         the reserved word "trailing" to trailing_runner) may have left the old
+         "trailing" column behind on production. Drop it if present. -->
+    <changeSet id="005b-drop-legacy-trailing" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="sdd_execution_entries"/>
+            <columnExists tableName="sdd_execution_entries" columnName="trailing"/>
+        </preConditions>
+        <dropColumn tableName="sdd_execution_entries" columnName="trailing"/>
     </changeSet>
 </databaseChangeLog>
