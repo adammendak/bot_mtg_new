@@ -59,8 +59,9 @@ export class LoginComponent {
   password = '';
   error = false;
 
-  onSubmit(): void {
-    if (this.auth.login(this.username, this.password)) {
+  async onSubmit(): Promise<void> {
+    const ok = await this.auth.login(this.username, this.password);
+    if (ok) {
       this.router.navigate(['/']);
     } else {
       this.error = true;

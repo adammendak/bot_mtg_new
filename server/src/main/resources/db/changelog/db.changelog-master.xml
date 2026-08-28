@@ -9,4 +9,5 @@
     <include file="changes/003-app-tables.xml" relativeToChangelogFile="true"/>
     <include file="changes/004-execution-entries.xml" relativeToChangelogFile="true"/>
     <include file="changes/005-execution-flags.xml" relativeToChangelogFile="true"/>
+    <include file="changes/006-users.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

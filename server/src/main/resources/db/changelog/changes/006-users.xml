@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      Portal users + which broker "books" each user may see.
+      Portable types only (BIGINT / VARCHAR / TIMESTAMP / BOOLEAN) — Postgres + H2.
+      Seed is idempotent via preConditions on the users table (MARK_RAN) so a
+      re-run never duplicates rows.
+    -->
+    <changeSet id="006-users-tables" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="app_users"/>
+            </not>
+        </preConditions>
+        <createTable tableName="app_users">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="username" type="VARCHAR(64)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="display_name" type="VARCHAR(128)"/>
+            <column name="password_hash" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="role" type="VARCHAR(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createTable tableName="user_books">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="book" type="VARCHAR(16)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint constraintName="uq_user_books_user_book"
+                             tableName="user_books"
+                             columnNames="user_id,book"/>
+        <addForeignKeyConstraint baseTableName="user_books"
+                                 baseColumnNames="user_id"
+                                 constraintName="fk_user_books_user"
+                                 referencedTableName="app_users"
+                                 referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+    </changeSet>
+
+    <!-- Seed: adam (admin, 2 live books) + test (user, demo book). -->
+    <changeSet id="006-users-seed" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <tableIsEmpty tableName="app_users"/>
+        </preConditions>
+        <insert tableName="app_users">
+            <column name="username" value="adam"/>
+            <column name="display_name" value="Adam Adam"/>
+            <column name="password_hash" value="{bcrypt}$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
+            <column name="role" value="ADMIN"/>
+            <column name="created_at" valueDate="2026-08-27T00:00:00"/>
+        </insert>
+        <insert tableName="app_users">
+            <column name="username" value="test"/>
+            <column name="display_name" value="test"/>
+            <column name="password_hash" value="{bcrypt}$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
+            <column name="role" value="USER"/>
+            <column name="created_at" valueDate="2026-08-27T00:00:00"/>
+        </insert>
+        <!-- adam sees both live books (live + glowne/main); test sees demo only -->
+        <insert tableName="user_books">
+            <column name="user_id" valueComputed="(SELECT id FROM app_users WHERE username='adam')"/>
+            <column name="book" value="live"/>
+        </insert>
+        <insert tableName="user_books">
+            <column name="user_id" valueComputed="(SELECT id FROM app_users WHERE username='adam')"/>
+            <column name="book" value="glowne"/>
+        </insert>
+        <insert tableName="user_books">
+            <column name="user_id" valueComputed="(SELECT id FROM app_users WHERE username='test')"/>
+            <column name="book" value="demo"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

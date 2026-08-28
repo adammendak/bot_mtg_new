@@ -43,6 +43,13 @@ public class AccountQueryService {
         return List.of(overview(books.demo()), overview(books.live()), overview(books.glowne()));
     }
 
+    /** Overview filtered to the books the caller may see (non-admin users). */
+    public List<OverviewView> overviewFor(com.adam.server.auth.AppUser user) {
+        return overview().stream()
+                .filter(o -> user == null || user.canSeeBook(o.id()))
+                .toList();
+    }
+
     private OverviewView overview(BrokerClient client) {
         AccountView v = view(client);
         int count = 0;
