@@ -332,17 +332,18 @@ public class CapitalComBrokerClient implements BrokerClient {
     @Override
     public List<BrokerTransaction> transactionHistory(Instant from, Instant to) {
         // Capital.com caps a single broad query to ~100 newest rows and can echo
-        // duplicates when paging. Fetch day-by-day windows (which return complete
-        // data) and deduplicate on the broker reference.
+        // duplicates when paging. So the FULL range (from..to) is walked in
+        // 7-day chunks: every chunk returns complete data, and together the
+        // chunks cover the whole history, not just the last 7 days.
         List<BrokerTransaction> out = new ArrayList<>();
         java.time.ZonedDateTime cursor = java.time.ZonedDateTime.ofInstant(from, java.time.ZoneOffset.UTC);
         java.time.ZonedDateTime end = java.time.ZonedDateTime.ofInstant(to, java.time.ZoneOffset.UTC);
         int guard = 0;
         while (!cursor.isAfter(end) && guard < 4000) {
-            java.time.ZonedDateTime next = cursor.plusDays(1);
+            java.time.ZonedDateTime next = cursor.plusDays(7);
             java.time.ZonedDateTime toDay = next.isAfter(end) ? end : next;
-            List<BrokerTransaction> dayTx = fetchTxWindow(cursor, toDay);
-            out.addAll(dayTx);
+            List<BrokerTransaction> window = fetchTxWindow(cursor, toDay);
+            out.addAll(window);
             cursor = next;
             guard++;
         }

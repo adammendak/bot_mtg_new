@@ -16,7 +16,7 @@ public class AppProperties {
     private final Scan scan = new Scan();
     private final Capital capital = new Capital();
     private String liveAccountName = "bot trading konto";
-    private String glowneAccountName = "";
+    private String glowneAccountName = "Glowne";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;

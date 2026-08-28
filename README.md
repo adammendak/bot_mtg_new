@@ -123,7 +123,9 @@ Live credentials (separate API key; email may match demo):
 
 LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden (the ~10k preferred account). Fintokei accounts are ignored.
 
-"Główne" (main) view uses `GLOWNE_ACCOUNT_NAME` (optional) to pin its account. When unset it picks the preferred / first non-Fintokei account but always skips the live trading account (`LIVE_ACCOUNT_NAME`), so it can never show live data.
+"Główne" (main) view uses `GLOWNE_ACCOUNT_NAME` (defaults to `Glowne`, the main Capital.com account) to pin its account. It always skips the live trading account (`LIVE_ACCOUNT_NAME`), so it can never show live data.
+
+Equity history sync starts from `2020-01-01` and fetches transactions in 7-day windows, so the reconstructed chart covers the whole life of the account (as far back as Capital.com keeps data), not just the last few days.
 
 | Var | Default | Purpose |
 | --- | --- | --- |
