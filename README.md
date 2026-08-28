@@ -121,7 +121,7 @@ Live credentials (separate API key; email may match demo):
 | `CAPITAL_LIVE_PASSWORD` | empty | Live API-key custom password (alias `CAPITAL_LIVE_API_PASSWORD`) |
 | `CAPITAL_LIVE_HOST` | `https://api-capital.backend-capital.com` | Live REST host |
 
-LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden (the ~10k preferred account). Fintokei accounts are ignored. Execution, if ever enabled, is demo-only — not dual-fire.
+LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden (the ~10k preferred account). Fintokei accounts are ignored.
 
 "Główne" (main) view uses `GLOWNE_ACCOUNT_NAME` (optional) to pin its account. When unset it picks the preferred / first non-Fintokei account but always skips the live trading account (`LIVE_ACCOUNT_NAME`), so it can never show live data.
 
@@ -132,9 +132,44 @@ LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden 
 | `AGENT_SIGNAL_WEBHOOK_SECRET` | empty | Cursor automation sender key. Host config only. Never commit. |
 | `TZ` | `Europe/Warsaw` | Scheduler + PP session (`app.scan.zone`) |
 | `SCAN_CRON` | `0 1,16,31,46 * * * *` | Spring 6-field cron: every M15 close, 24/7 Warsaw |
-| `EXECUTION_ENABLED` | `false` | Must be true to place orders (demo book only) |
+| `EXECUTION_ENABLED` | `false` | Must be true to place SDD entries (demo + live `bot trading konto`) |
+| `LIVE_EQUITY_REFUSE` | `5000` | Refuse live execution when equity ≥ this |
+| `LIVE_ACCOUNT_NAME` | `bot trading konto` | Only account allowed to trade live |
+| `DEMO_RISK_PLN` | `10` | Demo risk per entry (~1% of demo) |
+| `HALT_PLN` | `-30` | Demo day P/L halt for new SDD entries |
+| `LIVE_HALT_PLN` | `-18` | Live day P/L halt for new SDD entries |
+| `MIN_DEAL_SIZE` | `0.01` | Minimum per-ticket size; below this, one ticket instead of two |
+| `MAX_OPEN_NAMES` | `4` | Max unique SDD names open per book |
 | `PORT` | Heroku sets this | HTTP bind |
 | `DATABASE_URL` | Heroku Postgres addon | Production JDBC. Local omit this (H2). Never commit. |
+
+## Execution (EXECUTION_ENABLED)
+
+Off by default. When `EXECUTION_ENABLED=true`, the Java bot places SDD-M15 **fullStack**
+entries on both the Capital DEMO and LIVE `bot trading konto` books; **Computron becomes
+audit-only** — it stops polling every 15 minutes and instead reads the `type=execution`
+webhooks (fill / skip with reason) to audit tickets, caps and stops.
+
+Rules:
+
+- Only a **fullStack** signal places. Flip-but-not-fullStack never places, never flattens,
+  never re-scans; the existing signal webhook still pings.
+- **Two separate deals** (two tickets) when the per-ticket size clears `MIN_DEAL_SIZE`;
+  a single ticket otherwise. At **2R** one whole ticket is closed (never `DELETE + size=`,
+  which flattens the whole ticket) and the runner moves to break-even then H1-trails.
+- Stop = 2.5× H1 ATR at entry, no TP at entry. 1R = 1× H1 ATR.
+- Skip when the SDD name is already open; max `MAX_OPEN_NAMES` unique names; no pyramid
+  while a name is open unless 2R is taken and the runner is at BE.
+- Demo risk ~10 PLN (1% of demo); live 1% of the bot-konto equity.
+- Idempotent keyed on `book|symbol|direction|barTime` — a webhook retry or re-scan of the
+  same bar never opens a second entry.
+- Never touches the stocks book (TQQQ / CRCL / SPOT / SHOP).
+
+Enable on Heroku (only when you intend to trade live):
+
+```bash
+heroku config:set EXECUTION_ENABLED=true -a bot-reinvented
+```
 
 ## REST
 

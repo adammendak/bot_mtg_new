@@ -314,7 +314,7 @@ class ScanServiceMockBrokerTest {
                 publisher,
                 new NewsBlackout(props, RestClient.builder(), clock),
                 risk,
-                new ExecutionGate(props, books, risk),
+                new ExecutionGate(props, books, risk, new SddExecutionState(), publisher),
                 accounts,
                 clock,
                 null

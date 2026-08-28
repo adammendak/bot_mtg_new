@@ -4,9 +4,7 @@ import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
 import com.adam.server.broker.Resolution;
-import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.Candle;
-import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import com.adam.server.sdd.NewsBlackout;
 import com.adam.server.sdd.RiskPolicy;
@@ -118,14 +116,8 @@ public class ScanService {
         String glowneHalt = haltFor(glowneView);
 
         if (properties.isExecutionEnabled() && !symbols.isEmpty()) {
-            List<Position> demoOpen = accounts.positions("demo");
-            execution.manageOpen(demoOpen);
-            Account demoAccount = demoAccountFrom(demoView);
-            for (SddScan result : symbols) {
-                if (result.fullStack() || result.flip()) {
-                    execution.maybeEnter(result, demoOpen, demoAccount, blackout, demoHalt);
-                }
-            }
+            execution.executeBook("demo", symbols, demoView, blackout);
+            execution.executeBook("live", symbols, liveView, blackout);
         }
 
         boolean quiet = symbols.stream().noneMatch(s -> s.flip() || s.fullStack());
@@ -229,20 +221,5 @@ public class ScanService {
             return null;
         }
         return risk.dayHalt(view.dayPnl());
-    }
-
-    private static Account demoAccountFrom(AccountView view) {
-        if (!view.connected() || view.equity() == null) {
-            return null;
-        }
-        return new Account(
-                "demo",
-                view.accountName() == null ? "demo" : view.accountName(),
-                view.currency() == null ? "" : view.currency(),
-                view.equity(),
-                view.available() == null ? 0 : view.available(),
-                view.dayPnl() == null ? 0 : view.dayPnl(),
-                true
-        );
     }
 }
