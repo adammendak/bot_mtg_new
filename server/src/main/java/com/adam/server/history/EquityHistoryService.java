@@ -64,7 +64,7 @@ public class EquityHistoryService {
     }
 
     /**
-     * @param book   "demo" or "live"
+     * @param book   "demo", "live" or "glowne"
      * @param replace when true, deletes existing snapshots for the book first
      * @return a short human summary of what was done
      */
@@ -81,14 +81,10 @@ public class EquityHistoryService {
         String accountName = account.name() == null ? book : account.name();
         String currency = account.currency() == null ? "" : account.currency();
 
-        // Latest transaction we already have (as a starting backstop).
-        LocalDate lastKnown = lastSnapshotDate(book);
-        // Capital.com rejects ranges ending "now" — end at yesterday (UTC day boundary
-        // minus a little) and start from the last known snapshot day or a sane fallback.
         LocalDate today = LocalDate.now(ZONE);
-        Instant earliest = lastKnown == null
-                ? Instant.parse("2026-08-20T00:00:00Z")
-                : lastKnown.minusDays(1).atStartOfDay(ZONE).toInstant();
+        // Always fetch from the earliest available window so backfill is complete.
+        // Capital.com rejects ranges ending "now" — end at yesterday.
+        Instant earliest = Instant.parse("2026-08-20T00:00:00Z");
         Instant to = today.minusDays(1).atTime(23, 59, 59).atZone(ZONE).toInstant();
 
         List<BrokerTransaction> tx;
@@ -99,61 +95,63 @@ public class EquityHistoryService {
             return SyncResult.failed("transaction fetch failed: " + e.getClass().getSimpleName());
         }
         log.info("EquityHistory sync [{}]: fetched {} transactions from {} to {}", book, tx.size(), earliest, to);
-        if (tx.isEmpty() && lastKnown != null) {
-            return SyncResult.ok("no new transactions since " + lastKnown, 0, 0);
-        }
         if (tx.isEmpty()) {
             return SyncResult.ok("broker returned no transaction history for " + book, 0, 0);
         }
         log.info("EquityHistory sync [{}]: first tx at {}, last tx at {}", book, tx.get(0).time(), tx.get(tx.size() - 1).time());
 
-        // Group cash impact per day (UTC -> Warsaw).
+        // Group daily P/L (non-deposit) per Warsaw day.
         Map<LocalDate, Double> dailyPnl = new LinkedHashMap<>();
         for (BrokerTransaction t : tx) {
-            LocalDate day = t.time().atZone(ZONE).toLocalDate();
-            double impact = t.amount();
             if ("DEPOSIT".equalsIgnoreCase(t.type()) || "WITHDRAWAL".equalsIgnoreCase(t.type())) {
-                // deposits/withdrawals change equity but are not P/L; keep them in equity only
-                dailyPnl.merge(day, 0.0, Double::sum);
                 continue;
             }
-            dailyPnl.merge(day, impact, Double::sum);
+            LocalDate day = t.time().atZone(ZONE).toLocalDate();
+            dailyPnl.merge(day, t.amount(), Double::sum);
+        }
+        if (dailyPnl.isEmpty()) {
+            return SyncResult.ok("no P/L transactions for " + book, 0, 0);
         }
 
-        // Reconstruct equity backwards from the current balance.
-        List<Map.Entry<LocalDate, Double>> days = new ArrayList<>(dailyPnl.entrySet());
-        days.sort(Map.Entry.comparingByKey());
-        LocalDate firstDay = days.isEmpty() ? LocalDate.now(ZONE) : days.get(0).getKey();
-
-        double[] cumulativeAfter = new double[days.size() + 1];
-        cumulativeAfter[days.size()] = 0;
-        for (int i = days.size() - 1; i >= 0; i--) {
-            cumulativeAfter[i] = cumulativeAfter[i + 1] + days.get(i).getValue();
+        // All days from earliest tx day .. today (fill gaps with 0 P/L).
+        LocalDate firstDay = dailyPnl.keySet().stream().min(LocalDate::compareTo).orElse(today);
+        List<LocalDate> allDays = new ArrayList<>();
+        LocalDate cursor = firstDay;
+        while (!cursor.isAfter(today)) {
+            allDays.add(cursor);
+            cursor = cursor.plusDays(1);
         }
+
+        // P/L after each day (backwards from the end): pnlAfter[i] = sum of daily P/L for days strictly after allDays[i].
+        double[] pnlAfter = new double[allDays.size() + 1];
+        pnlAfter[allDays.size()] = 0;
+        for (int i = allDays.size() - 1; i >= 0; i--) {
+            double day = dailyPnl.getOrDefault(allDays.get(i), 0.0);
+            pnlAfter[i] = pnlAfter[i + 1] + day;
+        }
+        // equity at end of day i = current balance - (P/L realized after that day)
+        // i.e. balance today already includes all P/L up to today; going back, subtract each later day's P/L.
+        // equity(end of day) = balance - pnlAfter[i+1]  (P/L strictly after this day)
+        // dayPnl(end of day) = dailyPnl of that day (the P/L realized during it)
 
         if (replace) {
             snapshots.deleteByBook(book);
         }
 
-        // Walk from first day to today; persist a snapshot for each day.
-        double runningPnl = 0;
-        int dayIndex = 0;
         int written = 0;
         int skipped = 0;
-        LocalDate cursor = firstDay;
-        while (!cursor.isAfter(today)) {
-            // equity at end of this day = current balance - (all P/L strictly after this day)
-            double pnlAfter = dayIndex < days.size() ? cumulativeAfter[dayIndex + 1] : 0;
-            double equity = account.balance() - pnlAfter;
-            if (dayIndex < days.size() && days.get(dayIndex).getKey().equals(cursor)) {
-                runningPnl += days.get(dayIndex).getValue();
-                dayIndex++;
-            }
-            double dayPnl = runningPnl; // P/L realized up to and including this day (approx daily = cumulative diff below)
-
-            boolean exists = lastKnown != null && !cursor.isAfter(lastKnown) && !replace;
+        for (int i = 0; i < allDays.size(); i++) {
+            LocalDate day = allDays.get(i);
+            // Equity at the end of this day = current balance - (P/L that happened strictly AFTER this day).
+            double equity = account.balance() - pnlAfter[i + 1];
+            double dayPnl = dailyPnl.getOrDefault(day, 0.0);
+            // Skip only if a snapshot for this exact day already exists (e.g. from the
+            // 15-min scanner); backfill missing days (24..26 Aug) regardless of the newest row.
+            Instant dayStart = day.atStartOfDay(ZONE).toInstant();
+            Instant dayEnd = day.plusDays(1).atStartOfDay(ZONE).toInstant();
+            boolean exists = !replace && snapshots.existsByBookAndCapturedAtBetween(book, dayStart, dayEnd);
             if (!exists) {
-                if (persistDay(book, client, accountName, currency, cursor, equity, dayPnl)) {
+                if (persistDay(book, client, accountName, currency, day, equity, dayPnl)) {
                     written++;
                 } else {
                     skipped++;
@@ -161,7 +159,6 @@ public class EquityHistoryService {
             } else {
                 skipped++;
             }
-            cursor = cursor.plusDays(1);
         }
 
         return SyncResult.ok("synced " + book + " from " + firstDay + " to " + today, written, skipped);
