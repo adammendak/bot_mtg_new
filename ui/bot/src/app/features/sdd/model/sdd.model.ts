@@ -97,6 +97,24 @@ export interface AccountView {
   error: string | null;
 }
 
+export interface OverviewView {
+  id: string;
+  broker: string;
+  kind: 'DEMO' | 'LIVE' | 'MAIN' | string;
+  displayName: string;
+  accountName: string | null;
+  strategy: string;
+  executionEnabled: boolean;
+  equity: number | null;
+  available: number | null;
+  dayPnl: number | null;
+  currency: string | null;
+  connected: boolean;
+  error: string | null;
+  positionsCount: number;
+  positionsPnl: number | null;
+}
+
 export interface DailyEquityPoint {
   date: string;
   equity: number | null;

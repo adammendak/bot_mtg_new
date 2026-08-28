@@ -5,8 +5,10 @@ import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
 import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.Position;
+import com.adam.server.config.AppProperties;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.web.dto.AccountView;
+import com.adam.server.web.dto.OverviewView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,14 +24,77 @@ public class AccountQueryService {
 
     private final BrokerBooks books;
     private final RiskPolicy risk;
+    private final AppProperties properties;
 
-    public AccountQueryService(BrokerBooks books, RiskPolicy risk) {
+    public AccountQueryService(BrokerBooks books, RiskPolicy risk, AppProperties properties) {
         this.books = books;
         this.risk = risk;
+        this.properties = properties;
     }
 
     public List<AccountView> list() {
         return List.of(view(books.demo()), view(books.live()), view(books.glowne()));
+    }
+
+    /** All books in one row each: account metrics + book kind + strategy + position tally. */
+    public List<OverviewView> overview() {
+        return List.of(overview(books.demo()), overview(books.live()), overview(books.glowne()));
+    }
+
+    private OverviewView overview(BrokerClient client) {
+        AccountView v = view(client);
+        int count = 0;
+        double positionsPnl = 0.0;
+        if (v.connected() && v.equity() != null) {
+            try {
+                for (Position p : client.openPositions()) {
+                    count++;
+                    positionsPnl += p.unrealizedPnl();
+                }
+            } catch (Exception e) {
+                log.warn("Open positions failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
+            }
+        }
+        return new OverviewView(
+                v.id(),
+                v.broker(),
+                kindOf(v.id()),
+                displayNameOf(client),
+                v.accountName(),
+                strategyOf(v.id()),
+                properties.isExecutionEnabled(),
+                v.equity(),
+                v.available(),
+                v.dayPnl(),
+                v.currency(),
+                v.connected(),
+                v.error(),
+                count,
+                count == 0 ? 0.0 : positionsPnl
+        );
+    }
+
+    /** DEMO / LIVE / MAIN — derived from the book id so the UI can badge every row. */
+    static String kindOf(String book) {
+        return switch (book) {
+            case "live" -> "LIVE";
+            case "glowne" -> "MAIN";
+            default -> "DEMO";
+        };
+    }
+
+    /** Human label: broker + environment, with the main book spelled out. */
+    private static String displayNameOf(BrokerClient client) {
+        String base = client.displayName();
+        if ("glowne".equals(client.book())) {
+            return "Główne (main)";
+        }
+        return base;
+    }
+
+    /** The strategy attached to a book; SDD-M15 is the only strategy today. */
+    static String strategyOf(String book) {
+        return "SDD-M15";
     }
 
     public AccountView view(BrokerClient client) {

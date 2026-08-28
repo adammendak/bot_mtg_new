@@ -3,6 +3,7 @@ package com.adam.server.web;
 import com.adam.server.broker.model.Position;
 import com.adam.server.scan.AccountQueryService;
 import com.adam.server.web.dto.AccountView;
+import com.adam.server.web.dto.OverviewView;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,6 +24,12 @@ public class AccountController {
     @GetMapping(value = "/api/accounts", produces = MediaType.APPLICATION_JSON_VALUE)
     public List<AccountView> accounts() {
         return accounts.list();
+    }
+
+    /** All accounts in one view: kind (DEMO/LIVE/MAIN), strategy, positions tally. */
+    @GetMapping(value = "/api/overview", produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<OverviewView> overview() {
+        return accounts.overview();
     }
 
     @GetMapping(value = "/api/positions", produces = MediaType.APPLICATION_JSON_VALUE)
