@@ -138,9 +138,11 @@ class ExecutionPersistenceTest {
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
         ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor);
-        when(demoClient.openPositions()).thenReturn(List.of());
+        Position tp = new Position("dealA", "refA", "DE40", Direction.BUY, 2.0, 100, 97.5, 101.0, 0, "PLN", Instant.now());
+        Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(tp, runner));
 
-        // Same symbol, NEW bar: must be skipped because the name is open from DB.
+        // Same symbol, NEW bar: must be skipped because the name is still open on the broker.
         Instant newBar = bar.plusSeconds(900);
         freshGate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, newBar)),
                 view("demo", 0), false);
@@ -200,7 +202,35 @@ class ExecutionPersistenceTest {
     }
 
     @Test
-    void hydratorMarksTpFilledWhenOnlyRunnerOpen() {
+    void hydratorRemovesEntryWhenBothTicketsGoneEvenIfTpFilledFalse() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenReturn(List.of());
+
+        gate.reloadAndReconcile();
+
+        assertThat(state.get("demo", "GER40")).isNull();
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("closed"),
+                eq("tickets gone (manual or SL)"));
+        verify(monitor).record(eq("demo"), eq("GER40"), eq("closed"), eq("tickets gone (manual or SL)"));
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+    }
+
+    @Test
+    void hydratorRemovesSingleTicketWhenGoneWithoutTpFilled() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", null, false));
+        when(demoClient.openPositions()).thenReturn(List.of());
+
+        gate.reloadAndReconcile();
+
+        assertThat(state.get("demo", "GER40")).isNull();
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("closed"),
+                eq("tickets gone (manual or SL)"));
+    }
+
+    @Test
+    void hydratorKeepsRowWhenOnlyRunnerOpen() {
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
                 100, 1, 97.5, "dealA", "dealB", true));
         Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());

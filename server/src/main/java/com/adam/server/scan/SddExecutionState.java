@@ -23,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * H1-trailed after {@code tpFilled}; may be null when the entry could not split).
  * Idempotency is keyed off {@code book|symbol|direction|barTime} so a webhook retry or
  * a re-scan of the same M15 bar never opens a second entry. A name stays open until
- * BOTH tickets are gone — there is no pyramid / re-entry after 2R.
+ * the broker no longer has this entry's tickets. Idempotency keys survive row removal
+ * so the same bar cannot re-enter; a later fullStack bar can.
  */
 @Component
 public class SddExecutionState {
@@ -121,12 +122,11 @@ public class SddExecutionState {
         repository.save(toEntity(entry));
     }
 
-    /** Write-through: remove the entry and its idempotency key (both tickets gone). */
+    /**
+     * Write-through: drop the in-progress row. The idempotency key is kept so the
+     * same M15 bar cannot re-enter; a later fullStack bar uses a different key.
+     */
     public void remove(String book, String symbol) {
-        Entry e = get(book, symbol);
-        if (e != null) {
-            placedKeys.remove(placedKey(book, symbol, e.direction, e.barTime));
-        }
         Map<String, Entry> m = entries.get(book);
         if (m != null) {
             m.remove(symbol);
