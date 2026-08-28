@@ -30,6 +30,28 @@ cd ui/bot && npm ci && npx ng serve
 
 `mvn -B test` runs Java unit tests (HA, RMA, ATR, PP, SDD gating, mock broker, bean swap). Angular is built on `mvn package` / Heroku compile, not on `mvn test`.
 
+## Dev profile — seeded historical data (performance checks)
+
+The `dev` profile runs against a **persistent file-based H2** (`server/data/botdev`) and
+seeds it with ~2 years of historical data so the equity chart / signals views can be
+performance-tested with a realistic dataset (idempotent — skips when data exists):
+
+```bash
+BROKER=paper ./mvnw -pl server spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+Seeder config in `application-dev.properties`: `app.seed.days` (730), `app.seed.intraday-per-day`
+(0 = daily close only; >1 adds intraday snapshots), `app.seed.demo-start`, `app.seed.live-start`,
+`app.seed.signal-per-day-max`. To reseed, delete `server/data/` and restart.
+
+Connect to the dev DB from IntelliJ: H2 → URL `jdbc:h2:file:<abs path>/server/data/botdev;AUTO_SERVER=TRUE`, user `sa`, empty password.
+
+## Production profile
+
+`application-production.properties` requires `DATABASE_URL` (set by Heroku); it never commits
+the connection URL/password. `HerokuDatabaseEnvironmentPostProcessor` switches H2 → PostgreSQL
+with `sslmode=require` automatically when `DATABASE_URL` is present.
+
 ## Heroku deploy
 
 One web dyno. The in-process scheduler only runs while the web dyno is up (Eco sleeps). Optional backup: Heroku Scheduler `POST /api/scan`.

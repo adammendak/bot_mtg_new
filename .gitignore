@@ -32,3 +32,6 @@ replay_pid*
 # Local-only config with real credentials
 application-local.properties
 **/application-local.properties
+
+# Local H2 file database (dev profile)
+data/
