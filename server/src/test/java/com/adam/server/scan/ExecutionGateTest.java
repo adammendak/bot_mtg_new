@@ -193,6 +193,7 @@ class ExecutionGateTest {
         gate.executeBook("demo", List.of(), view("demo", 0), false);
 
         assertThat(state.get("demo", "GER40")).isNull();
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
     }
 
     @Test
@@ -213,7 +214,8 @@ class ExecutionGateTest {
     void skipWhenNameAlreadyOpen() {
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
                 100, 1, 97.5, "dealA", "dealB", true));
-        when(demoClient.openPositions()).thenReturn(List.of());
+        when(demoClient.openPositions()).thenReturn(List.of(
+                openPos("dealA", "DE40"), openPos("dealB", "DE40")));
 
         gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar.plusSeconds(900))),
                 view("demo", 0), false);
@@ -229,7 +231,11 @@ class ExecutionGateTest {
         seedEntry("XAU", "GOLD");
         seedEntry("US100", "US100");
         seedEntry("EURUSD", "EURUSD");
-        when(demoClient.openPositions()).thenReturn(List.of());
+        when(demoClient.openPositions()).thenReturn(List.of(
+                openPos("d-GER40", "DE40"),
+                openPos("d-XAU", "GOLD"),
+                openPos("d-US100", "US100"),
+                openPos("d-EURUSD", "EURUSD")));
 
         gate.executeBook("demo", List.of(fullStack("BTC", "BTCUSD", Direction.BUY, 100, 1, bar)),
                 view("demo", 0), false);
@@ -354,6 +360,158 @@ class ExecutionGateTest {
         assertThat(state.entriesFor("glowne")).isEmpty();
     }
 
+    @Test
+    void bothTicketsGoneWithoutTpFilledRemovesRowAndAllowsLaterBarEntry() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenReturn(List.of());
+        when(demoClient.placeMarketOrder(any()))
+                .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
+                .thenReturn(new OrderAck("refB", null, "SUBMITTED"));
+        when(demoClient.confirm(anyString()))
+                .thenReturn(new Confirmation("r", "d", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+
+        Instant later = bar.plusSeconds(900);
+        gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, later)),
+                view("demo", 0), false);
+
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("closed"),
+                eq("tickets gone (manual or SL)"));
+        verify(monitor).record(eq("demo"), eq("GER40"), eq("closed"), eq("tickets gone (manual or SL)"));
+        verify(demoClient, times(2)).placeMarketOrder(any());
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("placed"), eq(""));
+        SddExecutionState.Entry e = state.get("demo", "GER40");
+        assertThat(e).isNotNull();
+        assertThat(e.barTime).isEqualTo(later);
+    }
+
+    @Test
+    void onlyTpTicketGoneKeepsRowMarksTpFilledAndBlocksReentry() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenReturn(List.of(openPos("dealB", "DE40")));
+        when(demoClient.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 100, 100, Instant.now()));
+
+        Instant later = bar.plusSeconds(900);
+        gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, later)),
+                view("demo", 0), false);
+
+        SddExecutionState.Entry e = state.get("demo", "GER40");
+        assertThat(e).isNotNull();
+        assertThat(e.tpFilled).isTrue();
+        verify(demoClient, never()).placeMarketOrder(any());
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("tp_fill"), eq(""));
+        verify(monitor).record(eq("demo"), eq("GER40"), eq("tp_closed"), contains("1R"));
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("skip"),
+                contains("name already open"));
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+    }
+
+    @Test
+    void onlyRunnerGoneKeepsRowWhileTpTicketOpen() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenReturn(List.of(openPos("dealA", "DE40")));
+
+        Instant later = bar.plusSeconds(900);
+        gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, later)),
+                view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNotNull();
+        assertThat(state.get("demo", "GER40").tpFilled).isFalse();
+        verify(demoClient, never()).placeMarketOrder(any());
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("tp_fill"), anyString());
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("skip"),
+                contains("name already open"));
+    }
+
+    @Test
+    void singleTicketGoneWithoutTpFilledRemovesRow() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", null, false));
+        when(demoClient.openPositions()).thenReturn(List.of());
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNull();
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("closed"),
+                eq("tickets gone (manual or SL)"));
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+        verify(demoClient, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void sameBarFullStackStillSkippedAfterTicketsVanish() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenReturn(List.of());
+
+        gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
+                view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNull();
+        assertThat(state.alreadyPlaced("demo", "GER40", Direction.BUY, bar)).isTrue();
+        verify(demoClient, never()).placeMarketOrder(any());
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("skip"),
+                contains("duplicate bar already placed"));
+    }
+
+    @Test
+    void neverFlattenNamesAreNotRemovedEvenWhenTicketsGone() {
+        state.put(new SddExecutionState.Entry("demo", "SPOT", "SPOT", Direction.BUY, bar,
+                100, 1, 97.5, "tq1", "tq2", true));
+        when(demoClient.openPositions()).thenReturn(List.of());
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(state.get("demo", "SPOT")).isNotNull();
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+        verify(demoClient, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
+        verify(demoClient, never()).placeMarketOrder(any());
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+    }
+
+    @Test
+    void strayTicketOnSameEpicAndDirectionKeepsRow() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenReturn(List.of(openPos("stray", "DE40")));
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNotNull();
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+    }
+
+    @Test
+    void emptyPositionsGlitchThenTicketsReappearKeepsRow() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions())
+                .thenReturn(List.of())
+                .thenReturn(List.of(openPos("dealA", "DE40"), openPos("dealB", "DE40")));
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNotNull();
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+    }
+
+    @Test
+    void positionsFetchFailureDoesNotDropRow() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        when(demoClient.openPositions()).thenThrow(new RuntimeException("capital down"));
+
+        gate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(state.get("demo", "GER40")).isNotNull();
+        verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+    }
+
     // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
@@ -361,6 +519,10 @@ class ExecutionGateTest {
     private void seedEntry(String symbol, String epic) {
         state.put(new SddExecutionState.Entry("demo", symbol, epic, Direction.BUY, bar,
                 100, 1, 97.5, "d-" + symbol, "d2-" + symbol, true));
+    }
+
+    private static Position openPos(String dealId, String epic) {
+        return new Position(dealId, "r", epic, Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
     }
 
     private static SddScan fullStack(String symbol, String epic, Direction dir, double entry,

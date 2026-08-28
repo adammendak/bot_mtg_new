@@ -44,10 +44,12 @@ import java.util.Set;
  *       then H1-trailed: the stop only ratchets in the trade's favour, never worse
  *       than the original 2.5× stop. Implemented with PUT stopLevel, not trailingStop.</li>
  *   <li>Single-ticket entry: that one deal gets stop 2.5× AND 1R TP PUT together; when
- *       it is gone on the broker the row is deleted.</li>
+ *       it is gone on the broker the row is deleted (even if {@code tpFilled} is false).</li>
  *   <li>Skip if the SDD name is already open (broker positions + persisted rows); max 4
- *       unique SDD names per book. NO pyramid while a name is open — blocked until BOTH
- *       tickets are gone.</li>
+ *       unique SDD names per book. NO pyramid while a name is open — blocked until the
+ *       broker no longer has this entry's tickets. Manual close / SL / TP all drop the
+ *       row so a later M15 fullStack can place again. A stray open position on the same
+ *       epic+direction still keeps the row. Same-bar idempotency is unchanged.</li>
  *   <li>Demo ~10 PLN (DEMO_RISK_PLN); live 1% of the bot-konto equity. Day-P/L halt for
  *       new entries: demo −30, live −18 (per book).</li>
  *   <li>Idempotent keyed on {@code book|symbol|direction|barTime} — a webhook retry or
@@ -108,36 +110,12 @@ public class ExecutionGate {
             if (client == null || !client.configured()) {
                 continue;
             }
-            List<Position> open = safeOpenPositions(client);
-            for (SddExecutionState.Entry entry : new ArrayList<>(state.entriesFor(book))) {
-                if (risk.neverFlatten(entry.epic)) {
-                    continue;
-                }
-                Position posA = findOpen(open, entry.epic, entry.ticketA);
-                Position posB = findOpen(open, entry.epic, entry.ticketB);
-                if (entry.twoTickets) {
-                    boolean tpGone = !entry.tpFilled && posA == null && posB != null;
-                    if (tpGone) {
-                        entry.tpFilled = true;
-                        state.update(entry);
-                        log.info("SDD reconcile {} {}: TP ticket gone, runner trails", book, entry.symbol);
-                    }
-                    // Both tickets gone — only drop the row once the TP ticket was
-                    // confirmed filled, so a momentary positions glitch never forgets
-                    // an entry (and never lets a duplicate re-enter).
-                    boolean bothGone = entry.tpFilled && posA == null && posB == null;
-                    if (bothGone) {
-                        state.remove(book, entry.symbol);
-                        log.info("SDD reconcile {} {}: both tickets gone, row removed", book, entry.symbol);
-                    }
-                } else {
-                    // single ticket: gone -> done
-                    if (posA == null) {
-                        state.remove(book, entry.symbol);
-                        log.info("SDD reconcile {} {}: single ticket gone, row removed", book, entry.symbol);
-                    }
-                }
+            List<Position> open = fetchOpenPositionsOrNull(client);
+            if (open == null) {
+                log.warn("SDD reconcile {}: positions unavailable, leaving rows", book);
+                continue;
             }
+            applyBrokerTruth(client, open, false);
         }
     }
 
@@ -156,9 +134,13 @@ public class ExecutionGate {
         }
         boolean live = "live".equals(client.book());
         Account account = resolveAccount(client, live);
-        List<Position> open = safeOpenPositions(client);
-
-        manageOpen(client, open);
+        List<Position> open = fetchOpenPositionsOrNull(client);
+        if (open == null) {
+            log.warn("Open positions unavailable for {}; not reconciling entries", book);
+            open = List.of();
+        } else {
+            manageOpen(client, open);
+        }
 
         String halt = view == null || view.dayPnl() == null ? null : risk.dayHalt(view.dayPnl(), live);
 
@@ -351,23 +333,51 @@ public class ExecutionGate {
     /**
      * For each tracked entry: when the TP ticket (ticketA) is gone on the broker it took
      * its 1R — the runner (ticketB) keeps the original 2.5× stop and starts H1-trailing.
-     * The runner's stop is NEVER moved to break-even or amended to entry. A single-ticket
-     * entry that is gone is removed. Positions that are not tracked SDD names
-     * (TQQQ/CRCL/SPOT/SHOP etc.) are never touched.
+     * The runner's stop is NEVER moved to break-even or amended to entry. When the broker
+     * no longer has any of this entry's tickets (and no stray epic+direction position
+     * remains), the row is removed even if {@code tpFilled} is false — so a later M15
+     * fullStack can re-enter after a manual close or SL. Positions that are not tracked
+     * SDD names (TQQQ/CRCL/SPOT/SHOP etc.) are never touched.
      */
     public void manageOpen(BrokerClient client, List<Position> open) {
-        for (SddExecutionState.Entry entry : state.entriesFor(client.book())) {
+        applyBrokerTruth(client, open, true);
+    }
+
+    /**
+     * Broker-truth reconcile: drop a row when its tracked dealIds are gone on two
+     * consecutive position reads and no leftover epic+direction ticket remains.
+     * Does not flatten, place, or touch neverFlatten / Glowne. {@code trailRunners}
+     * is true on the scan path (1R webhook + H1 trail) and false on hydrate.
+     */
+    private void applyBrokerTruth(BrokerClient client, List<Position> open, boolean trailRunners) {
+        if (open == null) {
+            return;
+        }
+        List<Position> confirm = null;
+        boolean confirmFailed = false;
+        for (SddExecutionState.Entry entry : new ArrayList<>(state.entriesFor(client.book()))) {
             if (risk.neverFlatten(entry.epic)) {
                 continue;
             }
             try {
-                if (!entry.twoTickets) {
-                    // single ticket: gone -> done, row removed.
-                    Position pos = findOpen(open, entry.epic, entry.ticketA);
-                    if (pos == null && entry.tpFilled) {
-                        state.remove(entry.book, entry.symbol);
-                        log.info("SDD manage {} {}: single ticket gone, removed", client.book(), entry.symbol);
+                if (trackedTicketsGone(open, entry) && !hasOpenOnEpicAndDirection(open, entry)) {
+                    if (!confirmFailed && confirm == null) {
+                        List<Position> second = fetchOpenPositionsOrNull(client);
+                        if (second == null) {
+                            confirmFailed = true;
+                        } else {
+                            confirm = second;
+                        }
                     }
+                    if (confirmFailed) {
+                        continue;
+                    }
+                    if (trackedTicketsGone(confirm, entry) && !hasOpenOnEpicAndDirection(confirm, entry)) {
+                        dropClosedEntry(entry);
+                        continue;
+                    }
+                }
+                if (!entry.twoTickets) {
                     continue;
                 }
                 Position posA = findOpen(open, entry.epic, entry.ticketA);
@@ -376,23 +386,19 @@ public class ExecutionGate {
                     // TP ticket took its 1R — start trailing the runner, keep its stop.
                     entry.tpFilled = true;
                     state.update(entry);
-                    webhooks.publishExecution(client.book(), entry.symbol,
-                            entry.direction == null ? null : entry.direction.name(), "tp_fill", "");
-                    monitor.record(client.book(), entry.symbol, "tp_closed",
-                            "TP ticket took 1R; runner trailing from stop " + entry.stop);
+                    if (trailRunners) {
+                        webhooks.publishExecution(client.book(), entry.symbol,
+                                entry.direction == null ? null : entry.direction.name(), "tp_fill", "");
+                        monitor.record(client.book(), entry.symbol, "tp_closed",
+                                "TP ticket took 1R; runner trailing from stop " + entry.stop);
+                    }
                     log.info("SDD manage {} {}: TP ticket gone, runner trails", client.book(), entry.symbol);
                 }
                 if (posB == null) {
-                    // runner gone too — only drop the row once we've confirmed the TP
-                    // ticket was already filled (otherwise positions may be momentarily
-                    // unavailable and we'd forget the entry / allow a duplicate re-entry).
-                    if (posA == null && entry.tpFilled) {
-                        state.remove(entry.book, entry.symbol);
-                        log.info("SDD manage {} {}: both tickets gone, removed", client.book(), entry.symbol);
-                    }
+                    // runner gone, TP still open — keep the row (do not re-enter).
                     continue;
                 }
-                if (entry.tpFilled && entry.ticketB != null) {
+                if (trailRunners && entry.tpFilled && entry.ticketB != null) {
                     trailRunner(client, entry, posB);
                     if (!entry.trailing) {
                         entry.trailing = true;
@@ -406,6 +412,42 @@ public class ExecutionGate {
                 log.warn("Manage failed for {} {}: {}", client.book(), entry.symbol, e.getClass().getSimpleName());
             }
         }
+    }
+
+    private void dropClosedEntry(SddExecutionState.Entry entry) {
+        boolean vanishedWithoutTp = !entry.tpFilled;
+        String book = entry.book;
+        String symbol = entry.symbol;
+        String dir = entry.direction == null ? null : entry.direction.name();
+        state.remove(book, symbol);
+        if (vanishedWithoutTp) {
+            webhooks.publishExecution(book, symbol, dir, "closed", "tickets gone (manual or SL)");
+            monitor.record(book, symbol, "closed", "tickets gone (manual or SL)");
+            log.info("SDD {} {}: tickets gone (manual or SL), row removed", book, symbol);
+        } else {
+            log.info("SDD {} {}: both tickets gone, row removed", book, symbol);
+        }
+    }
+
+    private static boolean trackedTicketsGone(List<Position> open, SddExecutionState.Entry entry) {
+        if (!entry.twoTickets) {
+            return findOpen(open, entry.epic, entry.ticketA) == null;
+        }
+        return findOpen(open, entry.epic, entry.ticketA) == null
+                && findOpen(open, entry.epic, entry.ticketB) == null;
+    }
+
+    private static boolean hasOpenOnEpicAndDirection(List<Position> open, SddExecutionState.Entry entry) {
+        if (open == null || entry.epic == null) {
+            return false;
+        }
+        for (Position p : open) {
+            if (epicMatches(p.epic(), entry.epic)
+                    && (entry.direction == null || p.direction() == entry.direction)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -501,12 +543,17 @@ public class ExecutionGate {
         }
     }
 
-    private List<Position> safeOpenPositions(BrokerClient client) {
+    /**
+     * {@code null} means the broker call failed — callers must not treat that as
+     * "no positions" and drop rows. An empty list is a successful empty book.
+     */
+    private List<Position> fetchOpenPositionsOrNull(BrokerClient client) {
         try {
-            return client.openPositions();
+            List<Position> open = client.openPositions();
+            return open == null ? List.of() : open;
         } catch (Exception e) {
             log.warn("Open positions failed for {}: {}", client.book(), e.getClass().getSimpleName());
-            return List.of();
+            return null;
         }
     }
 }
