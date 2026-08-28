@@ -76,6 +76,7 @@ export interface Position {
   direction: string;
   size: number;
   level: number;
+  stopLevel: number | null;
   unrealizedPnl: number;
 }
 
