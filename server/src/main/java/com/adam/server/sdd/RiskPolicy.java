@@ -1,7 +1,6 @@
 package com.adam.server.sdd;
 
 import com.adam.server.broker.model.Account;
-import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import org.springframework.stereotype.Component;
 
@@ -180,15 +179,6 @@ public class RiskPolicy {
             return "halt day P/L " + dayPnl;
         }
         return null;
-    }
-
-    public boolean pyramidBlocked(String epic, List<Position> open) {
-        for (Position p : open) {
-            if (epic.equalsIgnoreCase(p.epic())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public double riskAmount(Account account, boolean live) {

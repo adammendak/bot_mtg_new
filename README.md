@@ -9,7 +9,7 @@ OAuth2 client remains on the classpath from the original app but is **unused**. 
 - Universe: GER40/DE40, XAU/GOLD, US100, EURUSD, BTC. Not STONKS, not US30.
 - Capital.com candles. Local Heiken Ashi, Wilder RMA 33/133, daily PP with Warsaw 21:00 roll. BTC skips PP.
 - Full stack on a newly closed M15: HA flip + M15 RMA with + H1 with (HA **or** RMA stacked). H4 is a regime note, not an AND filter. H1-supporting (close vs RMA33) is log-only.
-- Stop 2.5× H1 Wilder ATR 14. 1R = 1× ATR. No TP at entry. Scale 50% at 2R then BE + H1 trail. No auto-BE before that. No pyramid while the name is open.
+- Stop 2.5× H1 Wilder ATR 14. 1R = 1× ATR. Hard 1R TP on one of two deals; runner keeps 2.5× stop and H1-trails. No 2R close, no break-even, no pyramid while the name is open.
 - `EXECUTION_ENABLED=false` by default: scan + dashboard + webhooks only.
 - DEMO ~1% (about 10 PLN on a small demo). Halt −30 / hard −50 vs Warsaw day-open P/L.
 - LIVE only account name `bot trading konto` at 1%. Refuse equity ≥ 5000 (preferred later ~10k).
@@ -157,25 +157,36 @@ Rules:
 - Only a **fullStack** signal places. Flip-but-not-fullStack never places, never flattens,
   never re-scans; the existing signal webhook still pings.
 - **Two separate deals** (two tickets) when the per-ticket size clears `MIN_DEAL_SIZE`;
-  a single ticket otherwise. At **2R** one whole ticket is closed (never `DELETE + size=`,
-  which flattens the whole ticket) and the runner moves to break-even then H1-trails.
-- Stop = 2.5× H1 ATR at entry, no TP at entry. 1R = 1× H1 ATR.
-- Skip when the SDD name is already open; max `MAX_OPEN_NAMES` unique names; no pyramid
-  while a name is open unless 2R is taken and the runner is at BE.
-- Demo risk ~10 PLN (1% of demo); live 1% of the bot-konto equity.
+  a single ticket otherwise. **Never** `DELETE + size=` (that flattens a whole ticket) —
+  closes are always `closePosition(id, 0)`.
+- Stop = 2.5× H1 ATR on BOTH deals at entry. 1R = 1× H1 ATR. No broker trailingStop.
+- **Hard 1R TP on ONE deal only** (the TP ticket) right after fill; the other deal
+  (runner) has no TP. Capital quirk: on the TP ticket the stop is PUT together with the
+  profit level (setting profitLevel alone wipes the stop).
+- When the TP ticket is gone on the broker (it took its 1R), the runner **keeps the
+  original 2.5× stop** (never moved to break-even, never amended to entry) and is then
+  **H1-trailed**: the stop only ratchets in the trade's favour, never worse than the
+  original 2.5× stop, via PUT stopLevel (not the trailingStop API).
+- Single-ticket entry: that one deal gets stop + 1R TP PUT together; when it is gone the
+  row is removed.
+- Skip when the SDD name is already open; max `MAX_OPEN_NAMES` unique names; **no pyramid**
+  while a name is open — blocked until BOTH tickets are gone.
+- Demo risk ~10 PLN (`DEMO_RISK_PLN`); live 1% of the bot-konto equity. Day-P/L halt for
+  new entries: demo −30, live −18 (per book).
 - Idempotent keyed on `book|symbol|direction|barTime` — a webhook retry or re-scan of the
   same bar never opens a second entry.
-- Never touches the stocks book (TQQQ / CRCL / SPOT / SHOP).
+- Never touches the stocks book (TQQQ / CRCL / SPOT / SHOP). **Glowne is never executed.**
 
 ### Execution state survives dyno restarts
 
 `SddExecutionState` is persisted in Postgres (table `sdd_execution_entries`, same
 `DATABASE_URL` / Liquibase as `broker_snapshots`); RAM is only a cache. Every transition
-(place, 2R close, runner at BE, remove) is written through, and on `ApplicationReady` the
+(place, TP filled, runner trail, remove) is written through, and on `ApplicationReady` the
 entries are reloaded and reconciled against the broker's open positions — so after a Heroku
-dyno restart the bot still closes **one whole ticket** at 2R (never `DELETE + size=`),
-still trails the runner to BE / H1, and still refuses to re-place the same M15 bar or to
-pyramid a name that is open until 2R is taken and the runner is at BE.
+dyno restart the bot still detects the TP ticket taking 1R, still H1-trails the runner
+(floor = original 2.5× stop), still refuses to re-place the same M15 bar, and never pyramids
+a name until BOTH tickets are gone. Leftover SDD positions opened by Computron before
+persistence (no row in `sdd_execution_entries`) are NOT adopted.
 
 Enable on Heroku (only when you intend to trade live):
 

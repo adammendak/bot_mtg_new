@@ -15,13 +15,15 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * SDD execution entries, per book. RAM is a cache; Postgres is the source of truth
  * (same DATABASE_URL / Liquibase as broker_snapshots). Every transition is written
- * through so a Heroku dyno restart keeps the two-ticket deal ids, the 2R/BE stage
+ * through so a Heroku dyno restart keeps the two-ticket deal ids, the tp/trail
  * flags and the idempotency keys.
  *
- * <p>Each fullStack entry is split into up to two tickets: {@code ticketA} (the one
- * closed whole at 2R) and {@code ticketB} (the runner, stopped to BE then H1-trailed).
+ * <p>Each fullStack entry is split into up to two tickets: {@code ticketA} (the TP
+ * ticket, has the hard 1R profit level) and {@code ticketB} (the runner, no TP,
+ * H1-trailed after {@code tpFilled}; may be null when the entry could not split).
  * Idempotency is keyed off {@code book|symbol|direction|barTime} so a webhook retry or
- * a re-scan of the same M15 bar never opens a second entry.
+ * a re-scan of the same M15 bar never opens a second entry. A name stays open until
+ * BOTH tickets are gone — there is no pyramid / re-entry after 2R.
  */
 @Component
 public class SddExecutionState {
@@ -35,11 +37,11 @@ public class SddExecutionState {
         public final double entry;
         public final double atr;   // 1R = H1 ATR
         public final double stop;  // 2.5 x ATR stop at entry
-        public final String ticketA; // closed whole at 2R
-        public final String ticketB; // runner (BE + H1 trail); may be null if single ticket
+        public final String ticketA; // TP ticket (has the 1R profit level)
+        public final String ticketB; // runner (no TP); may be null if single ticket
         public final boolean twoTickets;
-        public volatile boolean closedAt2R;
-        public volatile boolean runnerAtBe;
+        public volatile boolean tpFilled; // the TP ticket is gone on the broker (took 1R)
+        public volatile boolean trailing; // the runner is being H1-trailed
 
         public Entry(String book, String symbol, String epic, Direction direction, Instant barTime,
                      double entry, double atr, double stop, String ticketA, String ticketB, boolean twoTickets) {
@@ -49,7 +51,7 @@ public class SddExecutionState {
 
         public Entry(String book, String symbol, String epic, Direction direction, Instant barTime,
                      double entry, double atr, double stop, String ticketA, String ticketB, boolean twoTickets,
-                     boolean closedAt2R, boolean runnerAtBe) {
+                     boolean tpFilled, boolean trailing) {
             this.book = book;
             this.symbol = symbol;
             this.epic = epic;
@@ -61,13 +63,13 @@ public class SddExecutionState {
             this.ticketA = ticketA;
             this.ticketB = ticketB;
             this.twoTickets = twoTickets;
-            this.closedAt2R = closedAt2R;
-            this.runnerAtBe = runnerAtBe;
+            this.tpFilled = tpFilled;
+            this.trailing = trailing;
         }
 
-        /** A name whose 2R has already been taken and whose runner is at BE may be re-entered. */
-        public boolean allowsPyramid() {
-            return closedAt2R && runnerAtBe;
+        /** A name is open until BOTH tickets are gone — never allows pyramid/re-entry. */
+        public boolean isNameOpen() {
+            return true;
         }
     }
 
@@ -119,7 +121,7 @@ public class SddExecutionState {
         repository.save(toEntity(entry));
     }
 
-    /** Write-through: remove the entry and its idempotency key (e.g. single ticket closed at 2R). */
+    /** Write-through: remove the entry and its idempotency key (both tickets gone). */
     public void remove(String book, String symbol) {
         Entry e = get(book, symbol);
         if (e != null) {
@@ -132,7 +134,7 @@ public class SddExecutionState {
         repository.deleteByBookAndSymbol(book, symbol);
     }
 
-    /** Write-through: persist a stage change (2R closed, runner at BE). */
+    /** Write-through: persist a stage change (tpFilled / trailing). */
     public void update(Entry entry) {
         repository.deleteByBookAndSymbol(entry.book, entry.symbol);
         repository.save(toEntity(entry));
@@ -142,20 +144,13 @@ public class SddExecutionState {
         return placedKeys.contains(placedKey(book, symbol, direction, barTime));
     }
 
-    /** Unique SDD names currently open per book (from tracked entries, re-entry-eligible excluded). */
+    /** Unique SDD names currently open per book (all tracked entries count). */
     public int openNameCount(String book) {
-        int n = 0;
-        for (Entry e : entriesFor(book)) {
-            if (!e.allowsPyramid()) {
-                n++;
-            }
-        }
-        return n;
+        return entriesFor(book).size();
     }
 
     public boolean isNameOpen(String book, String symbol) {
-        Entry e = get(book, symbol);
-        return e != null && !e.allowsPyramid();
+        return get(book, symbol) != null;
     }
 
     public void clear() {
@@ -184,8 +179,8 @@ public class SddExecutionState {
                     row.getTicketA(),
                     row.getTicketB(),
                     row.isTwoTickets(),
-                    row.isClosedAt2R(),
-                    row.isRunnerAtBe()
+                    row.isTpFilled(),
+                    row.isTrailing()
             );
         } catch (Exception e) {
             return null;
@@ -205,8 +200,8 @@ public class SddExecutionState {
         row.setTicketA(e.ticketA);
         row.setTicketB(e.ticketB);
         row.setTwoTickets(e.twoTickets);
-        row.setClosedAt2R(e.closedAt2R);
-        row.setRunnerAtBe(e.runnerAtBe);
+        row.setTpFilled(e.tpFilled);
+        row.setTrailing(e.trailing);
         row.setCreatedAt(Instant.now());
         return row;
     }

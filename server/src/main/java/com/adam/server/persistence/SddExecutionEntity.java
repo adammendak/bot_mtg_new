@@ -11,7 +11,7 @@ import java.time.Instant;
 
 /**
  * Persisted SDD execution state so a Heroku dyno restart keeps the two-ticket
- * deal ids, the 2R/BE stage flags and the idempotency keys. RAM stays the cache;
+ * deal ids, the tp/trail flags and the idempotency keys. RAM stays the cache;
  * every state transition is written through to this table.
  */
 @Entity
@@ -53,11 +53,11 @@ public class SddExecutionEntity {
     @Column(name = "two_tickets", nullable = false)
     private boolean twoTickets;
 
-    @Column(name = "closed_at_2r", nullable = false)
-    private boolean closedAt2R;
+    @Column(name = "tp_filled", nullable = false)
+    private boolean tpFilled;
 
-    @Column(name = "runner_at_be", nullable = false)
-    private boolean runnerAtBe;
+    @Column(name = "trailing", nullable = false)
+    private boolean trailing;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -158,20 +158,20 @@ public class SddExecutionEntity {
         this.twoTickets = twoTickets;
     }
 
-    public boolean isClosedAt2R() {
-        return closedAt2R;
+    public boolean isTpFilled() {
+        return tpFilled;
     }
 
-    public void setClosedAt2R(boolean closedAt2R) {
-        this.closedAt2R = closedAt2R;
+    public void setTpFilled(boolean tpFilled) {
+        this.tpFilled = tpFilled;
     }
 
-    public boolean isRunnerAtBe() {
-        return runnerAtBe;
+    public boolean isTrailing() {
+        return trailing;
     }
 
-    public void setRunnerAtBe(boolean runnerAtBe) {
-        this.runnerAtBe = runnerAtBe;
+    public void setTrailing(boolean trailing) {
+        this.trailing = trailing;
     }
 
     public Instant getCreatedAt() {

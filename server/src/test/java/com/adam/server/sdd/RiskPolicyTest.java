@@ -1,11 +1,9 @@
 package com.adam.server.sdd;
 
 import com.adam.server.broker.model.Account;
-import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.List;
 
 import static com.adam.server.broker.Direction.BUY;
@@ -90,12 +88,5 @@ class RiskPolicyTest {
         assertThat(risk.neverFlatten("SPOT")).isTrue();
         assertThat(risk.neverFlatten("SHOP")).isTrue();
         assertThat(risk.neverFlatten("DE40")).isFalse();
-    }
-
-    @Test
-    void noPyramidWhileOpen() {
-        Position open = new Position("d", "r", "DE40", BUY, 1, 1, 0.5, null, 0, "PLN", Instant.now());
-        assertThat(risk.pyramidBlocked("DE40", List.of(open))).isTrue();
-        assertThat(risk.pyramidBlocked("GOLD", List.of(open))).isFalse();
     }
 }

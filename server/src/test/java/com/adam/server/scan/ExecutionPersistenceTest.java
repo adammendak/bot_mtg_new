@@ -28,6 +28,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,9 +40,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * Persistence of SDD execution state in Postgres: a dyno restart must keep the
- * two-ticket deal ids (so 2R closes ONE whole ticket with closePosition(id, 0) — not
- * size=), the 2R/BE flags, and idempotency (same bar after reload does not place twice;
- * a name open from the DB blocks pyramid until 2R closed && runner at BE).
+ * two-ticket deal ids, the tp/trail flags and idempotency (same bar after reload does
+ * not place twice; a name open from the DB blocks a new bar until BOTH tickets are gone).
+ * The hydrator reconciles tracked entries against open positions and never adopts
+ * leftover SDD positions that have no row in sdd_execution_entries.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -108,28 +111,6 @@ class ExecutionPersistenceTest {
     }
 
     @Test
-    void afterRestartManageOpenStillClosesTicketAWholeAt2RAndBeRunner() {
-        // Simulate a fresh SddExecutionState (new dyno) hydrated from the DB rows.
-        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
-                100, 1, 97.5, "dealA", "dealB", true));
-        SddExecutionState fresh = new SddExecutionState(repository); // restart
-        fresh.loadFromDb();
-
-        Position pos = new Position("dealA", "refA", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 5, "PLN", Instant.now());
-        when(demoClient.openPositions()).thenReturn(List.of(pos));
-        when(demoClient.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103, 103, Instant.now()));
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks);
-
-        freshGate.executeBook("demo", List.of(), view("demo", 0), false);
-
-        // ONE whole ticket closed with NO size — never DELETE + size=
-        verify(demoClient).closePosition("dealA", 0);
-        verify(demoClient).amendPosition("dealB", 100.0, false); // runner to BE
-        assertThat(fresh.get("demo", "GER40").closedAt2R).isTrue();
-        assertThat(fresh.get("demo", "GER40").runnerAtBe).isTrue();
-    }
-
-    @Test
     void sameBarAfterReloadDoesNotPlaceTwice() {
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
                 100, 1, 97.5, "dealA", "dealB", true));
@@ -147,7 +128,7 @@ class ExecutionPersistenceTest {
     }
 
     @Test
-    void nameOpenFromDbBlocksPyramidUntil2rClosedAndRunnerAtBe() {
+    void nameOpenFromDbBlocksNewBarUntilBothTicketsGone() {
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
@@ -166,26 +147,64 @@ class ExecutionPersistenceTest {
     }
 
     @Test
-    void reopenAllowedAfter2rClosedAndRunnerAtBePersisted() {
-        // Mark the persisted entry as 2R closed + runner at BE (pyramid allowed).
+    void afterRestartTpTicketGoneMarksTpFilledAndRunnerTrails() {
+        // Persist a two-ticket entry; the TP ticket (dealA) is gone on the broker,
+        // the runner (dealB) is still open.
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
-                100, 1, 97.5, "dealA", "dealB", true, true, true));
+                100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
         ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks);
+
+        Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(runner));
+        when(demoClient.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 100, 100, Instant.now()));
+
+        freshGate.executeBook("demo", List.of(), view("demo", 0), false);
+
+        assertThat(fresh.get("demo", "GER40").tpFilled).isTrue();
+        // Runner stop never amended to entry/BE (entry=100).
+        verify(demoClient, never()).amendPosition("dealB", 100.0, false);
+    }
+
+    @Test
+    void hydratorIgnoresLeftoverBrokerPositionsWithoutDbRow() {
+        // A Computron-opened SDD position on the broker with NO row in sdd_execution_entries.
+        Position leftover = new Position("zzz", "refZ", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 5, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(leftover));
+
+        gate.reloadAndReconcile();
+
+        // Nothing is adopted, no orders sent, no rows created.
+        assertThat(state.entriesFor("demo")).isEmpty();
+        verify(demoClient, never()).placeMarketOrder(any());
+        verify(demoClient, never()).closePosition(anyString(), anyDouble());
+        verify(demoClient, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
+        verify(repository, never()).save(any(SddExecutionEntity.class));
+    }
+
+    @Test
+    void hydratorRemovesEntryWhenBothTicketsGone() {
+        // TP ticket filled first (runner was trailing), then both vanish.
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true, true, true));
         when(demoClient.openPositions()).thenReturn(List.of());
-        when(demoClient.placeMarketOrder(any()))
-                .thenReturn(new OrderAck("refC", null, "SUBMITTED"))
-                .thenReturn(new OrderAck("refD", null, "SUBMITTED"));
-        when(demoClient.confirm(anyString()))
-                .thenReturn(new com.adam.server.broker.model.Confirmation("r", "d", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
 
-        // A fresh bar on the same name IS allowed when 2R taken + runner at BE.
-        Instant newBar = bar.plusSeconds(900);
-        freshGate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, newBar)),
-                view("demo", 0), false);
+        gate.reloadAndReconcile();
 
-        verify(demoClient, times(2)).placeMarketOrder(any());
+        assertThat(state.get("demo", "GER40")).isNull();
+    }
+
+    @Test
+    void hydratorMarksTpFilledWhenOnlyRunnerOpen() {
+        state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
+                100, 1, 97.5, "dealA", "dealB", true));
+        Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
+        when(demoClient.openPositions()).thenReturn(List.of(runner));
+
+        gate.reloadAndReconcile();
+
+        assertThat(state.get("demo", "GER40").tpFilled).isTrue();
     }
 
     // ------------------------------------------------------------------
