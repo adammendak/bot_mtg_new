@@ -25,7 +25,7 @@ public class BrokerInfoController {
     public Map<String, Object> broker() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionEnabled", properties.isExecutionEnabled());
-        body.put("books", List.of(book(books.demo()), book(books.live())));
+        body.put("books", List.of(book(books.demo()), book(books.live()), book(books.glowne())));
         return body;
     }
 

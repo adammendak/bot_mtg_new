@@ -26,10 +26,23 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
       >
         {{ sdd.busy() ? 'Scanning…' : 'Scan now' }}
       </button>
+      <button
+        type="button"
+        class="btn btn-info btn-sm"
+        (click)="sdd.syncHistory('live', true)"
+        [disabled]="sdd.syncBusy()"
+        title="Rebuild daily equity history from Capital.com live transactions"
+      >
+        {{ sdd.syncBusy() ? 'Syncing…' : 'Sync history' }}
+      </button>
       <button type="button" class="btn btn-outline-secondary btn-sm" (click)="sdd.refresh()">
         Refresh
       </button>
     </div>
+
+    @if (sdd.syncMessage(); as msg) {
+      <div class="alert alert-info py-2">{{ msg }}</div>
+    }
 
     <p class="small text-muted">
       Demo and Live are separate books — P/L is never mixed. Scan runs once (same candles) and is

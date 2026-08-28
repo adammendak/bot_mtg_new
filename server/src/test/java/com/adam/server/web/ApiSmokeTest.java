@@ -101,22 +101,25 @@ class ApiSmokeTest {
         mvc.perform(get("/api/broker"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.executionEnabled").value(false))
-                .andExpect(jsonPath("$.books", hasSize(2)))
+                .andExpect(jsonPath("$.books", hasSize(3)))
                 .andExpect(jsonPath("$.books[0].id").value("demo"))
-                .andExpect(jsonPath("$.books[1].id").value("live"));
+                .andExpect(jsonPath("$.books[1].id").value("live"))
+                .andExpect(jsonPath("$.books[2].id").value("glowne"));
     }
 
     @Test
-    void accountsEndpointReturnsDemoAndLive() throws Exception {
+    void accountsEndpointReturnsAllBooks() throws Exception {
         mvc.perform(get("/api/accounts"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$", hasSize(3)))
                 .andExpect(jsonPath("$[0].id").value("demo"))
                 .andExpect(jsonPath("$[0].connected").value(true))
                 .andExpect(jsonPath("$[0].accountName").value("paper"))
                 .andExpect(jsonPath("$[0].equity").value(1000))
                 .andExpect(jsonPath("$[1].id").value("live"))
-                .andExpect(jsonPath("$[1].connected").value(false));
+                .andExpect(jsonPath("$[1].connected").value(false))
+                .andExpect(jsonPath("$[2].id").value("glowne"))
+                .andExpect(jsonPath("$[2].connected").value(false));
     }
 
     @Test
@@ -125,7 +128,8 @@ class ApiSmokeTest {
         mvc.perform(get("/api/signals")).andExpect(status().isOk());
         mvc.perform(get("/api/positions")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.demo").isArray())
-                .andExpect(jsonPath("$.live").isArray());
+                .andExpect(jsonPath("$.live").isArray())
+                .andExpect(jsonPath("$.glowne").isArray());
         mvc.perform(get("/api/positions").param("account", "demo")).andExpect(status().isOk());
         mvc.perform(get("/api/positions").param("account", "live")).andExpect(status().isOk());
     }
@@ -147,8 +151,9 @@ class ApiSmokeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.brokerId").value("paper"))
                 .andExpect(jsonPath("$.symbols").isArray())
-                .andExpect(jsonPath("$.books", hasSize(2)))
+                .andExpect(jsonPath("$.books", hasSize(3)))
                 .andExpect(jsonPath("$.books[0].id").value("demo"))
-                .andExpect(jsonPath("$.books[1].id").value("live"));
+                .andExpect(jsonPath("$.books[1].id").value("live"))
+                .andExpect(jsonPath("$.books[2].id").value("glowne"));
     }
 }

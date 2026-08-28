@@ -32,7 +32,8 @@ class AccountQueryServiceTest {
     @BeforeEach
     void setUp() {
         AppProperties props = new AppProperties();
-        BrokerBooks books = new BrokerBooks(demo, new UnavailableBrokerClient("live", "test"));
+        BrokerBooks books = new BrokerBooks(demo, new UnavailableBrokerClient("live", "test"),
+                new UnavailableBrokerClient("glowne", "test"));
         service = new AccountQueryService(books, new RiskPolicy(props));
         when(demo.book()).thenReturn("demo");
         when(demo.id()).thenReturn("capital");

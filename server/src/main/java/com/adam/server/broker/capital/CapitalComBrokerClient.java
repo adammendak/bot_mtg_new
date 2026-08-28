@@ -5,6 +5,7 @@ import com.adam.server.broker.BrokerException;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.Resolution;
 import com.adam.server.broker.model.Account;
+import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketPrice;
@@ -327,6 +328,76 @@ public class CapitalComBrokerClient implements BrokerClient {
                 .body(CapitalJson.DealReferenceResponse.class);
         return ack(body);
     }
+
+    @Override
+    public List<BrokerTransaction> transactionHistory(Instant from, Instant to) {
+        // Capital.com caps a single broad query to ~100 newest rows and can echo
+        // duplicates when paging. Fetch day-by-day windows (which return complete
+        // data) and deduplicate on the broker reference.
+        List<BrokerTransaction> out = new ArrayList<>();
+        java.time.ZonedDateTime cursor = java.time.ZonedDateTime.ofInstant(from, java.time.ZoneOffset.UTC);
+        java.time.ZonedDateTime end = java.time.ZonedDateTime.ofInstant(to, java.time.ZoneOffset.UTC);
+        int guard = 0;
+        while (!cursor.isAfter(end) && guard < 4000) {
+            java.time.ZonedDateTime next = cursor.plusDays(1);
+            java.time.ZonedDateTime toDay = next.isAfter(end) ? end : next;
+            List<BrokerTransaction> dayTx = fetchTxWindow(cursor, toDay);
+            out.addAll(dayTx);
+            cursor = next;
+            guard++;
+        }
+        java.util.LinkedHashMap<String, BrokerTransaction> byRef = new java.util.LinkedHashMap<>();
+        for (BrokerTransaction t : out) {
+            if (t.reference() != null && !t.reference().isBlank()) {
+                byRef.putIfAbsent(t.reference(), t);
+            } else {
+                byRef.putIfAbsent(t.time() + "|" + t.type() + "|" + t.amount(), t);
+            }
+        }
+        return new ArrayList<>(byRef.values());
+    }
+
+    private List<BrokerTransaction> fetchTxWindow(java.time.ZonedDateTime from, java.time.ZonedDateTime to) {
+        String fromStr = CAPITAL_TIME.format(from.toLocalDateTime());
+        String toStr = CAPITAL_TIME.format(to.toLocalDateTime());
+        List<BrokerTransaction> window = new ArrayList<>();
+        int page = 0;
+        while (page <= TX_MAX_PAGES) {
+            List<BrokerTransaction> pageTx = fetchTxPage(fromStr, toStr, page);
+            window.addAll(pageTx);
+            if (pageTx.size() < TX_PAGE_SIZE) {
+                break;
+            }
+            page++;
+        }
+        return window;
+    }
+
+    private List<BrokerTransaction> fetchTxPage(String from, String to, int page) {
+        try {
+            String raw = authed()
+                    .get()
+                    .uri(uri -> uri.path("/api/v1/history/transactions")
+                            .queryParam("from", from)
+                            .queryParam("to", to)
+                            .queryParam("pageSize", TX_PAGE_SIZE)
+                            .queryParam("page", page)
+                            .build())
+                    .retrieve()
+                    .body(String.class);
+            return CapitalJson.parseTransactions(raw);
+        } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 400) {
+                log.warn("Capital.com {} transactions rejected range {}..{} (no data or bad range)",
+                        book, from, to);
+                return List.of();
+            }
+            throw wrap("transactions", e);
+        }
+    }
+
+    private static final int TX_PAGE_SIZE = 50;
+    private static final int TX_MAX_PAGES = 20;
 
     @Override
     public List<Position> openPositions() {

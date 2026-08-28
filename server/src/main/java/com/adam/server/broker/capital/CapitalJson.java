@@ -1,10 +1,15 @@
 package com.adam.server.broker.capital;
 
 import com.adam.server.broker.model.Account;
+import com.adam.server.broker.model.BrokerTransaction;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,6 +79,75 @@ final class CapitalJson {
             return code == null ? "" : code;
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /**
+     * Parse the transactions history response ({@code transactions: [...]}).
+     * Each item carries {@code date}, {@code transactionType}, {@code size} (cash
+     * amount in account currency; P/L for TRADE, +/- for DEPOSIT/WITHDRAWAL,
+     * cost for SWAP), {@code instrumentName}, {@code reference}, {@code note}.
+     */
+    static List<BrokerTransaction> parseTransactions(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        JsonNode root;
+        try {
+            root = JSON.readTree(raw);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Capital.com transactions JSON could not be parsed", e);
+        }
+        JsonNode tx = root == null ? null : root.get("transactions");
+        if (tx == null || !tx.isArray()) {
+            return List.of();
+        }
+        List<BrokerTransaction> out = new ArrayList<>();
+        for (JsonNode n : tx) {
+            if (n == null || n.isNull() || !n.isObject()) {
+                continue;
+            }
+            Instant time = parseTxTime(text(n, "dateUtc", "date"));
+            if (time == null) {
+                continue;
+            }
+            String type = text(n, "transactionType", "type");
+            String sizeRaw = stringOf(n.get("size"));
+            double amount = 0;
+            if (sizeRaw != null && !sizeRaw.isBlank()) {
+                try {
+                    amount = Double.parseDouble(sizeRaw);
+                } catch (NumberFormatException ignored) {
+                    // size may be non-numeric for some types
+                }
+            }
+            out.add(new BrokerTransaction(
+                    time,
+                    type == null ? "UNKNOWN" : type,
+                    text(n, "instrumentName", "epic"),
+                    amount,
+                    text(n, "reference", "dealId"),
+                    text(n, "note")
+            ));
+        }
+        return out;
+    }
+
+    private static Instant parseTxTime(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String trimmed = raw.trim().replace(' ', 'T');
+        if (trimmed.endsWith("Z")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        if (trimmed.length() > 19) {
+            trimmed = trimmed.substring(0, 19);
+        }
+        try {
+            return LocalDateTime.parse(trimmed, DateTimeFormatter.ISO_LOCAL_DATE_TIME).toInstant(ZoneOffset.UTC);
+        } catch (Exception e) {
+            return null;
         }
     }
 

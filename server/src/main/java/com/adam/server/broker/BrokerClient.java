@@ -1,6 +1,7 @@
 package com.adam.server.broker;
 
 import com.adam.server.broker.model.Account;
+import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketPrice;
@@ -50,6 +51,15 @@ public interface BrokerClient {
     List<Position> openPositions();
 
     Confirmation confirm(String dealReference);
+
+    /**
+     * Account transaction history in {@code [from, to)} used to reconstruct daily
+     * equity. Returns an empty list when the broker has no history or the adapter
+     * does not support it.
+     */
+    default List<BrokerTransaction> transactionHistory(java.time.Instant from, java.time.Instant to) {
+        return List.of();
+    }
 
     /** demo or live. */
     default String book() {

@@ -112,8 +112,10 @@ public class ScanService {
 
         AccountView demoView = accounts.view(books.demo());
         AccountView liveView = accounts.view(books.live());
+        AccountView glowneView = accounts.view(books.glowne());
         String demoHalt = haltFor(demoView);
         String liveHalt = haltFor(liveView);
+        String glowneHalt = haltFor(glowneView);
 
         if (properties.isExecutionEnabled() && !symbols.isEmpty()) {
             List<Position> demoOpen = accounts.positions("demo");
@@ -132,7 +134,8 @@ public class ScanService {
         }
         List<ScanSnapshot.BookScan> bookScans = List.of(
                 new ScanSnapshot.BookScan(demoView.id(), demoView.broker(), demoHalt, demoView.error()),
-                new ScanSnapshot.BookScan(liveView.id(), liveView.broker(), liveHalt, liveView.error())
+                new ScanSnapshot.BookScan(liveView.id(), liveView.broker(), liveHalt, liveView.error()),
+                new ScanSnapshot.BookScan(glowneView.id(), glowneView.broker(), glowneHalt, glowneView.error())
         );
         ScanSnapshot snapshot = new ScanSnapshot(
                 now,

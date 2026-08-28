@@ -69,7 +69,7 @@ class ScanServiceMockBrokerTest {
         assertThat(snapshot.symbols()).hasSize(5);
         assertThat(snapshot.symbols().stream().map(SddScan::symbol)).containsExactly("GER40", "XAU", "US100", "EURUSD", "BTC");
         assertThat(snapshot.error()).isNull();
-        assertThat(snapshot.books()).hasSize(2);
+        assertThat(snapshot.books()).hasSize(3);
         assertThat(store.last()).isEqualTo(snapshot);
     }
 
@@ -303,7 +303,8 @@ class ScanServiceMockBrokerTest {
     }
 
     private ScanService newService(AppProperties props, Clock clock, ScanStore store, SignalWebhookPublisher publisher) {
-        BrokerBooks books = new BrokerBooks(broker, new UnavailableBrokerClient("live", "test"));
+        BrokerBooks books = new BrokerBooks(broker, new UnavailableBrokerClient("live", "test"),
+                new UnavailableBrokerClient("glowne", "test"));
         RiskPolicy risk = new RiskPolicy(props);
         AccountQueryService accounts = new AccountQueryService(books, risk);
         return new ScanService(
