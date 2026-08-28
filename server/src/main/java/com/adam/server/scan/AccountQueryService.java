@@ -29,15 +29,17 @@ public class AccountQueryService {
     }
 
     public List<AccountView> list() {
-        return List.of(view(books.demo()), view(books.live()));
+        return List.of(view(books.demo()), view(books.live()), view(books.glowne()));
     }
 
     public AccountView view(BrokerClient client) {
         boolean live = "live".equals(client.book());
         if (!client.configured()) {
-            return disconnected(client, live
-                    ? "LIVE not configured (CAPITAL_LIVE_API_KEY / CAPITAL_LIVE_EMAIL / CAPITAL_LIVE_PASSWORD)"
-                    : "DEMO not configured (CAPITAL_API_KEY / CAPITAL_EMAIL / CAPITAL_API_PASSWORD)");
+            return disconnected(client, switch (client.book()) {
+                case "live" -> "LIVE not configured (CAPITAL_LIVE_API_KEY / CAPITAL_LIVE_EMAIL / CAPITAL_LIVE_PASSWORD)";
+                case "glowne" -> "GLOWNE not configured (CAPITAL_GLOWNE_API_KEY / CAPITAL_GLOWNE_EMAIL / CAPITAL_GLOWNE_PASSWORD)";
+                default -> "DEMO not configured (CAPITAL_API_KEY / CAPITAL_EMAIL / CAPITAL_API_PASSWORD)";
+            });
         }
         try {
             if (!client.isSessionOpen()) {
@@ -63,12 +65,13 @@ public class AccountQueryService {
                 trySelect(client, a.id());
                 return connected(client, a);
             }
-            Account demo = risk.pickDemoAccount(accounts);
-            if (demo == null) {
-                return disconnected(client, "no DEMO account");
+            // "glowne" (main) and demo: pick the first non-Fintokei account
+            Account picked = risk.pickDemoAccount(accounts);
+            if (picked == null) {
+                return disconnected(client, "no account available");
             }
-            trySelect(client, demo.id());
-            return connected(client, demo);
+            trySelect(client, picked.id());
+            return connected(client, picked);
         } catch (BrokerException e) {
             log.warn("Account query failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
             return disconnected(client, publicMessage(e));
@@ -96,6 +99,7 @@ public class AccountQueryService {
         Map<String, List<Position>> out = new LinkedHashMap<>();
         out.put("demo", positions("demo"));
         out.put("live", positions("live"));
+        out.put("glowne", positions("glowne"));
         return out;
     }
 

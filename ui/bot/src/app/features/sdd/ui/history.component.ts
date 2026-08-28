@@ -350,7 +350,7 @@ export class HistoryComponent implements OnInit {
     this.select(this.sdd.historyBook());
   }
 
-  select(book: 'demo' | 'live'): void {
+  select(book: 'demo' | 'live' | 'glowne'): void {
     this.hover.set(null);
     this.sdd.loadHistory(book);
   }

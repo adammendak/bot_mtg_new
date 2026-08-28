@@ -29,11 +29,11 @@ export class SddService {
   readonly signals = signal<SddScan[]>([]);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
-  readonly positions = signal<PositionsByBook>({ demo: [], live: [] });
+  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly history = signal<HistoryResponse | null>(null);
-  readonly historyBook = signal<'demo' | 'live'>('demo');
+  readonly historyBook = signal<'demo' | 'live' | 'glowne'>('demo');
   readonly historyError = signal<string | null>(null);
   readonly syncBusy = signal(false);
   readonly syncMessage = signal<string | null>(null);
@@ -42,11 +42,11 @@ export class SddService {
   readonly signalsError = signal<string | null>(null);
   readonly positionsError = signal<string | null>(null);
 
-  account(id: 'demo' | 'live'): AccountView | undefined {
+  account(id: 'demo' | 'live' | 'glowne'): AccountView | undefined {
     return this.accounts().find((a) => a.id === id);
   }
 
-  loadHistory(book: 'demo' | 'live'): void {
+  loadHistory(book: 'demo' | 'live' | 'glowne'): void {
     this.historyBook.set(book);
     this.historyError.set(null);
     this.http.get<HistoryResponse>(`/api/history?book=${book}`).subscribe({
@@ -86,7 +86,7 @@ export class SddService {
     });
     this.positionsError.set(null);
     this.http.get<PositionsByBook>('/api/positions').subscribe({
-      next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [] }),
+      next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [], glowne: p.glowne ?? [] }),
       error: (e) => this.positionsError.set(formatHttpError('/api/positions', e)),
     });
   }
@@ -108,7 +108,7 @@ export class SddService {
   }
 
   /** Rebuild daily equity history from the broker's transaction feed. */
-  syncHistory(book: 'demo' | 'live', replace = false): void {
+  syncHistory(book: 'demo' | 'live' | 'glowne', replace = false): void {
     this.syncBusy.set(true);
     this.syncMessage.set(null);
     this.http

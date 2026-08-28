@@ -12,13 +12,16 @@ public class BrokerBooks {
 
     private final BrokerClient demo;
     private final BrokerClient live;
+    private final BrokerClient glowne;
 
     public BrokerBooks(
             @Qualifier("demoBroker") BrokerClient demo,
-            @Qualifier("liveBroker") BrokerClient live
+            @Qualifier("liveBroker") BrokerClient live,
+            @Qualifier("glowneBroker") BrokerClient glowne
     ) {
         this.demo = demo;
         this.live = live;
+        this.glowne = glowne;
     }
 
     public BrokerClient demo() {
@@ -29,9 +32,16 @@ public class BrokerBooks {
         return live;
     }
 
+    public BrokerClient glowne() {
+        return glowne;
+    }
+
     public BrokerClient forBook(String id) {
         if (id != null && id.equalsIgnoreCase("live")) {
             return live;
+        }
+        if (id != null && (id.equalsIgnoreCase("glowne") || id.equalsIgnoreCase("main"))) {
+            return glowne;
         }
         return demo;
     }

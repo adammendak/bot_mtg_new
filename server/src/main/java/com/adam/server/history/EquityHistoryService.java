@@ -218,9 +218,6 @@ public class EquityHistoryService {
             } else {
                 chosen = risk.pickDemoAccount(accounts);
             }
-            if (chosen == null) {
-                return null;
-            }
             // Must select the account in the session, or the transaction history
             // comes from the session's default (first) account instead.
             try {

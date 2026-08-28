@@ -61,6 +61,21 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("glowneBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalGlowneBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint glowne = properties.getCapital().getGlowne();
+        if (glowne.getHost() == null || glowne.getHost().isBlank()) {
+            glowne.setHost("https://api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "glowne",
+                glowne,
+                "Capital.com GLOWNE credentials are not set (CAPITAL_GLOWNE_API_KEY / CAPITAL_GLOWNE_EMAIL / CAPITAL_GLOWNE_PASSWORD)"
+        );
+    }
+
     @Bean("demoBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperDemoBroker(Clock clock) {
@@ -71,5 +86,11 @@ public class BrokerConfiguration {
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperLivePlaceholder() {
         return new UnavailableBrokerClient("live", "LIVE book is not wired in paper mode");
+    }
+
+    @Bean("glowneBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperGlownePlaceholder() {
+        return new UnavailableBrokerClient("glowne", "GLOWNE book is not wired in paper mode");
     }
 }

@@ -52,7 +52,7 @@ public class EquityHistorySyncJob {
     }
 
     private void syncBoth() {
-        for (String book : new String[]{"live", "demo"}) {
+        for (String book : new String[]{"live", "demo", "glowne"}) {
             try {
                 EquityHistoryService.SyncResult r = service.sync(book, false);
                 log.info("Equity history sync [{}]: {} (written={}, skipped={})",

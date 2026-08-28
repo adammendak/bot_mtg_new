@@ -6,4 +6,9 @@ export const SDD_ROUTES: Routes = [
     loadComponent: () =>
       import('./ui/sdd-dashboard.component').then((m) => m.SddDashboardComponent),
   },
+  {
+    path: 'glowne',
+    loadComponent: () =>
+      import('./ui/glowne-dashboard.component').then((m) => m.GlowneDashboardComponent),
+  },
 ];

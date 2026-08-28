@@ -82,10 +82,11 @@ export interface Position {
 export interface PositionsByBook {
   demo: Position[];
   live: Position[];
+  glowne: Position[];
 }
 
 export interface AccountView {
-  id: 'demo' | 'live' | string;
+  id: 'demo' | 'live' | 'glowne' | string;
   broker: string;
   accountName: string | null;
   equity: number | null;
