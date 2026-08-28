@@ -33,7 +33,7 @@
               data-bs-toggle="dropdown"
               aria-expanded="false"
             >
-              {{ auth.user() }}
+              {{ auth.user()?.displayName ?? auth.user()?.username ?? '…' }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
               <li>
