@@ -11,6 +11,7 @@ import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
 import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
+import com.adam.server.persistence.SddExecutionRepository;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.sdd.SddScan;
 import com.adam.server.web.dto.AccountView;
@@ -71,7 +72,7 @@ class ExecutionGateTest {
         props.setMaxOpenNames(4);
         props.setNewsCalendarUrl("");
         risk = new RiskPolicy(props);
-        state = new SddExecutionState();
+        state = new SddExecutionState(mock(SddExecutionRepository.class));
         books = new BrokerBooks(demoClient, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"));
         gate = new ExecutionGate(props, books, risk, state, webhooks);

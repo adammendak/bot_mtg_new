@@ -165,6 +165,16 @@ Rules:
   same bar never opens a second entry.
 - Never touches the stocks book (TQQQ / CRCL / SPOT / SHOP).
 
+### Execution state survives dyno restarts
+
+`SddExecutionState` is persisted in Postgres (table `sdd_execution_entries`, same
+`DATABASE_URL` / Liquibase as `broker_snapshots`); RAM is only a cache. Every transition
+(place, 2R close, runner at BE, remove) is written through, and on `ApplicationReady` the
+entries are reloaded and reconciled against the broker's open positions — so after a Heroku
+dyno restart the bot still closes **one whole ticket** at 2R (never `DELETE + size=`),
+still trails the runner to BE / H1, and still refuses to re-place the same M15 bar or to
+pyramid a name that is open until 2R is taken and the runner is at BE.
+
 Enable on Heroku (only when you intend to trade live):
 
 ```bash

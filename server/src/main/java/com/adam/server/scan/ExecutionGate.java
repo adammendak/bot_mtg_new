@@ -78,6 +78,46 @@ public class ExecutionGate {
     }
 
     /**
+     * After a dyno restart, reload the persisted entries from Postgres and reconcile
+     * them against the broker's open positions: a tracked ticket that no longer exists
+     * on the broker is treated as closed (marked 2R-closed so it stops being managed;
+     * a single-ticket entry is removed). Never touches the stocks book.
+     * Called on ApplicationReady, before any scan runs.
+     */
+    public void reloadAndReconcile() {
+        state.loadFromDb();
+        for (String book : new String[]{"demo", "live"}) {
+            BrokerClient client = books.forBook(book);
+            if (client == null || !client.configured()) {
+                continue;
+            }
+            List<Position> open = safeOpenPositions(client);
+            List<String> openEpics = new ArrayList<>();
+            for (Position p : open) {
+                if (!risk.neverFlatten(p.epic())) {
+                    openEpics.add(p.epic().toUpperCase());
+                }
+            }
+            for (SddExecutionState.Entry entry : new ArrayList<>(state.entriesFor(book))) {
+                if (risk.neverFlatten(entry.epic)) {
+                    continue;
+                }
+                if (openEpics.contains(entry.epic.toUpperCase())) {
+                    continue; // still open — keep as-is
+                }
+                // Ticket(s) gone on the broker -> entry effectively finished.
+                if (!entry.twoTickets) {
+                    state.remove(book, entry.symbol);
+                } else if (!entry.closedAt2R) {
+                    entry.closedAt2R = true;
+                    entry.runnerAtBe = true; // nothing left to manage
+                    state.update(entry);
+                }
+            }
+        }
+    }
+
+    /**
      * Run execution for one book after a scan. Only fullStack signals place; flip-only
      * signals never place and never flatten. Existing entries are managed first (2R
      * close, BE, H1 trail), then new fullStack signals are considered.
@@ -308,6 +348,7 @@ public class ExecutionGate {
                 client.amendPosition(entry.ticketB, entry.entry, false);
                 entry.runnerAtBe = true;
             }
+            state.update(entry); // write-through: 2R closed + runner at BE survive a restart
             log.info("SDD 2R: closed {} on {} {}, runner to BE", entry.ticketA, client.book(), entry.symbol);
         } else {
             // Single ticket: close it whole (no size) — the whole position takes profit.
