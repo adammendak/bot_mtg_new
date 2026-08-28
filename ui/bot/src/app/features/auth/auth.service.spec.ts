@@ -14,10 +14,18 @@ describe('AuthService', () => {
     expect(service.isAuthenticated()).toBe(false);
   });
 
-  it('logs in with the test user', () => {
+  it('logs in with the admin user', () => {
     expect(service.login('Adam', 'dupa1234')).toBe(true);
     expect(service.isAuthenticated()).toBe(true);
     expect(service.user()).toBe('Adam');
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('logs in with the test user', () => {
+    expect(service.login('test', 'dupa1234')).toBe(true);
+    expect(service.isAuthenticated()).toBe(true);
+    expect(service.user()).toBe('test');
+    expect(service.isAdmin()).toBe(false);
   });
 
   it('rejects wrong credentials', () => {

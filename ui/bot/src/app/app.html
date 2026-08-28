@@ -36,9 +36,11 @@
               <li>
                 <a class="dropdown-item" routerLink="/" routerLinkActive="active">Dashboard</a>
               </li>
-              <li>
-                <a class="dropdown-item" routerLink="/glowne" routerLinkActive="active">Główne konto</a>
-              </li>
+              @if (auth.isAdmin()) {
+                <li>
+                  <a class="dropdown-item" routerLink="/glowne" routerLinkActive="active">Główne konto</a>
+                </li>
+              }
               <li><hr class="dropdown-divider" /></li>
               <li>
                 <a class="dropdown-item text-danger" href="javascript:void(0)" (click)="signOut()">Sign out</a>

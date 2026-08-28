@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { adminGuard } from '../auth/auth.guard';
 
 export const SDD_ROUTES: Routes = [
   {
@@ -8,6 +9,7 @@ export const SDD_ROUTES: Routes = [
   },
   {
     path: 'glowne',
+    canActivate: [adminGuard],
     loadComponent: () =>
       import('./ui/glowne-dashboard.component').then((m) => m.GlowneDashboardComponent),
   },
