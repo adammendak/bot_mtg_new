@@ -52,7 +52,25 @@ interface Bar {
         >
           Live
         </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="sdd.historyBook() === 'glowne'"
+          [class.btn-outline-secondary]="sdd.historyBook() !== 'glowne'"
+          (click)="select('glowne')"
+        >
+          Główne
+        </button>
       </div>
+      <button
+        type="button"
+        class="btn btn-info btn-sm"
+        (click)="sdd.syncAll(true)"
+        [disabled]="sdd.syncBusy()"
+        title="Rebuild daily equity history for Demo, Live and Główne from Capital.com transactions"
+      >
+        {{ sdd.syncBusy() ? 'Syncing…' : 'Sync all' }}
+      </button>
       <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reload()">Refresh</button>
       <div class="ms-2 d-inline-flex align-items-center gap-2 border rounded px-2 py-1">
         <span class="small text-muted">Range:</span>
@@ -81,6 +99,9 @@ interface Bar {
       </div>
     </div>
 
+    @if (sdd.syncMessage()) {
+      <div class="alert alert-info py-2">{{ sdd.syncMessage() }}</div>
+    }
     @if (sdd.historyError()) {
       <div class="alert alert-danger py-2">{{ sdd.historyError() }}</div>
     }
