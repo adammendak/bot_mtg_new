@@ -32,9 +32,9 @@ cd ui/bot && npm ci && npx ng serve
 
 ## Dev profile — seeded historical data (performance checks)
 
-The `dev` profile runs against a **persistent file-based H2** (`server/data/botdev`) and
-seeds it with ~2 years of historical data so the equity chart / signals views can be
-performance-tested with a realistic dataset (idempotent — skips when data exists):
+The `dev` profile runs against an **in-memory H2** (fresh database every start — no file
+locks, no stale credentials) and seeds it with ~2 years of historical data so the equity
+chart / signals views can be performance-tested with a realistic dataset:
 
 ```bash
 BROKER=paper ./mvnw -pl server spring-boot:run -Dspring-boot.run.profiles=dev
@@ -42,15 +42,23 @@ BROKER=paper ./mvnw -pl server spring-boot:run -Dspring-boot.run.profiles=dev
 
 Seeder config in `application-dev.properties`: `app.seed.days` (730), `app.seed.intraday-per-day`
 (0 = daily close only; >1 adds intraday snapshots), `app.seed.demo-start`, `app.seed.live-start`,
-`app.seed.signal-per-day-max`. To reseed, delete `server/data/` and restart.
+`app.seed.signal-per-day-max`. Every start reseeds from scratch (in-memory), so there is nothing
+to clean up — just restart.
 
-Connect to the dev DB from IntelliJ: H2 → URL `jdbc:h2:file:<abs path>/server/data/botdev;AUTO_SERVER=TRUE`, user `sa`, empty password.
+## Equity history sync (Capital.com)
 
-## Production profile
+The app reconstructs daily equity from the broker's transaction history into `broker_snapshots`:
 
-`application-production.properties` requires `DATABASE_URL` (set by Heroku); it never commits
-the connection URL/password. `HerokuDatabaseEnvironmentPostProcessor` switches H2 → PostgreSQL
-with `sslmode=require` automatically when `DATABASE_URL` is present.
+- **Manual**: button "Sync history" on the Dashboard (rebuilds live) or `POST /api/history/sync?book=live&replace=true`
+- **Automatic**: runs on startup and every day at 03:00 Europe/Warsaw (`EquityHistorySyncJob`);
+  disable with `app.history-sync.enabled=false`, change cron with `app.history-sync.cron`
+- Safe: only inserts missing daily rows (never touches existing unless `replace=true`),
+  skips unconfigured books. Capital.com caps a broad query at ~100 rows, so the adapter
+  fetches day-by-day windows and dedupes on the broker reference.
+
+Note: Capital.com only exposes ~a few days of transaction history for an account, so the
+reconstructed equity chart goes back as far as the broker keeps data (verified live: 24–28 Aug
+2026, equity 405 → 440.60 PLN).
 
 ## Heroku deploy
 
