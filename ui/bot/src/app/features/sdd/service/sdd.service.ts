@@ -35,6 +35,8 @@ export class SddService {
   readonly history = signal<HistoryResponse | null>(null);
   readonly historyBook = signal<'demo' | 'live'>('demo');
   readonly historyError = signal<string | null>(null);
+  readonly syncBusy = signal(false);
+  readonly syncMessage = signal<string | null>(null);
   readonly accountsError = signal<string | null>(null);
   readonly scanLoadError = signal<string | null>(null);
   readonly signalsError = signal<string | null>(null);
@@ -103,6 +105,28 @@ export class SddService {
         this.error.set(formatHttpError('/api/scan', e));
       },
     });
+  }
+
+  /** Rebuild daily equity history from the broker's transaction feed. */
+  syncHistory(book: 'demo' | 'live', replace = false): void {
+    this.syncBusy.set(true);
+    this.syncMessage.set(null);
+    this.http
+      .post<{ status: string; message: string; written: number; skipped: number }>(
+        `/api/history/sync?book=${book}&replace=${replace}`,
+        {},
+      )
+      .subscribe({
+        next: (r) => {
+          this.syncBusy.set(false);
+          this.syncMessage.set(`${r.message} (written=${r.written}, skipped=${r.skipped})`);
+          this.refresh();
+        },
+        error: (e) => {
+          this.syncBusy.set(false);
+          this.syncMessage.set(`Sync failed: ${formatHttpError('/api/history/sync', e)}`);
+        },
+      });
   }
 
   private normalizeAccounts(data: AccountView[] | AccountView | null): AccountView[] {

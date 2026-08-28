@@ -54,6 +54,31 @@ interface Bar {
         </button>
       </div>
       <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reload()">Refresh</button>
+      <div class="ms-2 d-inline-flex align-items-center gap-2 border rounded px-2 py-1">
+        <span class="small text-muted">Range:</span>
+        <input
+          type="date"
+          class="form-control form-control-sm"
+          style="width: 9.5rem"
+          [value]="fromDate()"
+          [min]="minDate()"
+          [max]="maxDate()"
+          (input)="onFromInput($event)"
+        />
+        <span class="small text-muted">→</span>
+        <input
+          type="date"
+          class="form-control form-control-sm"
+          style="width: 9.5rem"
+          [value]="toDate()"
+          [min]="minDate()"
+          [max]="maxDate()"
+          (input)="onToInput($event)"
+        />
+        @if (rangeActive()) {
+          <button type="button" class="btn btn-outline-danger btn-sm" (click)="clearRange()">Clear</button>
+        }
+      </div>
     </div>
 
     @if (sdd.historyError()) {
@@ -179,7 +204,7 @@ interface Bar {
         <div class="card shadow-sm">
           <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
             <span>Daily equity</span>
-            <span class="small text-white-50">{{ h.points.length }} days</span>
+            <span class="small text-white-50">{{ visiblePoints().length }} days{{ rangeActive() ? ' (filtered)' : '' }}</span>
           </div>
           <div class="card-body p-0 table-scroll">
             <table class="table table-sm table-striped table-hover mb-0">
@@ -192,7 +217,7 @@ interface Bar {
                 </tr>
               </thead>
               <tbody>
-                @for (row of h.points; track row.date) {
+                @for (row of visiblePoints(); track row.date) {
                   <tr>
                     <td>{{ row.date }}</td>
                     <td class="text-end">{{ fmtNum(row.equity) }}</td>
@@ -307,6 +332,10 @@ export class HistoryComponent implements OnInit {
   readonly sdd = inject(SddService);
   readonly hover = signal<number | null>(null);
 
+  // Custom date-range filter (empty = show all)
+  readonly fromDate = signal<string>('');
+  readonly toDate = signal<string>('');
+
   readonly chartW = 900;
   readonly chartH = 420;
   readonly padL = 72;
@@ -339,7 +368,56 @@ export class HistoryComponent implements OnInit {
   }
 
   private raw(): DailyEquityPoint[] {
-    return this.sdd.history()?.points ?? [];
+    const all = this.sdd.history()?.points ?? [];
+    const from = this.fromDate();
+    const to = this.toDate();
+    if (!from && !to) {
+      return all;
+    }
+    return all.filter((p) => {
+      if (from && p.date < from) {
+        return false;
+      }
+      if (to && p.date > to) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /** Filtered points (respects the custom date range) — used by the table too. */
+  visiblePoints(): DailyEquityPoint[] {
+    return this.raw();
+  }
+
+  rangeActive(): boolean {
+    return !!this.fromDate() || !!this.toDate();
+  }
+
+  onFromInput(ev: Event): void {
+    this.fromDate.set((ev.target as HTMLInputElement).value);
+    this.hover.set(null);
+  }
+
+  onToInput(ev: Event): void {
+    this.toDate.set((ev.target as HTMLInputElement).value);
+    this.hover.set(null);
+  }
+
+  clearRange(): void {
+    this.fromDate.set('');
+    this.toDate.set('');
+    this.hover.set(null);
+  }
+
+  minDate(): string {
+    const all = this.sdd.history()?.points ?? [];
+    return all.length ? all[0].date : '';
+  }
+
+  maxDate(): string {
+    const all = this.sdd.history()?.points ?? [];
+    return all.length ? all[all.length - 1].date : '';
   }
 
   private equityDomain(): [number, number] {

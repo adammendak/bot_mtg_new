@@ -65,4 +65,37 @@ describe('HistoryComponent', () => {
     // cumulative change from 1000 to 1005 = 0.5%
     expect(el.textContent).toContain('0.50%');
   });
+
+  it('filters the chart and table by the custom date range and clears it', async () => {
+    const { fixture } = await setup({
+      book: 'demo',
+      currency: 'PLN',
+      connected: true,
+      points: [
+        { date: '2026-08-01', equity: 1000, dayPnl: 0, pctChange: 0 },
+        { date: '2026-08-02', equity: 1015, dayPnl: 15, pctChange: 1.5 },
+        { date: '2026-08-03', equity: 1005, dayPnl: -10, pctChange: 0.5 },
+      ],
+    });
+    const el = fixture.nativeElement as HTMLElement;
+    const comp = fixture.componentInstance;
+    // no range yet -> all 3 rows
+    expect(el.querySelectorAll('table tbody tr').length).toBe(3);
+    expect(comp.rangeActive()).toBe(false);
+
+    // narrow to one day
+    comp.fromDate.set('2026-08-03');
+    comp.toDate.set('2026-08-03');
+    fixture.detectChanges();
+    expect(el.querySelectorAll('table tbody tr').length).toBe(1);
+    expect(el.textContent).toContain('2026-08-03');
+    expect(comp.rangeActive()).toBe(true);
+    expect(el.querySelector('button[class*="outline-danger"]')).not.toBeNull();
+
+    // clear -> all rows back
+    comp.clearRange();
+    fixture.detectChanges();
+    expect(el.querySelectorAll('table tbody tr').length).toBe(3);
+    expect(comp.rangeActive()).toBe(false);
+  });
 });
