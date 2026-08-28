@@ -95,6 +95,23 @@ public class SignalWebhookPublisher {
     }
 
     /**
+     * Execution feedback to Computron (fill / skip with reason) so it audits tickets
+     * against webhooks, caps and stops instead of polling every 15 minutes.
+     */
+    public void publishExecution(String book, String symbol, String direction,
+                                 String action, String detail) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "execution");
+        body.put("book", book);
+        body.put("symbol", symbol);
+        body.put("direction", direction == null ? null : direction);
+        body.put("action", action == null || action.isBlank() ? "unknown" : action);
+        body.put("detail", detail == null ? "" : detail);
+        body.put("timestamp", Instant.now().toString());
+        postAll(body, "execution");
+    }
+
+    /**
      * Edge-trigger: one failover POST per failed scan tick; {@code scan_ok} only when
      * recovering from a previous hard failure. Per-symbol 404 skips are not failover.
      */

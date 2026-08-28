@@ -118,10 +118,26 @@ public class RiskPolicy {
     }
 
     public String dayHalt(double dayPnl) {
-        if (dayPnl <= properties.getHardHaltPln()) {
+        return dayHalt(dayPnl, properties.getHaltPln(), properties.getHardHaltPln());
+    }
+
+    /**
+     * Per-book day P/L halt gate: returns a non-null reason when new SDD entries
+     * must be halted on that book. Demo uses {@code HALT_PLN} (−30), live uses
+     * {@code LIVE_HALT_PLN} (−18).
+     */
+    public String dayHalt(double dayPnl, boolean live) {
+        if (live) {
+            return dayHalt(dayPnl, properties.getLiveHaltPln(), properties.getHardHaltPln());
+        }
+        return dayHalt(dayPnl);
+    }
+
+    private static String dayHalt(double dayPnl, double halt, double hardHalt) {
+        if (dayPnl <= hardHalt) {
             return "hard halt day P/L " + dayPnl;
         }
-        if (dayPnl <= properties.getHaltPln()) {
+        if (dayPnl <= halt) {
             return "halt day P/L " + dayPnl;
         }
         return null;

@@ -20,6 +20,9 @@ public class AppProperties {
     private double demoRiskPln = 10;
     private double haltPln = -30;
     private double hardHaltPln = -50;
+    private double liveHaltPln = -18;
+    private double minDealSize = 0.01;
+    private int maxOpenNames = 4;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
 
@@ -134,6 +137,30 @@ public class AppProperties {
 
     public void setHardHaltPln(double hardHaltPln) {
         this.hardHaltPln = hardHaltPln;
+    }
+
+    public double getLiveHaltPln() {
+        return liveHaltPln;
+    }
+
+    public void setLiveHaltPln(double liveHaltPln) {
+        this.liveHaltPln = liveHaltPln;
+    }
+
+    public double getMinDealSize() {
+        return minDealSize;
+    }
+
+    public void setMinDealSize(double minDealSize) {
+        this.minDealSize = minDealSize;
+    }
+
+    public int getMaxOpenNames() {
+        return maxOpenNames;
+    }
+
+    public void setMaxOpenNames(int maxOpenNames) {
+        this.maxOpenNames = maxOpenNames;
     }
 
     public String getNewsCalendarUrl() {
