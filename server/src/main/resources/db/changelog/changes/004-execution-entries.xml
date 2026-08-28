@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      Persisted SDD execution state so a Heroku dyno restart keeps the two-ticket
+      deal ids, the 2R/BE stage flags and the idempotency keys.
+      Portable types only (TEXT / DOUBLE PRECISION / TIMESTAMP) — Postgres + H2.
+    -->
+    <changeSet id="004-execution-entries" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="sdd_execution_entries"/>
+            </not>
+        </preConditions>
+        <createTable tableName="sdd_execution_entries">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="book" type="VARCHAR(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="symbol" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="epic" type="VARCHAR(64)"/>
+            <column name="direction" type="VARCHAR(8)"/>
+            <column name="bar_time" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="entry" type="DOUBLE PRECISION"/>
+            <column name="atr_h1" type="DOUBLE PRECISION"/>
+            <column name="stop" type="DOUBLE PRECISION"/>
+            <column name="ticket_a" type="VARCHAR(64)"/>
+            <column name="ticket_b" type="VARCHAR(64)"/>
+            <column name="two_tickets" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="closed_at_2r" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="runner_at_be" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <!-- Idempotency: a webhook retry / re-scan of the same bar never re-enters. -->
+        <createIndex indexName="ux_sdd_exec_book_sym_dir_bar" tableName="sdd_execution_entries" unique="true">
+            <column name="book"/>
+            <column name="symbol"/>
+            <column name="direction"/>
+            <column name="bar_time"/>
+        </createIndex>
+        <createIndex indexName="idx_sdd_exec_book_symbol" tableName="sdd_execution_entries">
+            <column name="book"/>
+            <column name="symbol"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

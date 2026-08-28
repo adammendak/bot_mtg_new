@@ -1,0 +1,213 @@
+package com.adam.server.scan;
+
+import com.adam.server.broker.Direction;
+import com.adam.server.persistence.SddExecutionEntity;
+import com.adam.server.persistence.SddExecutionRepository;
+import org.springframework.stereotype.Component;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * SDD execution entries, per book. RAM is a cache; Postgres is the source of truth
+ * (same DATABASE_URL / Liquibase as broker_snapshots). Every transition is written
+ * through so a Heroku dyno restart keeps the two-ticket deal ids, the 2R/BE stage
+ * flags and the idempotency keys.
+ *
+ * <p>Each fullStack entry is split into up to two tickets: {@code ticketA} (the one
+ * closed whole at 2R) and {@code ticketB} (the runner, stopped to BE then H1-trailed).
+ * Idempotency is keyed off {@code book|symbol|direction|barTime} so a webhook retry or
+ * a re-scan of the same M15 bar never opens a second entry.
+ */
+@Component
+public class SddExecutionState {
+
+    public static class Entry {
+        public final String book;
+        public final String symbol;
+        public final String epic;
+        public final Direction direction;
+        public final Instant barTime;
+        public final double entry;
+        public final double atr;   // 1R = H1 ATR
+        public final double stop;  // 2.5 x ATR stop at entry
+        public final String ticketA; // closed whole at 2R
+        public final String ticketB; // runner (BE + H1 trail); may be null if single ticket
+        public final boolean twoTickets;
+        public volatile boolean closedAt2R;
+        public volatile boolean runnerAtBe;
+
+        public Entry(String book, String symbol, String epic, Direction direction, Instant barTime,
+                     double entry, double atr, double stop, String ticketA, String ticketB, boolean twoTickets) {
+            this(book, symbol, epic, direction, barTime, entry, atr, stop, ticketA, ticketB, twoTickets,
+                    false, false);
+        }
+
+        public Entry(String book, String symbol, String epic, Direction direction, Instant barTime,
+                     double entry, double atr, double stop, String ticketA, String ticketB, boolean twoTickets,
+                     boolean closedAt2R, boolean runnerAtBe) {
+            this.book = book;
+            this.symbol = symbol;
+            this.epic = epic;
+            this.direction = direction;
+            this.barTime = barTime;
+            this.entry = entry;
+            this.atr = atr;
+            this.stop = stop;
+            this.ticketA = ticketA;
+            this.ticketB = ticketB;
+            this.twoTickets = twoTickets;
+            this.closedAt2R = closedAt2R;
+            this.runnerAtBe = runnerAtBe;
+        }
+
+        /** A name whose 2R has already been taken and whose runner is at BE may be re-entered. */
+        public boolean allowsPyramid() {
+            return closedAt2R && runnerAtBe;
+        }
+    }
+
+    private final SddExecutionRepository repository;
+    /** book -> symbol -> entry (RAM cache) */
+    private final Map<String, Map<String, Entry>> entries = new ConcurrentHashMap<>();
+    /** idempotency keys: book|symbol|direction|barTimeEpoch */
+    private final Set<String> placedKeys = ConcurrentHashMap.newKeySet();
+
+    public SddExecutionState(SddExecutionRepository repository) {
+        this.repository = repository;
+    }
+
+    /**
+     * Reload all in-progress entries from the DB (called on ApplicationReady, before
+     * any scan runs). Entries whose tickets are gone on the broker are reconciled
+     * separately by the ExecutionGate; here we only hydrate RAM + idempotency keys.
+     */
+    public void loadFromDb() {
+        entries.clear();
+        placedKeys.clear();
+        for (SddExecutionEntity row : repository.findAll()) {
+            Entry e = toEntry(row);
+            if (e != null) {
+                entries.computeIfAbsent(e.book, k -> new ConcurrentHashMap<>()).put(e.symbol, e);
+                placedKeys.add(placedKey(e.book, e.symbol, e.direction, e.barTime));
+            }
+        }
+    }
+
+    public List<Entry> entriesFor(String book) {
+        Map<String, Entry> m = entries.get(book);
+        if (m == null) {
+            return List.of();
+        }
+        return new ArrayList<>(m.values());
+    }
+
+    public Entry get(String book, String symbol) {
+        Map<String, Entry> m = entries.get(book);
+        return m == null ? null : m.get(symbol);
+    }
+
+    /** Write-through: persist a fresh entry (replacing any previous row for the same book+symbol). */
+    public void put(Entry entry) {
+        entries.computeIfAbsent(entry.book, k -> new ConcurrentHashMap<>()).put(entry.symbol, entry);
+        placedKeys.add(placedKey(entry.book, entry.symbol, entry.direction, entry.barTime));
+        repository.deleteByBookAndSymbol(entry.book, entry.symbol);
+        repository.save(toEntity(entry));
+    }
+
+    /** Write-through: remove the entry and its idempotency key (e.g. single ticket closed at 2R). */
+    public void remove(String book, String symbol) {
+        Entry e = get(book, symbol);
+        if (e != null) {
+            placedKeys.remove(placedKey(book, symbol, e.direction, e.barTime));
+        }
+        Map<String, Entry> m = entries.get(book);
+        if (m != null) {
+            m.remove(symbol);
+        }
+        repository.deleteByBookAndSymbol(book, symbol);
+    }
+
+    /** Write-through: persist a stage change (2R closed, runner at BE). */
+    public void update(Entry entry) {
+        repository.deleteByBookAndSymbol(entry.book, entry.symbol);
+        repository.save(toEntity(entry));
+    }
+
+    public boolean alreadyPlaced(String book, String symbol, Direction direction, Instant barTime) {
+        return placedKeys.contains(placedKey(book, symbol, direction, barTime));
+    }
+
+    /** Unique SDD names currently open per book (from tracked entries, re-entry-eligible excluded). */
+    public int openNameCount(String book) {
+        int n = 0;
+        for (Entry e : entriesFor(book)) {
+            if (!e.allowsPyramid()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    public boolean isNameOpen(String book, String symbol) {
+        Entry e = get(book, symbol);
+        return e != null && !e.allowsPyramid();
+    }
+
+    public void clear() {
+        entries.clear();
+        placedKeys.clear();
+        repository.deleteAll();
+    }
+
+    static String placedKey(String book, String symbol, Direction direction, Instant barTime) {
+        return book + "|" + symbol + "|" + (direction == null ? "?" : direction.name()) + "|"
+                + (barTime == null ? 0 : barTime.toEpochMilli());
+    }
+
+    private static Entry toEntry(SddExecutionEntity row) {
+        try {
+            Direction dir = row.getDirection() == null ? null : Direction.valueOf(row.getDirection());
+            return new Entry(
+                    row.getBook(),
+                    row.getSymbol(),
+                    row.getEpic(),
+                    dir,
+                    row.getBarTime(),
+                    row.getEntry() == null ? 0 : row.getEntry(),
+                    row.getAtrH1() == null ? 0 : row.getAtrH1(),
+                    row.getStop() == null ? 0 : row.getStop(),
+                    row.getTicketA(),
+                    row.getTicketB(),
+                    row.isTwoTickets(),
+                    row.isClosedAt2R(),
+                    row.isRunnerAtBe()
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static SddExecutionEntity toEntity(Entry e) {
+        SddExecutionEntity row = new SddExecutionEntity();
+        row.setBook(e.book);
+        row.setSymbol(e.symbol);
+        row.setEpic(e.epic);
+        row.setDirection(e.direction == null ? null : e.direction.name());
+        row.setBarTime(e.barTime);
+        row.setEntry(e.entry);
+        row.setAtrH1(e.atr);
+        row.setStop(e.stop);
+        row.setTicketA(e.ticketA);
+        row.setTicketB(e.ticketB);
+        row.setTwoTickets(e.twoTickets);
+        row.setClosedAt2R(e.closedAt2R);
+        row.setRunnerAtBe(e.runnerAtBe);
+        row.setCreatedAt(Instant.now());
+        return row;
+    }
+}

@@ -8,6 +8,7 @@ import com.adam.server.broker.UnavailableBrokerClient;
 import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.config.AppProperties;
+import com.adam.server.persistence.SddExecutionRepository;
 import com.adam.server.sdd.NewsBlackout;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.sdd.SddScan;
@@ -37,6 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
@@ -314,7 +316,7 @@ class ScanServiceMockBrokerTest {
                 publisher,
                 new NewsBlackout(props, RestClient.builder(), clock),
                 risk,
-                new ExecutionGate(props, books, risk),
+                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher),
                 accounts,
                 clock,
                 null
