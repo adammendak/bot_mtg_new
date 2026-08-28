@@ -123,6 +123,8 @@ Live credentials (separate API key; email may match demo):
 
 LIVE view only uses account name `bot trading konto`. Equity ≥ 5000 is hidden (the ~10k preferred account). Fintokei accounts are ignored. Execution, if ever enabled, is demo-only — not dual-fire.
 
+"Główne" (main) view uses `GLOWNE_ACCOUNT_NAME` (optional) to pin its account. When unset it picks the preferred / first non-Fintokei account but always skips the live trading account (`LIVE_ACCOUNT_NAME`), so it can never show live data.
+
 | Var | Default | Purpose |
 | --- | --- | --- |
 | `BROKER` | `capital` | `capital` (demo+live Capital beans) or `paper` |

@@ -52,6 +52,31 @@ class RiskPolicyTest {
     }
 
     @Test
+    void glownePickerNeverSelectsLiveTradingAccountEvenWhenPreferred() {
+        Account live = new Account("1", "bot trading konto", "PLN", 4000, 4000, 0, true);
+        Account glowne = new Account("2", "Główne", "PLN", 10_000, 10_000, 0, false);
+        assertThat(risk.pickGlowneAccount(List.of(live, glowne))).isEqualTo(glowne);
+    }
+
+    @Test
+    void glownePickerPrefersConfiguredName() {
+        AppProperties props = new AppProperties();
+        props.setGlowneAccountName("Główne");
+        RiskPolicy pinned = new RiskPolicy(props);
+        Account live = new Account("1", "bot trading konto", "PLN", 4000, 4000, 0, true);
+        Account glowne = new Account("2", "Główne", "PLN", 10_000, 10_000, 0, false);
+        Account other = new Account("3", "extra", "PLN", 500, 500, 0, true);
+        assertThat(pinned.pickGlowneAccount(List.of(live, other, glowne))).isEqualTo(glowne);
+    }
+
+    @Test
+    void glownePickerSkipsFintokei() {
+        Account fintokei = new Account("1", "Fintokei main", "PLN", 100, 100, 0, true);
+        Account glowne = new Account("2", "Główne", "PLN", 10_000, 10_000, 0, false);
+        assertThat(risk.pickGlowneAccount(List.of(fintokei, glowne))).isEqualTo(glowne);
+    }
+
+    @Test
     void dayHaltThresholds() {
         assertThat(risk.dayHalt(-10)).isNull();
         assertThat(risk.dayHalt(-30)).contains("halt");

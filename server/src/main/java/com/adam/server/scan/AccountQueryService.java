@@ -65,8 +65,10 @@ public class AccountQueryService {
                 trySelect(client, a.id());
                 return connected(client, a);
             }
-            // "glowne" (main) and demo: pick the first non-Fintokei account
-            Account picked = risk.pickDemoAccount(accounts);
+            // "glowne" (main) targets its own account; demo picks preferred/first.
+            Account picked = "glowne".equals(client.book())
+                    ? risk.pickGlowneAccount(accounts)
+                    : risk.pickDemoAccount(accounts);
             if (picked == null) {
                 return disconnected(client, "no account available");
             }

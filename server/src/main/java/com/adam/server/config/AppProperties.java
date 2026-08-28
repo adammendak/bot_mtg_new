@@ -16,6 +16,7 @@ public class AppProperties {
     private final Scan scan = new Scan();
     private final Capital capital = new Capital();
     private String liveAccountName = "bot trading konto";
+    private String glowneAccountName = "";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -102,6 +103,14 @@ public class AppProperties {
 
     public void setLiveAccountName(String liveAccountName) {
         this.liveAccountName = liveAccountName;
+    }
+
+    public String getGlowneAccountName() {
+        return glowneAccountName;
+    }
+
+    public void setGlowneAccountName(String glowneAccountName) {
+        this.glowneAccountName = glowneAccountName;
     }
 
     public double getLiveEquityRefuse() {
