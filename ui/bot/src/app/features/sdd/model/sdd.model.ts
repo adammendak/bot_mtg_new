@@ -76,7 +76,9 @@ export interface Position {
   direction: string;
   size: number;
   level: number;
+  stopLevel: number | null;
   unrealizedPnl: number;
+  riskPln: number | null;
 }
 
 export interface PositionsByBook {
@@ -116,6 +118,11 @@ export interface OverviewView {
   maxLossPln: number | null;
   positionsWithoutStop: number;
   riskCurrency: string | null;
+  correlatedPln: number | null;
+  effectiveRiskPln: number | null;
+  haltPln: number | null;
+  hardHaltPln: number | null;
+  remainingToHaltPln: number | null;
 }
 
 export interface DailyEquityPoint {

@@ -135,7 +135,12 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
                 </table>
               </div>
 
-              <h6 class="text-muted text-uppercase small mb-2">Positions</h6>
+              <h6 class="text-muted text-uppercase small mb-2">
+                Positions
+                @if (positionsWithoutStop(book.id) > 0) {
+                  <span class="badge text-bg-danger ms-1" title="Open positions with no stop level">⚠ {{ positionsWithoutStop(book.id) }} bez SL</span>
+                }
+              </h6>
               <div class="table-responsive">
                 <table class="table table-sm table-striped table-hover mb-0">
                   <thead class="table-dark">
@@ -144,27 +149,43 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
                       <th>Dir</th>
                       <th>Size</th>
                       <th>Level</th>
+                      <th>Stop</th>
+                      <th>1R</th>
                       <th>uP/L</th>
                     </tr>
                   </thead>
                   <tbody>
                     @if (sdd.positionsError()) {
                       <tr>
-                        <td colspan="5" class="text-danger text-center">{{ sdd.positionsError() }}</td>
+                        <td colspan="7" class="text-danger text-center">{{ sdd.positionsError() }}</td>
                       </tr>
                     } @else if (positions(book.id).length === 0) {
                       <tr>
-                        <td colspan="5" class="text-muted text-center">brak pozycji</td>
+                        <td colspan="7" class="text-muted text-center">brak pozycji</td>
                       </tr>
                     } @else {
                       @for (p of positions(book.id); track p.dealId) {
-                        <tr>
+                        <tr [class]="p.stopLevel == null ? 'table-warning' : ''" [title]="p.stopLevel == null ? 'Brak stop loss!' : ''">
                           <td>{{ p.epic }}</td>
                           <td>
                             <span class="badge" [class]="dirClass(p.direction)">{{ p.direction }}</span>
                           </td>
                           <td>{{ p.size | number: '1.2-2' }}</td>
                           <td>{{ p.level | number: '1.2-5' }}</td>
+                          <td>
+                            @if (p.stopLevel == null) {
+                              <span class="badge text-bg-danger">brak SL</span>
+                            } @else {
+                              {{ p.stopLevel | number: '1.2-5' }}
+                            }
+                          </td>
+                          <td [class]="p.riskPln != null && p.riskPln > 0 ? 'text-danger fw-semibold' : ''" title="1R w walucie — maks. strata jeśli stop zadziała">
+                            @if (p.riskPln != null) {
+                              {{ p.riskPln | number: '1.2-2' }}
+                            } @else {
+                              <span class="text-muted">—</span>
+                            }
+                          </td>
                           <td [class]="pnlClass(p.unrealizedPnl)">
                             {{ p.unrealizedPnl | number: '1.2-2' }}
                           </td>
@@ -300,6 +321,10 @@ export class SddDashboardComponent implements OnInit {
 
   positions(id: 'demo' | 'live'): Position[] {
     return this.sdd.positions()[id] ?? [];
+  }
+
+  positionsWithoutStop(id: 'demo' | 'live'): number {
+    return this.positions(id).filter((p) => p.stopLevel == null).length;
   }
 
   haltOrError(id: 'demo' | 'live'): string | null {

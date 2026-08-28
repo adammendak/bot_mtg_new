@@ -54,6 +54,8 @@ class ExecutionPersistenceTest {
     @Mock
     SignalWebhookPublisher webhooks;
     @Mock
+    TelegramNotifier telegram;
+    @Mock
     SddExecutionRepository repository;
 
     AppProperties props;
@@ -100,7 +102,7 @@ class ExecutionPersistenceTest {
         state = new SddExecutionState(repository);
         books = new BrokerBooks(demoClient, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"));
-        gate = new ExecutionGate(props, books, risk, state, webhooks);
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram);
 
         when(demoClient.book()).thenReturn("demo");
         when(demoClient.id()).thenReturn("capital");
@@ -116,7 +118,7 @@ class ExecutionPersistenceTest {
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks);
+        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram);
         when(demoClient.openPositions()).thenReturn(List.of());
 
         freshGate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
@@ -133,7 +135,7 @@ class ExecutionPersistenceTest {
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks);
+        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram);
         when(demoClient.openPositions()).thenReturn(List.of());
 
         // Same symbol, NEW bar: must be skipped because the name is open from DB.
@@ -154,7 +156,7 @@ class ExecutionPersistenceTest {
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks);
+        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram);
 
         Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
         when(demoClient.openPositions()).thenReturn(List.of(runner));

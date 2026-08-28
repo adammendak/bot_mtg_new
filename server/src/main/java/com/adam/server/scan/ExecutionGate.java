@@ -68,6 +68,7 @@ public class ExecutionGate {
     private final RiskPolicy risk;
     private final SddExecutionState state;
     private final SignalWebhookPublisher webhooks;
+    private final TelegramNotifier telegram;
     private final Map<String, String> epicToSddName;
 
     public ExecutionGate(
@@ -75,13 +76,15 @@ public class ExecutionGate {
             BrokerBooks books,
             RiskPolicy risk,
             SddExecutionState state,
-            SignalWebhookPublisher webhooks
+            SignalWebhookPublisher webhooks,
+            TelegramNotifier telegram
     ) {
         this.properties = properties;
         this.books = books;
         this.risk = risk;
         this.state = state;
         this.webhooks = webhooks;
+        this.telegram = telegram;
         this.epicToSddName = new LinkedHashMap<>();
         for (SddSymbol symbol : SddSymbol.universe()) {
             epicToSddName.put(symbol.epic(properties).toUpperCase(), symbol.code());
@@ -168,6 +171,11 @@ public class ExecutionGate {
                 webhooks.publishExecution(book, scan.symbol(),
                         scan.direction() == null ? null : scan.direction().name(),
                         "placed", "");
+                double cash = account == null ? 0 : risk.riskAmount(account, live);
+                double size = risk.sizeFor(cash, scan.oneR(), SddEngine.STOP_ATR_MULT);
+                telegram.onFill(book, scan.symbol(),
+                        scan.direction() == null ? null : scan.direction().name(),
+                        size, scan.entry(), scan.stop());
                 log.info("SDD entry placed {} {} {} (tickets recorded)", book, scan.symbol(), scan.direction());
             } else {
                 webhooks.publishExecution(book, scan.symbol(),

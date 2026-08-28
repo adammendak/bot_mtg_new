@@ -88,9 +88,9 @@ export class SddService {
       error: (e) => this.signalsError.set(formatHttpError('/api/signals', e)),
     });
     this.positionsError.set(null);
-    this.http.get<PositionsByBook>('/api/positions').subscribe({
+    this.http.get<PositionsByBook>('/api/positions/risk').subscribe({
       next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [], glowne: p.glowne ?? [] }),
-      error: (e) => this.positionsError.set(formatHttpError('/api/positions', e)),
+      error: (e) => this.positionsError.set(formatHttpError('/api/positions/risk', e)),
     });
   }
 

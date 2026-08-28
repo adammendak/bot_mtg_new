@@ -10,6 +10,7 @@ import com.adam.server.config.AppProperties;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.web.dto.AccountView;
 import com.adam.server.web.dto.OverviewView;
+import com.adam.server.web.dto.PositionRiskView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -49,9 +50,14 @@ public class AccountQueryService {
         double maxLossPln = 0.0;
         int withoutStop = 0;
         String riskCurrency = v.currency();
+        double[] exposure = new double[]{0.0, 0.0};
+        double halt = "live".equals(client.book()) ? properties.getLiveHaltPln() : properties.getHaltPln();
+        double hardHalt = properties.getHardHaltPln();
+        Double remainingToHalt = v.dayPnl() == null ? null : v.dayPnl() - halt;
         if (v.connected() && v.equity() != null) {
             try {
-                for (Position p : client.openPositions()) {
+                List<Position> open = client.openPositions();
+                for (Position p : open) {
                     count++;
                     positionsPnl += p.unrealizedPnl();
                     if (p.stopLevel() == null) {
@@ -69,6 +75,7 @@ public class AccountQueryService {
                         }
                     }
                 }
+                exposure = RiskExposure.compute(open);
             } catch (Exception e) {
                 log.warn("Open positions failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
             }
@@ -91,7 +98,12 @@ public class AccountQueryService {
                 count == 0 ? 0.0 : positionsPnl,
                 maxLossPln,
                 withoutStop,
-                riskCurrency
+                riskCurrency,
+                exposure[0],
+                exposure[1],
+                halt,
+                hardHalt,
+                remainingToHalt
         );
     }
 
@@ -189,6 +201,35 @@ public class AccountQueryService {
         out.put("live", positions("live"));
         out.put("glowne", positions("glowne"));
         return out;
+    }
+
+    /** Open positions with per-position cash risk (1R in currency). */
+    public List<PositionRiskView> positionsWithRisk(String book) {
+        return positions(book).stream()
+                .map(AccountQueryService::withRisk)
+                .toList();
+    }
+
+    public Map<String, List<PositionRiskView>> positionsWithRiskByBook() {
+        Map<String, List<PositionRiskView>> out = new LinkedHashMap<>();
+        out.put("demo", positionsWithRisk("demo"));
+        out.put("live", positionsWithRisk("live"));
+        out.put("glowne", positionsWithRisk("glowne"));
+        return out;
+    }
+
+    private static PositionRiskView withRisk(Position p) {
+        return new PositionRiskView(
+                p.dealId(),
+                p.epic(),
+                p.direction(),
+                p.size(),
+                p.level(),
+                p.stopLevel(),
+                p.unrealizedPnl(),
+                p.currency(),
+                PositionRiskView.riskOf(p.direction(), p.level(), p.stopLevel(), p.size())
+        );
     }
 
     private void trySelect(BrokerClient client, String accountId) {

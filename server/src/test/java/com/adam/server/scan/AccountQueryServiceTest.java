@@ -110,6 +110,14 @@ class AccountQueryServiceTest {
         assertThat(demoRow.maxLossPln()).isEqualTo(100.0);
         assertThat(demoRow.positionsWithoutStop()).isEqualTo(1);
         assertThat(demoRow.riskCurrency()).isEqualTo("PLN");
+        // Correlated exposure: only GER40 carries risk in the equity-index group (US100 no stop -> 0),
+        // so no concentration, effective risk = the 100 PLN worst case.
+        assertThat(demoRow.correlatedPln()).isEqualTo(0.0);
+        assertThat(demoRow.effectiveRiskPln()).isEqualTo(100.0);
+        // Risk budget vs halt: demo halt -30 (default), hard -50; dayPnl 12 -> 42 left to halt.
+        assertThat(demoRow.haltPln()).isEqualTo(-30.0);
+        assertThat(demoRow.hardHaltPln()).isEqualTo(-50.0);
+        assertThat(demoRow.remainingToHaltPln()).isEqualTo(42.0);
         // live/glowne are unconfigured -> disconnected rows still carry kind + strategy
         assertThat(rows.stream().filter(r -> r.id().equals("live")).findFirst().orElseThrow().kind()).isEqualTo("LIVE");
         assertThat(rows.stream().filter(r -> r.id().equals("glowne")).findFirst().orElseThrow().kind()).isEqualTo("MAIN");
