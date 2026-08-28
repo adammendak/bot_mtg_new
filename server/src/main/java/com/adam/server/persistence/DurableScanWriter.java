@@ -38,7 +38,7 @@ public class DurableScanWriter {
     }
 
     @Transactional
-    public void write(ScanSnapshot snapshot, AccountView demo, AccountView live) {
+    public void write(ScanSnapshot snapshot, AccountView demo, AccountView live, AccountView glowne) {
         try {
             SddScanEntity scanRow = new SddScanEntity();
             Instant at = snapshot.scannedAt() == null ? Instant.now() : snapshot.scannedAt();
@@ -71,6 +71,7 @@ public class DurableScanWriter {
             }
             persistBook(demo, at);
             persistBook(live, at);
+            persistBook(glowne, at);
         } catch (Exception e) {
             log.warn("Durable scan write failed");
         }

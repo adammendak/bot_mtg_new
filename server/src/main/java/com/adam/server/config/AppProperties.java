@@ -15,6 +15,7 @@ public class AppProperties {
     private String webhookSecret = "";
     private String telegramBotToken = "";
     private String telegramChatId = "";
+    private String monitorSleepMinutes = "240";
     private final Scan scan = new Scan();
     private final Capital capital = new Capital();
     private String liveAccountName = "bot trading konto";
@@ -108,6 +109,14 @@ public class AppProperties {
 
     public void setTelegramChatId(String telegramChatId) {
         this.telegramChatId = telegramChatId;
+    }
+
+    public String getMonitorSleepMinutes() {
+        return monitorSleepMinutes;
+    }
+
+    public void setMonitorSleepMinutes(String monitorSleepMinutes) {
+        this.monitorSleepMinutes = monitorSleepMinutes;
     }
 
     public boolean telegramConfigured() {

@@ -2,12 +2,16 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   AccountView,
+  AuditEvent,
+  BacktestResult,
   HealthInfo,
   HistoryResponse,
   OverviewView,
+  PositionMonitorView,
   PositionsByBook,
   ScanSnapshot,
   SddScan,
+  SymbolStats,
 } from '../model/sdd.model';
 
 export function formatHttpError(path: string, err: unknown): string {
@@ -44,6 +48,15 @@ export class SddService {
   readonly positionsError = signal<string | null>(null);
   readonly overview = signal<OverviewView[]>([]);
   readonly overviewError = signal<string | null>(null);
+  readonly symbolStats = signal<SymbolStats[]>([]);
+  readonly symbolStatsError = signal<string | null>(null);
+  readonly backtest = signal<BacktestResult[]>([]);
+  readonly backtestError = signal<string | null>(null);
+  readonly backtestBusy = signal(false);
+  readonly audit = signal<AuditEvent[]>([]);
+  readonly monitor = signal<PositionMonitorView[]>([]);
+  readonly monitorError = signal<string | null>(null);
+  readonly actionMessage = signal<string | null>(null);
 
   account(id: 'demo' | 'live' | 'glowne'): AccountView | undefined {
     return this.accounts().find((a) => a.id === id);
@@ -163,6 +176,80 @@ export class SddService {
       next: (o) => this.overview.set(Array.isArray(o) ? o : []),
       error: (e) => this.overviewError.set(formatHttpError('/api/overview', e)),
     });
+  }
+
+  /** #14: per-symbol performance (win rate, expectancy, profit factor). */
+  loadSymbolStats(book: 'demo' | 'live' | 'glowne', days = 0): void {
+    this.symbolStatsError.set(null);
+    this.http.get<SymbolStats[]>(`/api/symbol-stats?book=${book}&days=${days}`).subscribe({
+      next: (s) => this.symbolStats.set(Array.isArray(s) ? s : []),
+      error: (e) => this.symbolStatsError.set(formatHttpError('/api/symbol-stats', e)),
+    });
+  }
+
+  /** #13: run the backtest replay and store results. */
+  runBacktest(book: 'demo' | 'live' | 'glowne', days = 90): void {
+    this.backtestBusy.set(true);
+    this.backtestError.set(null);
+    this.http.get<BacktestResult[]>(`/api/backtest?book=${book}&days=${days}`).subscribe({
+      next: (r) => {
+        this.backtest.set(Array.isArray(r) ? r : []);
+        this.backtestBusy.set(false);
+      },
+      error: (e) => {
+        this.backtestBusy.set(false);
+        this.backtestError.set(formatHttpError('/api/backtest', e));
+      },
+    });
+  }
+
+  /** #6: execution audit timeline. */
+  loadAudit(book?: 'demo' | 'live' | 'glowne'): void {
+    const q = book ? `?book=${book}` : '';
+    this.http.get<AuditEvent[]>(`/api/monitor/audit${q}`).subscribe({
+      next: (a) => this.audit.set(Array.isArray(a) ? a : []),
+      error: () => this.audit.set([]),
+    });
+  }
+
+  /** #8/#9: positions with time-in-position, stop-drift and sleeping flags. */
+  loadMonitor(book: 'demo' | 'live' | 'glowne'): void {
+    this.monitorError.set(null);
+    this.http.get<PositionMonitorView[]>(`/api/monitor?book=${book}`).subscribe({
+      next: (m) => this.monitor.set(Array.isArray(m) ? m : []),
+      error: (e) => this.monitorError.set(formatHttpError('/api/monitor', e)),
+    });
+  }
+
+  /** #7: manual action on a position (demo only). */
+  positionAction(book: 'demo', dealId: string, action: 'close' | 'be' | 'stop', value?: number): void {
+    const param =
+      action === 'close'
+        ? ''
+        : action === 'be'
+          ? `&entry=${value ?? 0}`
+          : `&stop=${value ?? 0}`;
+    this.actionMessage.set(null);
+    this.http.post(`/api/monitor/${action}?book=${book}&dealId=${dealId}${param}`, {}, { responseType: 'text' }).subscribe({
+      next: (r) => {
+        this.actionMessage.set(String(r));
+        this.refresh();
+      },
+      error: (e) => this.actionMessage.set(`Action failed: ${formatHttpError('/api/monitor/' + action, e)}`),
+    });
+  }
+
+  /** #11: live overview via SSE — emits each incoming payload as an OverviewView[]. */
+  liveOverview(onData: (rows: OverviewView[]) => void): () => void {
+    const source = new EventSource('/api/live');
+    source.addEventListener('overview', (ev: MessageEvent) => {
+      try {
+        onData(JSON.parse(ev.data));
+      } catch {
+        /* ignore malformed frame */
+      }
+    });
+    return () => source.close();
   }
 
   private normalizeAccounts(data: AccountView[] | AccountView | null): AccountView[] {

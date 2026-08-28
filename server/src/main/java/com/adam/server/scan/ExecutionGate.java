@@ -69,6 +69,7 @@ public class ExecutionGate {
     private final SddExecutionState state;
     private final SignalWebhookPublisher webhooks;
     private final TelegramNotifier telegram;
+    private final MonitoringService monitor;
     private final Map<String, String> epicToSddName;
 
     public ExecutionGate(
@@ -77,7 +78,8 @@ public class ExecutionGate {
             RiskPolicy risk,
             SddExecutionState state,
             SignalWebhookPublisher webhooks,
-            TelegramNotifier telegram
+            TelegramNotifier telegram,
+            MonitoringService monitor
     ) {
         this.properties = properties;
         this.books = books;
@@ -85,6 +87,7 @@ public class ExecutionGate {
         this.state = state;
         this.webhooks = webhooks;
         this.telegram = telegram;
+        this.monitor = monitor;
         this.epicToSddName = new LinkedHashMap<>();
         for (SddSymbol symbol : SddSymbol.universe()) {
             epicToSddName.put(symbol.epic(properties).toUpperCase(), symbol.code());
@@ -176,11 +179,14 @@ public class ExecutionGate {
                 telegram.onFill(book, scan.symbol(),
                         scan.direction() == null ? null : scan.direction().name(),
                         size, scan.entry(), scan.stop());
+                monitor.record(book, scan.symbol(), "placed",
+                        scan.direction() + " @ " + scan.entry() + " stop " + scan.stop());
                 log.info("SDD entry placed {} {} {} (tickets recorded)", book, scan.symbol(), scan.direction());
             } else {
                 webhooks.publishExecution(book, scan.symbol(),
                         scan.direction() == null ? null : scan.direction().name(),
                         "skip", reason);
+                monitor.record(book, scan.symbol(), "skip", reason);
                 log.info("SDD entry skipped {} {}: {}", book, scan.symbol(), reason);
             }
         }
@@ -372,6 +378,8 @@ public class ExecutionGate {
                     state.update(entry);
                     webhooks.publishExecution(client.book(), entry.symbol,
                             entry.direction == null ? null : entry.direction.name(), "tp_fill", "");
+                    monitor.record(client.book(), entry.symbol, "tp_closed",
+                            "TP ticket took 1R; runner trailing from stop " + entry.stop);
                     log.info("SDD manage {} {}: TP ticket gone, runner trails", client.book(), entry.symbol);
                 }
                 if (posB == null) {
@@ -391,6 +399,7 @@ public class ExecutionGate {
                         state.update(entry);
                         webhooks.publishExecution(client.book(), entry.symbol,
                                 entry.direction == null ? null : entry.direction.name(), "trail", "");
+                        monitor.record(client.book(), entry.symbol, "trail", "H1-trailing started");
                     }
                 }
             } catch (Exception e) {
@@ -418,6 +427,8 @@ public class ExecutionGate {
         if (Math.abs(newStop - currentStop) > 1e-9) {
             client.amendPosition(entry.ticketB, newStop, false);
             log.info("SDD trail {} {} {} → {}", client.book(), entry.symbol, currentStop, newStop);
+            monitor.record(client.book(), entry.symbol, "trail",
+                    "stop " + currentStop + " -> " + newStop);
         }
     }
 

@@ -120,6 +120,15 @@ interface Bar {
             <span class="badge" [class.text-bg-success]="(st.cumPct ?? 0) >= 0" [class.text-bg-danger]="(st.cumPct ?? 0) < 0">
               {{ fmtPct(st.cumPct) }}
             </span>
+            @if (h.maxDrawdownPct != null) {
+              <span class="badge text-bg-danger">max DD {{ fmtPct(h.maxDrawdownPct) }}</span>
+            }
+            @if (h.currentDrawdownPct != null && h.currentDrawdownPct < 0) {
+              <span class="badge text-bg-warning">current DD {{ fmtPct(h.currentDrawdownPct) }}</span>
+            }
+            @if (h.recoveryDays != null) {
+              <span class="badge text-bg-light border">recovery {{ h.recoveryDays }}d</span>
+            }
           }
         </div>
 
