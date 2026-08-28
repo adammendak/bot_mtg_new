@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * Manual trigger for the equity history sync (reconstructs daily equity from the
  * broker's transaction history into {@code broker_snapshots}).
@@ -26,5 +28,12 @@ public class EquityHistoryController {
             @RequestParam(name = "replace", defaultValue = "false") boolean replace
     ) {
         return service.sync(book, replace);
+    }
+
+    @PostMapping(value = "/sync-all", produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<EquityHistoryService.SyncResult> syncAll(
+            @RequestParam(name = "replace", defaultValue = "false") boolean replace
+    ) {
+        return service.syncAll(replace);
     }
 }

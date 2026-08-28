@@ -129,6 +129,30 @@ export class SddService {
       });
   }
 
+  /** Rebuild daily equity history for all books (demo, live, glowne) at once. */
+  syncAll(replace = false): void {
+    this.syncBusy.set(true);
+    this.syncMessage.set(null);
+    this.http
+      .post<{ status: string; message: string; written: number; skipped: number }[]>(
+        `/api/history/sync-all?replace=${replace}`,
+        {},
+      )
+      .subscribe({
+        next: (r) => {
+          this.syncBusy.set(false);
+          this.syncMessage.set(
+            r.map((x) => `${x.status}: ${x.message}`).join(' · ') || 'no sync results',
+          );
+          this.refresh();
+        },
+        error: (e) => {
+          this.syncBusy.set(false);
+          this.syncMessage.set(`Sync all failed: ${formatHttpError('/api/history/sync-all', e)}`);
+        },
+      });
+  }
+
   private normalizeAccounts(data: AccountView[] | AccountView | null): AccountView[] {
     if (data == null) {
       return [];
