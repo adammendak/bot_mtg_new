@@ -212,6 +212,8 @@ public class EquityHistoryService {
                 if (pick.visible()) {
                     chosen = pick.account();
                 }
+            } else if ("glowne".equals(client.book())) {
+                chosen = risk.pickGlowneAccount(accounts);
             } else {
                 chosen = risk.pickDemoAccount(accounts);
             }

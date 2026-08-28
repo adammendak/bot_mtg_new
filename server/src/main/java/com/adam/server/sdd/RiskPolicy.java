@@ -103,6 +103,45 @@ public class RiskPolicy {
         return null;
     }
 
+    /**
+     * "Główne" (main) book pick. Unlike {@link #pickDemoAccount}, this never
+     * selects the live trading account (which lives on the same Capital.com
+     * profile and is flagged preferred there), so the main dashboard cannot
+     * show live data. When {@code GLOWNE_ACCOUNT_NAME} is set, only an account
+     * with that exact name is accepted; otherwise the preferred / first
+     * non-Fintokei account (excluding the live trading account) is used.
+     */
+    public Account pickGlowneAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        String glowneName = properties.getGlowneAccountName();
+        String liveName = properties.getLiveAccountName();
+        Account preferred = null;
+        Account first = null;
+        for (Account a : accounts) {
+            if (isFintokei(a.name())) {
+                continue;
+            }
+            if (glowneName != null && !glowneName.isBlank() && glowneName.equals(a.name())) {
+                return a;
+            }
+            if (liveName != null && liveName.equals(a.name())) {
+                continue;
+            }
+            if (preferred == null && a.preferred()) {
+                preferred = a;
+            }
+            if (first == null) {
+                first = a;
+            }
+        }
+        if (preferred != null) {
+            return preferred;
+        }
+        return first;
+    }
+
     public record LivePick(Account account, String hideReason) {
         static LivePick visible(Account account) {
             return new LivePick(account, null);
