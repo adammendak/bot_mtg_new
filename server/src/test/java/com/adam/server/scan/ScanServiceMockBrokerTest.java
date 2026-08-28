@@ -310,6 +310,7 @@ class ScanServiceMockBrokerTest {
         RiskPolicy risk = new RiskPolicy(props);
         AccountQueryService accounts = new AccountQueryService(books, risk, props);
         TelegramNotifier telegram = new TelegramNotifier(props, RestClient.builder());
+        MonitoringService monitor = new MonitoringService(books, props, clock);
         return new ScanService(
                 books,
                 props,
@@ -317,7 +318,7 @@ class ScanServiceMockBrokerTest {
                 publisher,
                 new NewsBlackout(props, RestClient.builder(), clock),
                 risk,
-                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram),
+                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram, monitor),
                 accounts,
                 clock,
                 null,

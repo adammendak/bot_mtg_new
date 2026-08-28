@@ -53,6 +53,19 @@ class HistoryServiceTest {
         assertThat(history.daily("missing").points()).isEmpty();
     }
 
+    @Test
+    void computesDrawdownMetrics() {
+        brokers.save(snapshot("demo", "EUR", 1000.0, 0.0, Instant.parse("2026-08-01T10:00:00Z")));
+        brokers.save(snapshot("demo", "EUR", 800.0, -200.0, Instant.parse("2026-08-02T10:00:00Z")));
+        brokers.save(snapshot("demo", "EUR", 900.0, 100.0, Instant.parse("2026-08-03T10:00:00Z")));
+
+        HistoryResponse demo = history.daily("demo");
+
+        // Peak 1000 -> trough 800 = 20% max DD; recovered on day 3 (900 >= 1000? no) -> still not recovered.
+        assertThat(demo.maxDrawdownPct()).isCloseTo(20.0, within(0.001));
+        assertThat(demo.currentDrawdownPct()).isCloseTo(10.0, within(0.001));
+    }
+
     private static BrokerSnapshotEntity snapshot(
             String book,
             String currency,

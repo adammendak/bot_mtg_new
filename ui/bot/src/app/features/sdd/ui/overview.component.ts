@@ -13,8 +13,18 @@ import { OverviewView } from '../model/sdd.model';
   template: `
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
       <h2 class="h4 mb-0 me-2">Accounts overview</h2>
+      @if (live()) {
+        <span class="badge text-bg-success" title="Live via SSE">● live</span>
+      }
+      <button type="button" class="btn btn-info btn-sm" (click)="syncAll()" [disabled]="sdd.syncBusy()" title="Odbuduj historię equity dla wszystkich kont">
+        {{ sdd.syncBusy() ? 'Syncing…' : 'Sync all' }}
+      </button>
       <button type="button" class="btn btn-outline-secondary btn-sm" (click)="load()">Refresh</button>
     </div>
+
+    @if (sdd.syncMessage(); as m) {
+      <div class="alert alert-info py-2">{{ m }}</div>
+    }
 
     @if (sdd.overviewError()) {
       <div class="alert alert-danger py-2">{{ sdd.overviewError() }}</div>
@@ -99,6 +109,15 @@ import { OverviewView } from '../model/sdd.model';
                       } @else {
                         <span class="badge text-bg-danger" title="{{ r.error || '' }}">disconnected</span>
                       }
+                      <button
+                        type="button"
+                        class="btn btn-outline-info btn-sm ms-1"
+                        (click)="syncBook(r.id)"
+                        [disabled]="sdd.syncBusy()"
+                        title="Odbuduj historię equity dla {{ r.displayName }}"
+                      >
+                        Sync
+                      </button>
                     </td>
                   </tr>
                 }
@@ -112,13 +131,33 @@ import { OverviewView } from '../model/sdd.model';
 })
 export class OverviewComponent implements OnInit {
   readonly sdd = inject(SddService);
+  private closeSse: (() => void) | null = null;
+  private liveConnected = false;
 
   ngOnInit(): void {
     this.load();
+    this.closeSse = this.sdd.liveOverview((rows) => {
+      if (Array.isArray(rows) && rows.length > 0) {
+        this.sdd.overview.set(rows);
+      }
+    });
+  }
+
+  live(): boolean {
+    return this.liveConnected;
   }
 
   load(): void {
     this.sdd.loadOverview();
+  }
+
+  syncAll(): void {
+    this.sdd.syncAll(true);
+  }
+
+  syncBook(id: string): void {
+    const book = (['demo', 'live', 'glowne'].includes(id) ? id : 'demo') as 'demo' | 'live' | 'glowne';
+    this.sdd.syncHistory(book, true);
   }
 
   rows(): OverviewView[] {

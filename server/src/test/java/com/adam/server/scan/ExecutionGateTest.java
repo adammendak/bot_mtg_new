@@ -58,6 +58,8 @@ class ExecutionGateTest {
     SignalWebhookPublisher webhooks;
     @Mock
     TelegramNotifier telegram;
+    @Mock
+    MonitoringService monitor;
 
     AppProperties props;
     RiskPolicy risk;
@@ -79,7 +81,7 @@ class ExecutionGateTest {
         state = new SddExecutionState(mock(SddExecutionRepository.class));
         books = new BrokerBooks(demoClient, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"));
-        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram);
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor);
 
         when(demoClient.book()).thenReturn("demo");
         when(demoClient.id()).thenReturn("capital");
@@ -280,7 +282,7 @@ class ExecutionGateTest {
         when(liveClient.openPositions()).thenReturn(List.of());
         BrokerBooks liveBooks = new BrokerBooks(demoClient, liveClient,
                 new UnavailableBrokerClient("glowne", "test"));
-        ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram);
+        ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor);
 
         liveGate.executeBook("live", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("live", 0), false);

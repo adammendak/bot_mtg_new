@@ -172,7 +172,7 @@ public class ScanService {
         );
         store.save(snapshot);
         if (durable != null) {
-            durable.write(snapshot, demoView, liveView);
+            durable.write(snapshot, demoView, liveView, glowneView);
         }
         return snapshot;
     }

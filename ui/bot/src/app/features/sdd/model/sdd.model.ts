@@ -137,4 +137,57 @@ export interface HistoryResponse {
   currency: string | null;
   connected: boolean;
   points: DailyEquityPoint[];
+  maxDrawdownPct: number | null;
+  currentDrawdownPct: number | null;
+  recoveryDays: number | null;
+}
+
+export interface SymbolStats {
+  symbol: string;
+  epic: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  expectancy: number;
+  profitFactor: number;
+  enabled: boolean;
+}
+
+export interface BacktestResult {
+  symbol: string;
+  epic: string;
+  signals: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  avgR: number;
+  expectancy: number;
+  profitFactor: number;
+}
+
+export interface AuditEvent {
+  at: string;
+  book: string;
+  symbol: string;
+  action: string;
+  detail: string;
+}
+
+export interface PositionMonitorView {
+  dealId: string;
+  epic: string;
+  direction: string;
+  size: number;
+  level: number;
+  stopLevel: number | null;
+  unrealizedPnl: number;
+  currency: string | null;
+  riskPln: number | null;
+  openMinutes: number;
+  openedAt: string | null;
+  stopDrifted: boolean;
+  sleeping: boolean;
 }

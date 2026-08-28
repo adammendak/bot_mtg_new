@@ -13,6 +13,16 @@ export const SDD_ROUTES: Routes = [
       import('./ui/overview.component').then((m) => m.OverviewComponent),
   },
   {
+    path: 'analytics',
+    loadComponent: () =>
+      import('./ui/analytics.component').then((m) => m.AnalyticsComponent),
+  },
+  {
+    path: 'monitor',
+    loadComponent: () =>
+      import('./ui/monitor.component').then((m) => m.MonitorComponent),
+  },
+  {
     path: 'glowne',
     canActivate: [adminGuard],
     loadComponent: () =>

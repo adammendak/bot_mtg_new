@@ -58,6 +58,66 @@ public class HistoryService {
             points.add(new DailyEquityPoint(entry.getKey(), equity, row.getDayPnl(), pct));
         }
 
-        return new HistoryResponse(book, currency, connected, points);
+        Drawdown dd = Drawdown.of(points);
+        return new HistoryResponse(book, currency, connected, points,
+                dd.maxDrawdownPct(), dd.currentDrawdownPct(), dd.recoveryDays());
+    }
+
+    /** Drawdown metrics computed from the equity series (#15). */
+    record Drawdown(Double maxDrawdownPct, Double currentDrawdownPct, Integer recoveryDays) {
+
+        static Drawdown of(List<DailyEquityPoint> points) {
+            double peak = Double.NaN;
+            double maxDd = 0;
+            double currentDd = 0;
+            int ddStart = -1;
+            int maxDdStart = -1;
+            int maxDdEnd = -1;
+            for (int i = 0; i < points.size(); i++) {
+                Double eq = points.get(i).equity();
+                if (eq == null || !Double.isFinite(eq)) {
+                    continue;
+                }
+                if (Double.isNaN(peak) || eq > peak) {
+                    peak = eq;
+                    ddStart = -1; // new peak, not in drawdown
+                } else if (peak > 0) {
+                    double dd = (peak - eq) / peak * 100.0;
+                    if (ddStart < 0) {
+                        ddStart = i;
+                    }
+                    if (dd > maxDd) {
+                        maxDd = dd;
+                        maxDdStart = ddStart;
+                        maxDdEnd = i;
+                    }
+                    currentDd = dd;
+                }
+            }
+            if (points.isEmpty()) {
+                return new Drawdown(0.0, 0.0, null);
+            }
+            Double maxPct = maxDd <= 0 ? null : round2(maxDd);
+            Double curPct = round2(currentDd);
+            Integer recovery = null;
+            if (maxDdStart >= 0) {
+                // Days from the drawdown trough until equity regains the pre-drawdown peak.
+                Double peakBefore = points.get(maxDdStart - 1 >= 0 ? maxDdStart - 1 : maxDdStart).equity();
+                if (peakBefore != null && maxDdEnd >= 0) {
+                    for (int i = maxDdEnd + 1; i < points.size(); i++) {
+                        Double eq = points.get(i).equity();
+                        if (eq != null && eq >= peakBefore) {
+                            recovery = i - maxDdStart;
+                            break;
+                        }
+                    }
+                }
+            }
+            return new Drawdown(maxPct, curPct, recovery);
+        }
+
+        private static double round2(double v) {
+            return Math.round(v * 100.0) / 100.0;
+        }
     }
 }
