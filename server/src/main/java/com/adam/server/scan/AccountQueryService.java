@@ -49,9 +49,11 @@ public class AccountQueryService {
         double maxLossPln = 0.0;
         int withoutStop = 0;
         String riskCurrency = v.currency();
+        double[] exposure = new double[]{0.0, 0.0};
         if (v.connected() && v.equity() != null) {
             try {
-                for (Position p : client.openPositions()) {
+                List<Position> open = client.openPositions();
+                for (Position p : open) {
                     count++;
                     positionsPnl += p.unrealizedPnl();
                     if (p.stopLevel() == null) {
@@ -69,6 +71,7 @@ public class AccountQueryService {
                         }
                     }
                 }
+                exposure = RiskExposure.compute(open);
             } catch (Exception e) {
                 log.warn("Open positions failed for {} book ({}): {}", client.book(), client.id(), publicMessage(e), e);
             }
@@ -91,7 +94,9 @@ public class AccountQueryService {
                 count == 0 ? 0.0 : positionsPnl,
                 maxLossPln,
                 withoutStop,
-                riskCurrency
+                riskCurrency,
+                exposure[0],
+                exposure[1]
         );
     }
 

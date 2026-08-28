@@ -31,6 +31,8 @@ public record OverviewView(
         Double positionsPnl,
         Double maxLossPln,
         int positionsWithoutStop,
-        String riskCurrency
+        String riskCurrency,
+        Double correlatedPln,
+        Double effectiveRiskPln
 ) {
 }

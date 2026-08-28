@@ -117,6 +117,8 @@ export interface OverviewView {
   maxLossPln: number | null;
   positionsWithoutStop: number;
   riskCurrency: string | null;
+  correlatedPln: number | null;
+  effectiveRiskPln: number | null;
 }
 
 export interface DailyEquityPoint {

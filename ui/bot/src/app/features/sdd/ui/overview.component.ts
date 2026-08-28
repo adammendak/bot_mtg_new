@@ -39,17 +39,19 @@ import { OverviewView } from '../model/sdd.model';
                 <th>uP/L</th>
                 <th>Max loss (stop)</th>
                 <th>No SL</th>
+                <th>Skorelowane</th>
+                <th>Efekt. ryzyko</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               @if (sdd.overviewError()) {
                 <tr>
-                  <td colspan="13" class="text-danger text-center">{{ sdd.overviewError() }}</td>
+                  <td colspan="15" class="text-danger text-center">{{ sdd.overviewError() }}</td>
                 </tr>
               } @else if (rows().length === 0) {
                 <tr>
-                  <td colspan="13" class="text-muted text-center">No accounts configured.</td>
+                  <td colspan="15" class="text-muted text-center">No accounts configured.</td>
                 </tr>
               } @else {
                 @for (r of rows(); track r.id) {
@@ -76,6 +78,8 @@ import { OverviewView } from '../model/sdd.model';
                         <span class="text-muted">0</span>
                       }
                     </td>
+                    <td [class]="riskClass(r.correlatedPln)" title="Skorelowana ekspozycja (np. US100+GER40 w tę samą stronę)">{{ fmt(r.correlatedPln) }}</td>
+                    <td [class]="riskClass(r.effectiveRiskPln)" title="Efektywne ryzyko po korelacji (hedge liczy się netto)">{{ fmt(r.effectiveRiskPln) }}</td>
                     <td>
                       @if (r.connected) {
                         <span class="badge text-bg-success">connected</span>
