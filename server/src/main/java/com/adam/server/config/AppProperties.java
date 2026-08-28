@@ -13,6 +13,8 @@ public class AppProperties {
     private String timezone = "Europe/Warsaw";
     private String webhookUrls = "";
     private String webhookSecret = "";
+    private String telegramBotToken = "";
+    private String telegramChatId = "";
     private final Scan scan = new Scan();
     private final Capital capital = new Capital();
     private String liveAccountName = "bot trading konto";
@@ -90,6 +92,27 @@ public class AppProperties {
             return trimmed.substring(7).trim();
         }
         return trimmed;
+    }
+
+    public String getTelegramBotToken() {
+        return telegramBotToken;
+    }
+
+    public void setTelegramBotToken(String telegramBotToken) {
+        this.telegramBotToken = telegramBotToken;
+    }
+
+    public String getTelegramChatId() {
+        return telegramChatId;
+    }
+
+    public void setTelegramChatId(String telegramChatId) {
+        this.telegramChatId = telegramChatId;
+    }
+
+    public boolean telegramConfigured() {
+        return telegramBotToken != null && !telegramBotToken.isBlank()
+                && telegramChatId != null && !telegramChatId.isBlank();
     }
 
     public Scan getScan() {

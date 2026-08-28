@@ -42,6 +42,7 @@ public class ScanService {
     private final Clock clock;
     private final DurableScanWriter durable;
     private final SddEngine engine;
+    private final TelegramNotifier telegram;
 
     public ScanService(
             BrokerBooks books,
@@ -53,7 +54,8 @@ public class ScanService {
             ExecutionGate execution,
             AccountQueryService accounts,
             Clock clock,
-            ObjectProvider<DurableScanWriter> durable
+            ObjectProvider<DurableScanWriter> durable,
+            TelegramNotifier telegram
     ) {
         this.books = books;
         this.properties = properties;
@@ -66,6 +68,7 @@ public class ScanService {
         this.clock = clock;
         this.durable = durable == null ? null : durable.getIfAvailable();
         this.engine = new SddEngine(ZoneId.of(properties.getTimezone()));
+        this.telegram = telegram;
     }
 
     public ScanSnapshot last() {
@@ -114,6 +117,15 @@ public class ScanService {
         String demoHalt = haltFor(demoView);
         String liveHalt = haltFor(liveView);
         String glowneHalt = haltFor(glowneView);
+
+        notifyHalts(demoView, demoHalt, "demo");
+        notifyHalts(liveView, liveHalt, "live");
+        notifyHalts(glowneView, glowneHalt, "glowne");
+        if (error != null) {
+            telegram.onScanError(error);
+        } else {
+            telegram.onScanRecovered();
+        }
 
         if (properties.isExecutionEnabled() && !symbols.isEmpty()) {
             execution.executeBook("demo", symbols, demoView, blackout);
@@ -214,6 +226,16 @@ public class ScanService {
             return "broker error";
         }
         return message.length() > 180 ? message.substring(0, 180) : message;
+    }
+
+    private void notifyHalts(AccountView view, String halt, String book) {
+        if (view == null || view.dayPnl() == null) {
+            return;
+        }
+        double threshold = "live".equals(book)
+                ? properties.getLiveHaltPln()
+                : properties.getHaltPln();
+        telegram.onHalt(book, view.dayPnl(), threshold, halt != null);
     }
 
     private String haltFor(AccountView view) {

@@ -309,6 +309,7 @@ class ScanServiceMockBrokerTest {
                 new UnavailableBrokerClient("glowne", "test"));
         RiskPolicy risk = new RiskPolicy(props);
         AccountQueryService accounts = new AccountQueryService(books, risk, props);
+        TelegramNotifier telegram = new TelegramNotifier(props, RestClient.builder());
         return new ScanService(
                 books,
                 props,
@@ -316,10 +317,11 @@ class ScanServiceMockBrokerTest {
                 publisher,
                 new NewsBlackout(props, RestClient.builder(), clock),
                 risk,
-                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher),
+                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram),
                 accounts,
                 clock,
-                null
+                null,
+                telegram
         );
     }
 
