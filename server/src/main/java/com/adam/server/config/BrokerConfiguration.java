@@ -76,6 +76,21 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("swingBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalSwingBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint swing = properties.getCapital().getSwing();
+        if (swing.getHost() == null || swing.getHost().isBlank()) {
+            swing.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "swing",
+                swing,
+                "Capital.com SWING credentials are not set (CAPITAL_SWING_API_KEY / CAPITAL_SWING_EMAIL / CAPITAL_SWING_PASSWORD)"
+        );
+    }
+
     @Bean("demoBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperDemoBroker(Clock clock) {
@@ -92,5 +107,11 @@ public class BrokerConfiguration {
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperGlownePlaceholder() {
         return new UnavailableBrokerClient("glowne", "GLOWNE book is not wired in paper mode");
+    }
+
+    @Bean("swingBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperSwingPlaceholder() {
+        return new UnavailableBrokerClient("swing", "SWING book is not wired in paper mode");
     }
 }

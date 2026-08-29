@@ -41,7 +41,8 @@ class MonitoringServiceTest {
         props.setMonitorSleepMinutes("240");
         BrokerBooks books = new BrokerBooks(demo,
                 new UnavailableBrokerClient("live", "test"),
-                new UnavailableBrokerClient("glowne", "test"));
+                new UnavailableBrokerClient("glowne", "test"),
+                new UnavailableBrokerClient("swing", "test"));
         monitor = new MonitoringService(books, props, clock);
         when(demo.book()).thenReturn("demo");
         when(demo.id()).thenReturn("capital");

@@ -81,14 +81,18 @@ export interface Position {
   riskPln: number | null;
 }
 
+/** Broker book identifiers. `swing` = separate demo account for the SDD-SWING (H1) strategy. */
+export type BookId = 'demo' | 'live' | 'glowne' | 'swing';
+
 export interface PositionsByBook {
   demo: Position[];
   live: Position[];
   glowne: Position[];
+  swing: Position[];
 }
 
 export interface AccountView {
-  id: 'demo' | 'live' | 'glowne' | string;
+  id: BookId | string;
   broker: string;
   accountName: string | null;
   equity: number | null;

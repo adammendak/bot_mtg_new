@@ -1,6 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { SddService } from '../service/sdd.service';
+import { BookId } from '../model/sdd.model';
 
 /**
  * Monitoring: execution audit timeline (#6), manual position actions (#7),
@@ -18,6 +19,7 @@ import { SddService } from '../service/sdd.service';
         <button type="button" class="btn" [class.btn-primary]="book() === 'demo'" [class.btn-outline-secondary]="book() !== 'demo'" (click)="setBook('demo')">Demo</button>
         <button type="button" class="btn" [class.btn-primary]="book() === 'live'" [class.btn-outline-secondary]="book() !== 'live'" (click)="setBook('live')">Live</button>
         <button type="button" class="btn" [class.btn-primary]="book() === 'glowne'" [class.btn-outline-secondary]="book() !== 'glowne'" (click)="setBook('glowne')">Główne</button>
+        <button type="button" class="btn" [class.btn-primary]="book() === 'swing'" [class.btn-outline-secondary]="book() !== 'swing'" (click)="setBook('swing')">Swing</button>
       </div>
       <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reload()">Refresh</button>
     </div>
@@ -145,13 +147,13 @@ export class MonitorComponent implements OnInit {
     this.reload();
   }
 
-  setBook(book: 'demo' | 'live' | 'glowne'): void {
+  setBook(book: BookId): void {
     this.current = book;
     this.reload();
   }
 
   reload(): void {
-    const book = this.current as 'demo' | 'live' | 'glowne';
+    const book = this.current as BookId;
     this.sdd.loadMonitor(book);
     this.sdd.loadAudit(book);
   }

@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { SddService } from '../service/sdd.service';
-import { DailyEquityPoint } from '../model/sdd.model';
+import { BookId, DailyEquityPoint } from '../model/sdd.model';
 
 interface ChartPoint {
   x: number;
@@ -60,6 +60,15 @@ interface Bar {
           (click)="select('glowne')"
         >
           Główne
+        </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="sdd.historyBook() === 'swing'"
+          [class.btn-outline-secondary]="sdd.historyBook() !== 'swing'"
+          (click)="select('swing')"
+        >
+          Swing
         </button>
       </div>
       <button
@@ -380,7 +389,7 @@ export class HistoryComponent implements OnInit {
     this.select(this.sdd.historyBook());
   }
 
-  select(book: 'demo' | 'live' | 'glowne'): void {
+  select(book: BookId): void {
     this.hover.set(null);
     this.sdd.loadHistory(book);
   }

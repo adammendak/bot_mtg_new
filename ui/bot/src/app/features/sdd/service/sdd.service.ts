@@ -4,6 +4,7 @@ import {
   AccountView,
   AuditEvent,
   BacktestResult,
+  BookId,
   HealthInfo,
   HistoryResponse,
   OverviewView,
@@ -34,11 +35,11 @@ export class SddService {
   readonly signals = signal<SddScan[]>([]);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
-  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [] });
+  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly history = signal<HistoryResponse | null>(null);
-  readonly historyBook = signal<'demo' | 'live' | 'glowne'>('demo');
+  readonly historyBook = signal<BookId>('demo');
   readonly historyError = signal<string | null>(null);
   readonly syncBusy = signal(false);
   readonly syncMessage = signal<string | null>(null);
@@ -58,11 +59,11 @@ export class SddService {
   readonly monitorError = signal<string | null>(null);
   readonly actionMessage = signal<string | null>(null);
 
-  account(id: 'demo' | 'live' | 'glowne'): AccountView | undefined {
+  account(id: BookId): AccountView | undefined {
     return this.accounts().find((a) => a.id === id);
   }
 
-  loadHistory(book: 'demo' | 'live' | 'glowne'): void {
+  loadHistory(book: BookId): void {
     this.historyBook.set(book);
     this.historyError.set(null);
     this.http.get<HistoryResponse>(`/api/history?book=${book}`).subscribe({
@@ -102,7 +103,7 @@ export class SddService {
     });
     this.positionsError.set(null);
     this.http.get<PositionsByBook>('/api/positions/risk').subscribe({
-      next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [], glowne: p.glowne ?? [] }),
+      next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [], glowne: p.glowne ?? [], swing: p.swing ?? [] }),
       error: (e) => this.positionsError.set(formatHttpError('/api/positions/risk', e)),
     });
   }
@@ -124,7 +125,7 @@ export class SddService {
   }
 
   /** Rebuild daily equity history from the broker's transaction feed. */
-  syncHistory(book: 'demo' | 'live' | 'glowne', replace = false): void {
+  syncHistory(book: BookId, replace = false): void {
     this.syncBusy.set(true);
     this.syncMessage.set(null);
     this.http
@@ -179,7 +180,7 @@ export class SddService {
   }
 
   /** #14: per-symbol performance (win rate, expectancy, profit factor). */
-  loadSymbolStats(book: 'demo' | 'live' | 'glowne', days = 0): void {
+  loadSymbolStats(book: BookId, days = 0): void {
     this.symbolStatsError.set(null);
     this.http.get<SymbolStats[]>(`/api/symbol-stats?book=${book}&days=${days}`).subscribe({
       next: (s) => this.symbolStats.set(Array.isArray(s) ? s : []),
@@ -188,7 +189,7 @@ export class SddService {
   }
 
   /** #13: run the backtest replay and store results. */
-  runBacktest(book: 'demo' | 'live' | 'glowne', days = 90): void {
+  runBacktest(book: BookId, days = 90): void {
     this.backtestBusy.set(true);
     this.backtestError.set(null);
     this.http.get<BacktestResult[]>(`/api/backtest?book=${book}&days=${days}`).subscribe({
@@ -204,7 +205,7 @@ export class SddService {
   }
 
   /** #6: execution audit timeline. */
-  loadAudit(book?: 'demo' | 'live' | 'glowne'): void {
+  loadAudit(book?: BookId): void {
     const q = book ? `?book=${book}` : '';
     this.http.get<AuditEvent[]>(`/api/monitor/audit${q}`).subscribe({
       next: (a) => this.audit.set(Array.isArray(a) ? a : []),
@@ -213,7 +214,7 @@ export class SddService {
   }
 
   /** #8/#9: positions with time-in-position, stop-drift and sleeping flags. */
-  loadMonitor(book: 'demo' | 'live' | 'glowne'): void {
+  loadMonitor(book: BookId): void {
     this.monitorError.set(null);
     this.http.get<PositionMonitorView[]>(`/api/monitor?book=${book}`).subscribe({
       next: (m) => this.monitor.set(Array.isArray(m) ? m : []),

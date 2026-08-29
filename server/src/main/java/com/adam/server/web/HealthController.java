@@ -41,6 +41,7 @@ public class HealthController {
         body.put("executionEnabled", properties.isExecutionEnabled());
         body.put("demoConfigured", books.demo().configured());
         body.put("liveConfigured", books.live().configured());
+        body.put("swingConfigured", books.swing().configured());
         body.put("webhookConfigured", properties.webhookConfigured());
         body.put("lastWebhook", webhooks.lastWebhook());
         Instant at = webhooks.lastWebhookAt();

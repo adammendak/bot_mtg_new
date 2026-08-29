@@ -18,7 +18,8 @@ class EquityHistoryServiceSyncAllTest {
             new BrokerBooks(
                     new UnavailableBrokerClient("demo", "no demo"),
                     new UnavailableBrokerClient("live", "no live"),
-                    new UnavailableBrokerClient("glowne", "no glowne")
+                    new UnavailableBrokerClient("glowne", "no glowne"),
+                    new UnavailableBrokerClient("swing", "no swing")
             ),
             org.mockito.Mockito.mock(BrokerSnapshotRepository.class),
             new RiskPolicy(new AppProperties()),
@@ -29,14 +30,15 @@ class EquityHistoryServiceSyncAllTest {
     void syncAllReturnsOneResultPerBookWithoutThrowing() {
         List<EquityHistoryService.SyncResult> results = service.syncAll(true);
 
-        assertThat(results).hasSize(3);
+        assertThat(results).hasSize(4);
         assertThat(results).allSatisfy(r -> assertThat(r.status()).isEqualTo("error"));
         assertThat(results)
                 .extracting(EquityHistoryService.SyncResult::message)
                 .containsExactlyInAnyOrder(
                         "broker not configured for book demo",
                         "broker not configured for book live",
-                        "broker not configured for book glowne"
+                        "broker not configured for book glowne",
+                        "broker not configured for book swing"
                 );
     }
 }

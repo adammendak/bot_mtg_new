@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { SddService } from '../service/sdd.service';
-import { OverviewView } from '../model/sdd.model';
+import { BookId, OverviewView } from '../model/sdd.model';
 
 /**
  * All-accounts overview: every book in one table with an explicit DEMO / LIVE /
@@ -156,7 +156,7 @@ export class OverviewComponent implements OnInit {
   }
 
   syncBook(id: string): void {
-    const book = (['demo', 'live', 'glowne'].includes(id) ? id : 'demo') as 'demo' | 'live' | 'glowne';
+    const book = (['demo', 'live', 'glowne', 'swing'].includes(id) ? id : 'demo') as BookId;
     this.sdd.syncHistory(book, true);
   }
 
