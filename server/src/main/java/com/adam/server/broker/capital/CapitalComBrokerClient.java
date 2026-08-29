@@ -411,19 +411,36 @@ public class CapitalComBrokerClient implements BrokerClient {
                     return List.of();
                 }
                 if (code == 429 && attempt < TX_RATE_LIMIT_RETRIES) {
-                    long waitMs = TX_RATE_LIMIT_BACKOFF_MS * (attempt + 1L);
-                    log.warn("Capital.com {} transactions rate-limited (429), retry {}/{} in {}ms",
-                            book, attempt + 1, TX_RATE_LIMIT_RETRIES, waitMs);
-                    try {
-                        Thread.sleep(waitMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
+                    log.warn("Capital.com {} transactions rate-limited (429), retry {}/{}",
+                            book, attempt + 1, TX_RATE_LIMIT_RETRIES);
+                    if (!backoff(attempt)) {
                         throw wrap("transactions", e);
                     }
                     continue;
                 }
                 throw wrap("transactions", e);
+            } catch (org.springframework.web.client.ResourceAccessException e) {
+                // Transient I/O to Capital (connection reset / read timeout / DNS).
+                if (attempt < TX_RATE_LIMIT_RETRIES) {
+                    log.warn("Capital.com {} transactions I/O error ({}), retry {}/{}",
+                            book, e.getMessage(), attempt + 1, TX_RATE_LIMIT_RETRIES);
+                    if (backoff(attempt)) {
+                        continue;
+                    }
+                }
+                throw new BrokerException("Capital.com " + book + " transactions I/O error", e);
             }
+        }
+    }
+
+    /** Sleeps {@code TX_RATE_LIMIT_BACKOFF_MS * (attempt + 1)}; false if interrupted. */
+    private static boolean backoff(int attempt) {
+        try {
+            Thread.sleep(TX_RATE_LIMIT_BACKOFF_MS * (attempt + 1L));
+            return true;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

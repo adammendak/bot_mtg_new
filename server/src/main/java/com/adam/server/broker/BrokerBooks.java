@@ -37,10 +37,10 @@ public class BrokerBooks {
     }
 
     public BrokerClient forBook(String id) {
-        if (id != null && id.equalsIgnoreCase("live")) {
+        if (id != null && id.equalsIgnoreCase(Books.LIVE)) {
             return live;
         }
-        if (id != null && (id.equalsIgnoreCase("glowne") || id.equalsIgnoreCase("main"))) {
+        if (Books.isGlowne(id)) {
             return glowne;
         }
         return demo;

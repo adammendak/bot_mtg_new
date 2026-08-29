@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 
@@ -16,6 +18,8 @@ import java.time.Instant;
  */
 @Entity
 @Table(name = "sdd_execution_entries")
+@Getter
+@Setter
 public class SddExecutionEntity {
 
     @Id
@@ -61,124 +65,4 @@ public class SddExecutionEntity {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getBook() {
-        return book;
-    }
-
-    public void setBook(String book) {
-        this.book = book;
-    }
-
-    public String getSymbol() {
-        return symbol;
-    }
-
-    public void setSymbol(String symbol) {
-        this.symbol = symbol;
-    }
-
-    public String getEpic() {
-        return epic;
-    }
-
-    public void setEpic(String epic) {
-        this.epic = epic;
-    }
-
-    public String getDirection() {
-        return direction;
-    }
-
-    public void setDirection(String direction) {
-        this.direction = direction;
-    }
-
-    public Instant getBarTime() {
-        return barTime;
-    }
-
-    public void setBarTime(Instant barTime) {
-        this.barTime = barTime;
-    }
-
-    public Double getEntry() {
-        return entry;
-    }
-
-    public void setEntry(Double entry) {
-        this.entry = entry;
-    }
-
-    public Double getAtrH1() {
-        return atrH1;
-    }
-
-    public void setAtrH1(Double atrH1) {
-        this.atrH1 = atrH1;
-    }
-
-    public Double getStop() {
-        return stop;
-    }
-
-    public void setStop(Double stop) {
-        this.stop = stop;
-    }
-
-    public String getTicketA() {
-        return ticketA;
-    }
-
-    public void setTicketA(String ticketA) {
-        this.ticketA = ticketA;
-    }
-
-    public String getTicketB() {
-        return ticketB;
-    }
-
-    public void setTicketB(String ticketB) {
-        this.ticketB = ticketB;
-    }
-
-    public boolean isTwoTickets() {
-        return twoTickets;
-    }
-
-    public void setTwoTickets(boolean twoTickets) {
-        this.twoTickets = twoTickets;
-    }
-
-    public boolean isTpFilled() {
-        return tpFilled;
-    }
-
-    public void setTpFilled(boolean tpFilled) {
-        this.tpFilled = tpFilled;
-    }
-
-    public boolean isTrailing() {
-        return trailing;
-    }
-
-    public void setTrailing(boolean trailing) {
-        this.trailing = trailing;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
 }

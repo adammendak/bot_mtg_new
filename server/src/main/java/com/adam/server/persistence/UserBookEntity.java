@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 /**
  * One row = one broker book (demo/live/glowne) a user is allowed to see.
@@ -13,6 +15,8 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "user_books")
+@Getter
+@Setter
 public class UserBookEntity {
 
     @Id
@@ -24,28 +28,4 @@ public class UserBookEntity {
 
     @Column(nullable = false, length = 16)
     private String book;
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
-
-    public String getBook() {
-        return book;
-    }
-
-    public void setBook(String book) {
-        this.book = book;
-    }
 }

@@ -2,6 +2,7 @@ package com.adam.server.history;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.broker.Books;
 import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.persistence.BrokerSnapshotEntity;
@@ -186,7 +187,7 @@ public class EquityHistoryService {
      */
     public List<SyncResult> syncAll(boolean replace) {
         List<SyncResult> results = new ArrayList<>();
-        for (String book : new String[]{"demo", "live", "glowne"}) {
+        for (String book : Books.ALL) {
             try {
                 results.add(sync(book, replace));
             } catch (Exception e) {
@@ -240,12 +241,12 @@ public class EquityHistoryService {
             }
             List<Account> accounts = client.accounts();
             Account chosen = null;
-            if ("live".equals(client.book())) {
+            if (Books.LIVE.equals(client.book())) {
                 RiskPolicy.LivePick pick = risk.pickLiveAccount(accounts);
                 if (pick.visible()) {
                     chosen = pick.account();
                 }
-            } else if ("glowne".equals(client.book())) {
+            } else if (Books.GLOWNE.equals(client.book())) {
                 chosen = risk.pickGlowneAccount(accounts);
             } else {
                 chosen = risk.pickDemoAccount(accounts);
