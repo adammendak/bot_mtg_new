@@ -5,6 +5,7 @@ import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.Resolution;
 import com.adam.server.broker.model.Candle;
+import com.adam.server.sdd.Band;
 import com.adam.server.sdd.HeikenAshi;
 import com.adam.server.sdd.Supertrend;
 import com.adam.server.sdd.WaveTrend;
@@ -124,7 +125,7 @@ public class SwingBacktestService {
         List<Candidate> cands = new ArrayList<>();
         for (SwingSymbol symbol : SwingSymbol.universe()) {
             try {
-                collectCandidates(cands, market, symbol, symbol.epic(), window, offsetSecs, p.htfFilter());
+                collectCandidates(cands, market, symbol, symbol.epic(), window, offsetSecs, p);
             } catch (Exception e) {
                 log.warn("SWING trade-backtest failed for {}: {}", symbol.code(), e.getClass().getSimpleName());
             }
@@ -145,7 +146,8 @@ public class SwingBacktestService {
                     continue; // max concurrent names
                 }
             }
-            Replayed r = replay(c.scan, c.h1, c.rma133, c.idx, c.atrH4, sm, ta, la, p.runner());
+            Replayed r = replay(c.scan, c.h1, c.rma133, c.h1Slow, c.idx, c.atrH4, sm, ta, la,
+                    p.runner(), p.bandEntry());
             out.add(new SwingTradeRow(
                     iso(entryTime), iso(r.exit()), c.scan.symbol(),
                     c.scan.direction() == Direction.BUY ? "LONG" : "SHORT",
@@ -157,14 +159,15 @@ public class SwingBacktestService {
         return out;
     }
 
-    private record Candidate(SwingScan scan, List<Candle> h1, double[] rma133, int idx, double atrH4) {
+    private record Candidate(SwingScan scan, List<Candle> h1, double[] rma133, Band.Series h1Slow,
+                             int idx, double atrH4) {
     }
 
     private record Replayed(Instant exit, String result, double r) {
     }
 
     private void collectCandidates(List<Candidate> out, BrokerClient market, SwingSymbol symbol, String epic,
-                                   int days, long offsetSecs, boolean htfFilter) {
+                                   int days, long offsetSecs, SwingBacktestParams p) {
         Instant to = Instant.now().minusSeconds(3600L + offsetSecs);
         Instant fromEval = to.minusSeconds(days * 86400L);
         Instant fromH1 = fromEval.minusSeconds(H1_WARMUP_DAYS * 86400L);
@@ -174,7 +177,19 @@ public class SwingBacktestService {
         List<Candle> h4 = candlesChunked(market, epic, Resolution.H4, fromH4, to, 500, 60);
         double[] rma133 = Wilder.rma(Wilder.closes(h1), SddSwingEngine.RMA_SLOW);
 
-        for (int i = SddSwingEngine.RMA_SLOW + 2; i < h1.size(); i++) {
+        Band.Series h1Fast = null;
+        Band.Series h1Slow = null;
+        Band.Series h4Fast = null;
+        Band.Series h4Slow = null;
+        if (p.bandEntry()) {
+            h1Fast = Band.rma(h1, p.fastLen());
+            h1Slow = Band.rma(h1, p.slowLen());
+            h4Fast = Band.rma(h4, p.fastLen());
+            h4Slow = Band.rma(h4, p.slowLen());
+        }
+
+        int minBars = Math.max(SddSwingEngine.RMA_SLOW + 2, p.slowLen() + 2);
+        for (int i = minBars; i < h1.size(); i++) {
             Candle bar = h1.get(i);
             if (bar.time().isBefore(fromEval)) {
                 continue;
@@ -182,13 +197,41 @@ public class SwingBacktestService {
             List<Candle> h1Upto = h1.subList(0, i + 1);
             List<Candle> h4Upto = h4ClosedBy(h4, bar.time());
 
-            Candidate cand = htfFilter
-                    ? mrCandidate(symbol, epic, h1, rma133, h1Upto, h4Upto, i, bar.time())
-                    : baselineCandidate(symbol, epic, h1, rma133, h1Upto, h4Upto, i, bar.time());
+            Candidate cand;
+            if (p.bandEntry()) {
+                cand = bandCandidate(symbol, epic, h1, rma133, h1Slow, h1Fast, h4Fast, h4Slow,
+                        h4Upto.size() - 1, i, bar.time());
+            } else if (p.htfFilter()) {
+                cand = mrCandidate(symbol, epic, h1, rma133, h1Upto, h4Upto, i, bar.time());
+            } else {
+                cand = baselineCandidate(symbol, epic, h1, rma133, h1Upto, h4Upto, i, bar.time());
+            }
             if (cand != null) {
                 out.add(cand);
             }
         }
+    }
+
+    /** HTS band trend-follow entry: H1 body beyond the fast band, fast band clear of slow, H4 band in trend. */
+    private Candidate bandCandidate(SwingSymbol symbol, String epic, List<Candle> h1, double[] rma133,
+                                    Band.Series h1Slow, Band.Series h1Fast, Band.Series h4Fast, Band.Series h4Slow,
+                                    int h4Idx, int i, Instant now) {
+        double close = h1.get(i).close();
+        int dir = Band.entryDir(close, h1Fast, h1Slow, h4Fast, h4Slow, i, h4Idx);
+        if (dir == 0) {
+            return null;
+        }
+        boolean buy = dir > 0;
+        // Risk unit = H1 ATR14 for the band model (the H4-ATR path is only wired for the SDD entry).
+        double atr = Wilder.last(Wilder.atr(h1.subList(0, i + 1), SddSwingEngine.ATR_PERIOD));
+        if (Double.isNaN(atr) || atr <= 0) {
+            return null;
+        }
+        Direction d = buy ? Direction.BUY : Direction.SELL;
+        SwingScan scan = new SwingScan(now, symbol.code(), epic, d, close,
+                buy ? close - atr : close + atr, buy ? close + atr : close - atr,
+                SwingScan.H4Trend.FLAT);
+        return new Candidate(scan, h1, rma133, h1Slow, i, atr);
     }
 
     /** The live SDD-SWING full stack, via {@link SddSwingEngine}. */
@@ -202,7 +245,7 @@ public class SwingBacktestService {
         if (atrH4 <= 0 || Double.isNaN(atrH4)) {
             return null;
         }
-        return new Candidate(scan, h1, rma133, i, atrH4);
+        return new Candidate(scan, h1, rma133, null, i, atrH4);
     }
 
     /**
@@ -262,7 +305,7 @@ public class SwingBacktestService {
         double placeholderTarget = buy ? close + atrH4 : close - atrH4;
         SwingScan scan = new SwingScan(now, symbol.code(), epic, dir, close,
                 placeholderStop, placeholderTarget, SddSwingEngine.h4Trend(h4Upto));
-        return new Candidate(scan, h1, rma133, i, atrH4);
+        return new Candidate(scan, h1, rma133, null, i, atrH4);
     }
 
     /**
@@ -327,8 +370,9 @@ public class SwingBacktestService {
         return false;
     }
 
-    private static Replayed replay(SwingScan scan, List<Candle> h1, double[] rma133, int entryIdx,
-                                   double atrH4, double stopMult, double targetAtr, int lookAhead, boolean runner) {
+    private static Replayed replay(SwingScan scan, List<Candle> h1, double[] rma133, Band.Series slowBand,
+                                   int entryIdx, double atrH4, double stopMult, double targetAtr, int lookAhead,
+                                   boolean runner, boolean bandExit) {
         boolean buy = scan.direction() == Direction.BUY;
         double entry = scan.entry();
         double stopDist = stopMult * atrH4;
@@ -380,8 +424,13 @@ public class SwingBacktestService {
                 exitA = c.time();
             }
             if (rB == null) {
-                double band = i < rma133.length ? rma133[i] : Double.NaN;
-                boolean bodyLost = !Double.isNaN(band) && (buy ? c.close() < band : c.close() > band);
+                boolean bodyLost;
+                if (bandExit && slowBand != null) {
+                    bodyLost = Band.bodyBeyondSlow(c.close(), slowBand, i, buy);
+                } else {
+                    double line = i < rma133.length ? rma133[i] : Double.NaN;
+                    bodyLost = !Double.isNaN(line) && (buy ? c.close() < line : c.close() > line);
+                }
                 if (bodyLost) {
                     rB = (buy ? c.close() - entry : entry - c.close()) / stopDist;
                     exitB = c.time();
