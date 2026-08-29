@@ -1,5 +1,6 @@
 package com.adam.server.history;
 
+import com.adam.server.broker.Books;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,7 +53,7 @@ public class EquityHistorySyncJob {
     }
 
     private void syncBoth() {
-        for (String book : new String[]{"live", "demo", "glowne"}) {
+        for (String book : Books.ALL) {
             try {
                 EquityHistoryService.SyncResult r = service.sync(book, false);
                 log.info("Equity history sync [{}]: {} (written={}, skipped={})",

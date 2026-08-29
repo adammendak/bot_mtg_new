@@ -6,11 +6,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "sdd_signals")
+@Getter
+@Setter
 public class SddSignalEntity {
 
     @Id
@@ -46,88 +50,4 @@ public class SddSignalEntity {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
-
-    public Long getId() {
-        return id;
-    }
-
-    public Long getScanId() {
-        return scanId;
-    }
-
-    public void setScanId(Long scanId) {
-        this.scanId = scanId;
-    }
-
-    public Instant getScannedAt() {
-        return scannedAt;
-    }
-
-    public void setScannedAt(Instant scannedAt) {
-        this.scannedAt = scannedAt;
-    }
-
-    public String getSymbol() {
-        return symbol;
-    }
-
-    public void setSymbol(String symbol) {
-        this.symbol = symbol;
-    }
-
-    public String getEpic() {
-        return epic;
-    }
-
-    public void setEpic(String epic) {
-        this.epic = epic;
-    }
-
-    public String getDirection() {
-        return direction;
-    }
-
-    public void setDirection(String direction) {
-        this.direction = direction;
-    }
-
-    public boolean isFullStack() {
-        return fullStack;
-    }
-
-    public void setFullStack(boolean fullStack) {
-        this.fullStack = fullStack;
-    }
-
-    public boolean isFlip() {
-        return flip;
-    }
-
-    public void setFlip(boolean flip) {
-        this.flip = flip;
-    }
-
-    public String getReason() {
-        return reason;
-    }
-
-    public void setReason(String reason) {
-        this.reason = reason;
-    }
-
-    public String getPayload() {
-        return payload;
-    }
-
-    public void setPayload(String payload) {
-        this.payload = payload;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
 }

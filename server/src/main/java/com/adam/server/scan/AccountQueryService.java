@@ -1,6 +1,7 @@
 package com.adam.server.scan;
 
 import com.adam.server.broker.BrokerBooks;
+import com.adam.server.broker.Books;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
 import com.adam.server.broker.Direction;
@@ -58,7 +59,7 @@ public class AccountQueryService {
         int withoutStop = 0;
         String riskCurrency = v.currency();
         double[] exposure = new double[]{0.0, 0.0};
-        double halt = "live".equals(client.book()) ? properties.getLiveHaltPln() : properties.getHaltPln();
+        double halt = Books.LIVE.equals(client.book()) ? properties.getLiveHaltPln() : properties.getHaltPln();
         double hardHalt = properties.getHardHaltPln();
         Double remainingToHalt = v.dayPnl() == null ? null : v.dayPnl() - halt;
         if (v.connected() && v.equity() != null) {
@@ -126,7 +127,7 @@ public class AccountQueryService {
     /** Human label: broker + environment, with the main book spelled out. */
     private static String displayNameOf(BrokerClient client) {
         String base = client.displayName();
-        if ("glowne".equals(client.book())) {
+        if (Books.GLOWNE.equals(client.book())) {
             return "Główne (main)";
         }
         return base;
@@ -138,7 +139,7 @@ public class AccountQueryService {
     }
 
     public AccountView view(BrokerClient client) {
-        boolean live = "live".equals(client.book());
+        boolean live = Books.LIVE.equals(client.book());
         if (!client.configured()) {
             return disconnected(client, switch (client.book()) {
                 case "live" -> "LIVE not configured (CAPITAL_LIVE_API_KEY / CAPITAL_LIVE_EMAIL / CAPITAL_LIVE_PASSWORD)";
@@ -171,7 +172,7 @@ public class AccountQueryService {
                 return connected(client, a);
             }
             // "glowne" (main) targets its own account; demo picks preferred/first.
-            Account picked = "glowne".equals(client.book())
+            Account picked = Books.GLOWNE.equals(client.book())
                     ? risk.pickGlowneAccount(accounts)
                     : risk.pickDemoAccount(accounts);
             if (picked == null) {
@@ -213,7 +214,7 @@ public class AccountQueryService {
     /** Positions grouped by book, filtered to what the caller may see. */
     public Map<String, List<Position>> positionsByBookFor(com.adam.server.auth.AppUser user) {
         Map<String, List<Position>> out = new LinkedHashMap<>();
-        for (String book : new String[]{"demo", "live", "glowne"}) {
+        for (String book : Books.ALL) {
             if (user != null && !user.canSeeBook(book)) {
                 continue;
             }
@@ -240,7 +241,7 @@ public class AccountQueryService {
     /** Risk view grouped by book, filtered to what the caller may see. */
     public Map<String, List<PositionRiskView>> positionsWithRiskByBookFor(com.adam.server.auth.AppUser user) {
         Map<String, List<PositionRiskView>> out = new LinkedHashMap<>();
-        for (String book : new String[]{"demo", "live", "glowne"}) {
+        for (String book : Books.ALL) {
             if (user != null && !user.canSeeBook(book)) {
                 continue;
             }

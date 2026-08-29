@@ -1,5 +1,6 @@
 package com.adam.server.scan;
 
+import com.adam.server.broker.Books;
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Direction;
@@ -105,7 +106,7 @@ public class ExecutionGate {
      */
     public void reloadAndReconcile() {
         state.loadFromDb();
-        for (String book : new String[]{"demo", "live"}) {
+        for (String book : Books.EXECUTABLE) {
             BrokerClient client = books.forBook(book);
             if (client == null || !client.configured()) {
                 continue;
@@ -132,7 +133,7 @@ public class ExecutionGate {
         if (client == null || !client.configured()) {
             return;
         }
-        boolean live = "live".equals(client.book());
+        boolean live = Books.LIVE.equals(client.book());
         Account account = resolveAccount(client, live);
         List<Position> open = fetchOpenPositionsOrNull(client);
         if (open == null) {
