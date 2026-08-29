@@ -274,9 +274,18 @@ public class ExecutionGate {
         String[] dealIds = resolveFreshDealIds(client, scan, placed, refA, refB);
         String idA = dealIds[0] != null ? dealIds[0] : refA;
         String idB = placed > 1 ? (dealIds[1] != null ? dealIds[1] : refB) : null;
-        state.put(new SddExecutionState.Entry(
+        SddExecutionState.Entry recorded = new SddExecutionState.Entry(
                 book, scan.symbol(), scan.epic(), scan.direction(), scan.timestamp(),
-                scan.entry(), scan.atrH1(), scan.stop(), idA, idB, placed == 2));
+                scan.entry(), scan.atrH1(), scan.stop(), idA, idB, placed == 2);
+        try {
+            state.put(recorded);
+        } catch (RuntimeException e) {
+            // Capital already accepted at least one ticket. Do not report skip — keep
+            // the name in RAM so the next bar cannot pyramid, and let the scan continue.
+            log.error("SDD persist failed after Capital fill {} {} — keeping RAM entry: {}",
+                    book, scan.symbol(), e.toString());
+            state.remember(recorded);
+        }
         return null;
     }
 

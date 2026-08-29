@@ -82,12 +82,22 @@ class ExecutionPersistenceTest {
 
         // Repository mock backed by the in-memory list, simulating Postgres.
         when(repository.findAll()).thenAnswer(i -> new ArrayList<>(db));
+        when(repository.findByBookAndSymbol(anyString(), anyString())).thenAnswer(i -> {
+            String book = i.getArgument(0);
+            String symbol = i.getArgument(1);
+            return db.stream()
+                    .filter(r -> book.equals(r.getBook()) && symbol.equals(r.getSymbol()))
+                    .toList();
+        });
         when(repository.save(any(SddExecutionEntity.class))).thenAnswer(i -> {
             SddExecutionEntity e = i.getArgument(0);
             if (e.getId() == null) {
-                e.setId((long) db.size() + 1);
+                e.setId(db.stream().mapToLong(r -> r.getId() == null ? 0 : r.getId()).max().orElse(0) + 1);
+                db.add(e);
+            } else if (!db.contains(e)) {
+                db.removeIf(r -> e.getId().equals(r.getId()));
+                db.add(e);
             }
-            db.add(e);
             return e;
         });
         org.mockito.Mockito.doAnswer(i -> {
@@ -96,6 +106,11 @@ class ExecutionPersistenceTest {
             db.removeIf(r -> book.equals(r.getBook()) && symbol.equals(r.getSymbol()));
             return 0L;
         }).when(repository).deleteByBookAndSymbol(anyString(), anyString());
+        org.mockito.Mockito.doAnswer(i -> {
+            SddExecutionEntity e = i.getArgument(0);
+            db.remove(e);
+            return null;
+        }).when(repository).delete(any(SddExecutionEntity.class));
         org.mockito.Mockito.doAnswer(i -> {
             db.clear();
             return null;
@@ -227,6 +242,46 @@ class ExecutionPersistenceTest {
         assertThat(state.get("demo", "GER40")).isNull();
         verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("closed"),
                 eq("tickets gone (manual or SL)"));
+    }
+
+    @Test
+    void putOfExistingBookSymbolReplacesRowWithoutDuplicate() {
+        state.put(new SddExecutionState.Entry("demo", "XAU", "GOLD", Direction.SELL, bar,
+                3400, 5, 3412.5, "oldA", "oldB", true));
+        state.put(new SddExecutionState.Entry("demo", "XAU", "GOLD", Direction.SELL, bar.plusSeconds(900),
+                3390, 5, 3402.5, "newA", "newB", true));
+
+        assertThat(db).hasSize(1);
+        assertThat(db.get(0).getTicketA()).isEqualTo("newA");
+        assertThat(db.get(0).getTicketB()).isEqualTo("newB");
+        assertThat(state.get("demo", "XAU").ticketA).isEqualTo("newA");
+    }
+
+    @Test
+    void putWithNullTicketBPersistsSingleTicket() {
+        state.put(new SddExecutionState.Entry("live", "BTC", "BTCUSD", Direction.SELL, bar,
+                100, 1, 102.5, "dealA", null, false));
+
+        assertThat(db).hasSize(1);
+        assertThat(db.get(0).getTicketB()).isNull();
+        assertThat(db.get(0).isTwoTickets()).isFalse();
+    }
+
+    @Test
+    void removeThenPutSameSymbolWritesNewRow() {
+        state.put(new SddExecutionState.Entry("demo", "EURUSD", "EURUSD", Direction.SELL, bar,
+                1.1, 0.001, 1.1025, "oldA", "oldB", true));
+        state.remove("demo", "EURUSD");
+        assertThat(db).isEmpty();
+
+        Instant later = bar.plusSeconds(1800);
+        state.put(new SddExecutionState.Entry("demo", "EURUSD", "EURUSD", Direction.SELL, later,
+                1.09, 0.001, 1.0925, "newA", "newB", true));
+
+        assertThat(db).hasSize(1);
+        assertThat(db.get(0).getTicketA()).isEqualTo("newA");
+        assertThat(state.alreadyPlaced("demo", "EURUSD", Direction.SELL, bar)).isTrue();
+        assertThat(state.get("demo", "EURUSD").barTime).isEqualTo(later);
     }
 
     @Test
