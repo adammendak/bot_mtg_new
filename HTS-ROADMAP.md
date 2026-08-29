@@ -6,17 +6,17 @@
 Potwierdzone parametry: **wstęgi RMA, high/low, 33 / 144.**
 HTS to **3. strategia** — osobne konto demo, obok SDD‑M15 i swing, na miesiąc forward.
 
-**3 modele timeframe (ta sama mechanika, różne pary):**
-| model | HTF (kontekst) | LTF (egzekucja) | rola |
-|---|---|---|---|
-| **HTS‑core** | **H4** | **M15** | rdzeń — to rozszerzamy |
-| HTS‑swing | D1 | H1 | długie swingi |
-| HTS‑fast | H1 | M5 | intraday |
+**Modele timeframe (ta sama mechanika, różne pary):**
+| model | HTF (kontekst) | LTF (egzekucja) | rola | priorytet |
+|---|---|---|---|---|
+| **HTS‑swing** | **D1** | **H1** | główny model swingowy | **1** |
+| **HTS‑core** | **H4** | **M15** | rdzeń — to rozszerzamy | **2** |
+| HTS‑fast | H1 | M5 | 3. wariant (scalp) | później (T11) |
 
-> **Uwaga (2. podsumowanie filmów):** w samych filmach hierarchia to **D1 (filtr) → H1 (wejście) → M5 (scalp)**.
-> H4/M15 „core" to nasze rozszerzenie, nie materiał źródłowy. Trzymamy H4/M15 jako rdzeń (decyzja),
-> ale D1/H1 traktujemy jako model podstawowy, nie drugorzędny. cTrader ma wbudowany wskaźnik wstęg
-> („WWS") — potwierdza 33/144, mniej zgadywania.
+> **Kierunek:** filmy opisują **2 opcje** — swing (D1/H1) i scalp (H1/M5 + okna handlu ~2 h).
+> **Priorytet: 2 modele swingowe (D1/H1, H4/M15).** H1/M5 wejdzie jako 3. wariant HTS **po** nich
+> (T11) — bez okien sesyjnych, sama mechanika wstęg na M5. cTrader ma wbudowany wskaźnik wstęg
+> („WWS") — potwierdza 33/144.
 
 Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, potem PR, potem live.
 **Każdy wariant testujemy z ADX i bez ADX.**
@@ -65,9 +65,12 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   Wzór: **`lot = ryzyko$ / (dystans_SL_w_pipsach × wartość_pipsa_na_lot)`**.
 - **2 straty pod rząd → koniec dnia.** „One trade" = jeden setup dziennie, bez uśredniania/dokładania.
 - Twardy DD **20%** (close‑all). Dzienny DD ≤ 5%. 20 dni × 1% = 20% max/mies (nie powinno wystąpić).
-- **Okna handlu ~2 h** — nie cały dzień; wejścia tylko w oknach sesyjnych (do sprecyzowania, OI).
 - Cel **~2 %/mies.**; strategia zyskowna nawet **poniżej 50 % WR przy 1:3**. Reżim sizingu i DD
   ma być **zgodny z prop‑firm**.
+
+> **Kierunek: priorytet to system SWINGOWY.** Główny model **D1/H1**, core do rozszerzania
+> **H4/M15** — te dwa robimy pierwsze. **H1/M5 = 3. wariant, później** (T11), bez okien handlu /
+> filtrów sesyjnych. Wejścia liczą się na zamknięciu świecy LTF, trzymanie pozycji przez dni.
 - **Split‑entry** (NIE martingale): dziel pozycję na 2–3 mniejsze rozstawione w zakresie cenowym,
   ten sam permanentny stop, łączna strata = limit. Daje rynkowi „oddech".
 - **Piramidowanie** (w zysku): dokładasz na kolejnych cofnięciach do wstęgi w tym samym trendzie;
@@ -93,9 +96,10 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   - target: RR param (sweep 1 / 2 / 3)
   - runner: połowa RR + połowa „close pod wolną wstęgą"
   - wyjście per‑trade CSV → `tools/equity_simulator.py`
-- Wymaga `Resolution.M5` (+ mapowanie `MINUTE_5` w `CapitalComBrokerClient`, `PaperBrokerClient`).
-- Uruchamiany dla **3 par**: H4/M15 (core), D1/H1, H1/M5.
-- **Deliverable:** tabela per‑ticker × 3 modele, HTS vs SDD baseline, train/test, RR 1/2/3.
+- `Resolution.M5` + mapowanie `MINUTE_5` już są (z T1); model H1/M5 zostaje w kodzie backtestu
+  jako opcja, ale **nie jest rozwijany** (scalp).
+- Uruchamiany dla par swingowych: **D1/H1 (główny), H4/M15 (core)**.
+- **Deliverable:** tabela per‑ticker × modele swingowe, HTS vs SDD baseline, train/test, RR 1/2/3.
 
 ### T2 — Filtr konsolidacji (brak wejść gdy wstęgi się nakładają)
 - Skip gdy: `fast.lower ≤ slow.upper` nie jest wyraźnie spełnione (wstęgi się stykają),
@@ -121,9 +125,12 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 - Zastępuje pojedynczy stały RR z T1 dla stylu swing.
 
 ### T5 — Model ryzyka / sizing wg filmów
-- Sizing przez dystans stopu → strata stała % (0.25–1%).
+- Sizing przez dystans stopu → strata stała % (0.25–1%). Wzór:
+  `lot = ryzyko$ / (dystans_SL_pips × wartość_pipsa_na_lot)`.
 - Łączny cap ryzyka na koncie; **2 straty pod rząd → stop dnia**; twardy DD 20% → close‑all.
-- Po stronie backtestu: `equity_simulator` już liczy % ryzyka — dodać regułę day‑stop + DD.
+- Po stronie backtestu: **zrobione** — `equity_simulator.py --day-stop N --max-dd PCT`
+  (kolumny `skipped_daystop`, `skipped_ddstop`, `ddstop_hit` w `summary.csv`).
+- Do zrobienia: sizing‑formula w żywym `RiskPolicy` (T9). **Bez** okien handlu / filtra sesji — to scalp.
 
 ### T6 — Split‑entry (skalowanie w zakres, nie martingale)
 - Sygnał → 2–3 częściowe wejścia rozstawione w zakresie, ten sam stop.
@@ -148,9 +155,10 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 - Jak task 6 dla swinga: stan obu interwałów (wstęgi HTF+LTF, ADX, ATR, pozycja vs PP),
   entry/stop/targety, jedno zdanie „dlaczego". Adres `adam.mendak@gmail.com`.
 
-### T11 — Pozostałe modele TF jako osobne żywe konfiguracje
-- Po ustabilizowaniu **HTS‑core (H4/M15)** na 3. koncie: dołożyć D1/H1 i H1/M5 jako warianty
-  (osobne booki / konta albo przełącznik konfiguracji) — **po** domaszerowaniu M15 + swing + HTS‑core.
+### T11 — Kolejne warianty HTS jako osobne żywe konfiguracje
+- Po ustabilizowaniu głównego modelu HTS na 3. koncie: dołożyć drugą parę swingową,
+  a potem **H1/M5 jako 3. wariant** (scalp mechaniki wstęg, bez okien sesyjnych) —
+  **po** domaszerowaniu M15 + swing + 2 modeli swingowych HTS.
 
 ---
 
@@ -182,43 +190,48 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 | OI‑2 | progi ADX (zielony/niebieski/czerwony) nie padają | T3': veto tylko strefa „niebieska" (`ADX<15`) + DI. Do kalibracji na forwardzie. |
 | OI‑3 | warunki re‑entry po wyjściu | nieostre — na razie: nowy pełny setup (pullback+reclaim), nie „wskok z powrotem". |
 | OI‑9 | opis SL w filmie 3 wygląda na odwrócony | trzymamy: wąski = wstęga 33, szeroki = wstęga 144. |
-| — | okna handlu ~2 h — które godziny | do sprecyzowania; wstępnie: sesja londyńska + NY open. |
+| — | filmy opisują **2 opcje**: swing (D1/H1) i scalp (H1/M5 + okna 2 h) | **priorytet: 2 modele swingowe**; H1/M5 jako 3. wariant później (T11), bez okien handlu. |
 | — | moduł 1 (Mindset) i moduł 4 (Position Mgmt / Trade Styles) | **nieprzeanalizowane** — jest jeszcze materiał źródłowy poza 3 transkrypcjami. |
 
 ---
 
-## Wyniki T1–T3 (backtest, RR=2, runner on, limit 4)
+## Wyniki (backtest, RR=2, runner on, limit 4, skip‑konsolidacji zawsze on)
 
-ALL avgR w R (stop = −1.0):
+### Bufor stopu + tryb ADX — model H4/M15 (core), ALL avgR w R (stop = −1.0), n w nawiasie
 
-| model | m2back noadx/allbands | m2back noadx/skipcons | recent noadx/allbands | recent noadx/skipcons | recent adx/allbands |
-|---|---|---|---|---|---|
-| **H4/M15 (core)** | −0.49 (46) | −0.46 (49) | **+0.59 (33)** | +0.25 (37) | +0.03 (31) |
-| D1/H1 | −0.36 (7) | −0.26 (6) | −0.12 (9) | +0.06 (9) | −0.18 (7) |
-| H1/M5 | −0.29 (58) | −0.21 (50) | **+0.84 (45)** | +0.53 (49) | +1.05 (27) |
+| okno | ADX off, buf 0 | ADX off, buf .25 | ADX hard, buf 0 | ADX hard, buf .25 | ADX permit, buf 0 | ADX permit, buf .25 |
+|---|---|---|---|---|---|---|
+| m2back | −0.460 (49) | −0.437 (41) | −0.554 (28) | −0.534 (27) | −0.489 (43) | −0.457 (37) |
+| recent | +0.253 (37) | **+0.283 (34)** | −0.000 (30) | +0.050 (28) | +0.216 (34) | +0.174 (32) |
 
 **Wnioski:**
-1. **HTS flipuje między oknami tak samo jak SDD/swing** — m2back wszystko ujemne (−0.2…−0.7),
-   recent wszystko dodatnie (0…+1). To reżim, nie edge. Trend‑rider: zarabia w trendowym
-   miesiącu, krwawi w chop.
-2. **Filtr ADX (T3) jako twarda bramka SZKODZI** — h4m15 recent +0.59 → +0.03. Wycina wczesne
-   wejścia w trend, które są zyskowne (film: „wejście przed potwierdzeniem" to dobre miejsce).
-   ADX ma **pozwalać** na wczesne wejścia, nie **filtrować** potwierdzone. Do przerobienia.
-3. **Filtr konsolidacji (T2)** — marginalny, nie szkodzi bardzo, zostaje jako opcja.
-4. **Runner** — te same outliery małej próbki: h1m5 recent BTC n=11 avgR **+2.62**, EURUSD **+2.21**
-   (monster‑nogi trendu). Nie powtarzalne. avgR +1.05 na h1m5 to głównie 2 trady.
-5. **D1/H1 prawie nie strzela** (5–9 tradów) — za mało do wniosków.
+1. **Bufor stopu „delikatnie dalej" (0.25 × szer. wstęgi) pomaga** — lekko, ale konsekwentnie
+   w prawie każdej celi (recent ADX‑off +0.253 → +0.283; m2back −0.460 → −0.437). Knot do
+   krawędzi nie wybija już na samej linii struktury. **Zostaje jako domyślne.**
+2. **ADX‑permit (T3') >> ADX‑hard (T3).** Twarda bramka kasuje edge (recent +0.25 → −0.00,
+   n 37 → 30). Permit trzyma liczbę tradów i avgR blisko wariantu bez ADX (recent +0.216 vs
+   +0.253). ADX najlepiej **jako veto tylko „niebieskiej" strefy**, nie filtr siły. Sam ADX i tak
+   nic nie dodaje ponad filtr konsolidacji — trzymamy go wyłączonego domyślnie, permit jako opcja.
+3. **Flip między oknami trwa** — m2back wszystko ujemne (−0.4…−0.5), recent dodatnie (0…+0.28).
+   To reżim, nie edge. Trend‑rider.
+4. **D1/H1 i H1/M5 — brak danych w tym przebiegu:** przy jednym długim gridzie Capital.com
+   ucina historię / throttluje zanim pętla dojdzie do 3. pary (M5 nie ma tak głęboko, D1
+   potrzebuje 144 świec = ~7 mies. wstecz). Osobny, krótszy przebieg: `HtsExportTest#d1h1AndPivots`.
+5. **T4 (pivoty)** — czeka na ten sam osobny przebieg (w gridzie wpadło w martwą sesję).
 
 **Wniosek zbiorczy (SDD‑M15 + swing + HTS):** żadna nie ma udowodnionego stabilnego edge na tych
 danych. Wszystkie to trend‑followery — oczekiwana wartość zależy od tego czy okno testowe trendowało.
 Miesiąc forward na 3 kontach demo jest właściwym ruchem bo backtest tego nie rozstrzygnie.
 
-**Następne:** przerobić ADX z bramki na „permisję wczesnego wejścia" (T3'), potem T4 (pivoty), T5.
+**Następne:** osobny przebieg D1/H1 + pivoty (T4), potem T6/T7 (split‑entry, piramida) na CSV.
 
 ## Stan „co jest w kodzie" (backtest, nie live)
 
 - `Band` (high/low 33/144) — jest.
 - `Supertrend`, `WaveTrend`, `Ema`, `Sma` — jest (niewpięte w silnik).
 - Band‑entry + runner „close pod wstęgą" — jest w `SwingBacktestService` (H4/H1) i `BacktestService` (H1/M15)
-  jako tryby backtestu. `HtsBacktestService` (D1/H1, H1/M5) — **do zrobienia w T1**.
+  jako tryby backtestu.
+- `HtsBacktestService` — **jest** (T1‑T4): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
+  `adxPermit` (T3'), `pivotTargets` (T4), runner. Endpoint `GET /api/hts/backtest` (admin).
+- `equity_simulator.py` — **jest** `--day-stop` / `--max-dd` (T5, strona backtestu).
 - Żywe silniki (`SddEngine`, `SddSwingEngine`) i egzekucja (`ExecutionGate`, `SwingExecutionGate`) — **nietknięte**.

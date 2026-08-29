@@ -82,6 +82,45 @@ class HtsExportTest {
         System.out.println("CSV dir: " + OUT);
     }
 
+    /**
+     * Focused re-run: D1/H1 + the pivot-target (T4) pass on their own, with a
+     * fresh session. In the full {@link #grid()} run the tail pairs come back
+     * empty once Capital.com throttles / M5 history runs out — this isolates them.
+     */
+    @Test
+    void d1h1AndPivots() throws Exception {
+        Files.createDirectories(OUT);
+        int[][] windows = {{30, 30}, {30, 0}};
+        String[] wn = {"m2back", "recent"};
+        for (int w = 0; w < windows.length; w++) {
+            for (Adx adx : Adx.values()) {
+                for (double stopBuf : new double[]{0.0, 0.25}) {
+                    var p = params(Resolution.D1, Resolution.H1, windows[w][0], windows[w][1], adx, stopBuf, false);
+                    List<SwingTradeRow> rows = backtest.run(p);
+                    String label = "d1h1_" + wn[w] + "_adx" + adx.name().toLowerCase()
+                            + "_buf" + (int) Math.round(stopBuf * 100);
+                    write(OUT.resolve("hts_" + label + ".csv"), rows);
+                    System.out.println("== " + label + " ==");
+                    perTicker(rows);
+                }
+            }
+        }
+        Resolution[][] pivotPairs = {{Resolution.H4, Resolution.M15}, {Resolution.D1, Resolution.H1}};
+        String[] pivotName = {"h4m15", "d1h1"};
+        for (int pi = 0; pi < pivotPairs.length; pi++) {
+            for (int w = 0; w < windows.length; w++) {
+                var p = params(pivotPairs[pi][0], pivotPairs[pi][1], windows[w][0], windows[w][1],
+                        Adx.PERMIT, 0.25, true);
+                List<SwingTradeRow> rows = backtest.run(p);
+                String label = pivotName[pi] + "_" + wn[w] + "_pivots";
+                write(OUT.resolve("hts_" + label + ".csv"), rows);
+                System.out.println("== " + label + " ==");
+                perTicker(rows);
+            }
+        }
+        System.out.println("CSV dir: " + OUT);
+    }
+
     static void perTicker(List<SwingTradeRow> rows) {
         Map<String, double[]> agg = new TreeMap<>(); // n, W, L, sumR
         for (SwingTradeRow r : rows) {
