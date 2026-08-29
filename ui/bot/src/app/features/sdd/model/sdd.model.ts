@@ -65,6 +65,7 @@ export interface HealthInfo {
   executionEnabled: boolean;
   demoConfigured: boolean;
   liveConfigured: boolean;
+  swingConfigured?: boolean;
   webhookConfigured?: boolean;
   lastWebhook?: string;
   lastWebhookAt?: string | null;

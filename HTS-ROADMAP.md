@@ -6,15 +6,24 @@
 Potwierdzone parametry: **wstęgi RMA, high/low, 33 / 144.**
 HTS to **3. strategia** — osobne konto demo, obok SDD‑M15 i swing, na miesiąc forward.
 
-**3 modele timeframe (ta sama mechanika, różne pary):**
-| model | HTF (kontekst) | LTF (egzekucja) | rola |
-|---|---|---|---|
-| **HTS‑core** | **H4** | **M15** | rdzeń — to rozszerzamy |
-| HTS‑swing | D1 | H1 | długie swingi |
-| HTS‑fast | H1 | M5 | intraday |
+**Modele timeframe (ta sama mechanika, różne pary):**
+| model | HTF (kontekst) | LTF (egzekucja) | rola | priorytet |
+|---|---|---|---|---|
+| **HTS‑swing** | **D1** | **H1** | główny model swingowy | **1** |
+| **HTS‑core** | **H4** | **M15** | rdzeń — to rozszerzamy | **2** |
+| HTS‑fast | H1 | M5 | 3. wariant (scalp) | później (T11) |
+
+> **Kierunek:** filmy opisują **2 opcje** — swing (D1/H1) i scalp (H1/M5 + okna handlu ~2 h).
+> **Priorytet: 2 modele swingowe (D1/H1, H4/M15).** H1/M5 wejdzie jako 3. wariant HTS **po** nich
+> (T11) — bez okien sesyjnych, sama mechanika wstęg na M5. cTrader ma wbudowany wskaźnik wstęg
+> („WWS") — potwierdza 33/144.
 
 Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, potem PR, potem live.
 **Każdy wariant testujemy z ADX i bez ADX.**
+
+**Cel optymalizacji HTS:** wysoki **win rate** + niski **drawdown**. Docelowo **2–4 % / mies. na
+ticker** to już dobry wynik. Preferujemy dużo małych wygranych (TP na 1:2) + runner łapiący
+rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
 
 ---
 
@@ -36,23 +45,44 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   kontrolnym (PP). ATR służy **tylko** do dobrania wielkości pozycji.
 - Long‑term: stop **prowadzony pod wstęgą** wraz z ceną (trailing strukturalny).
 
-**Target / wyjście**
-- Stałe **RR ≥ 1:1**, preferowane **1:2 / 1:3** (nie 1:6/1:8 — nie podzielisz na tyle TP).
-- Multi‑target na **dziennych pivotach**: R1/R2/R3 (S1/S2/S3) = TP1/TP2/TP3, częściowa realizacja
-  (33/33/33 lub 50/50), **BE po TP1**.
-- **Runner** (2. część pozycji, bez targetu): trzymana aż **cała świeca ciałem zamknie się pod wolną
-  wstęgą** (long) lub złamie PP przeciw pozycji.
-- Fib 50% korekty: przekroczenie 50% zniesienia = pierwszy sygnał możliwej zmiany trendu.
+**Target / wyjście — model docelowy (potwierdzony)**
+- **TP1 na 1:2 RR → realizacja połowy pozycji.**
+- **Druga połowa = runner z trailingiem:** po TP1 stop runnera skacze na **zablokowany zysk**
+  `entry ± lockR × dystans_stopu` (`lockR` domyślnie 1.0 — „przycina do ~1 % zysku"), potem
+  **trailuje pod krawędzią szybkiej wstęgi** (co wyżej: lock albo krawędź wstęgi).
+- Runner wychodzi **do końca dopiero** gdy **cała świeca ciałem zamknie się za wolną wstęgą**
+  (long → poniżej dolnej krawędzi wolnej) — „reszta ile da".
+- Alternatywa: multi‑target na **dziennych pivotach** R1/R2/R3 = TP1/TP2/TP3 (1/3 każdy), **BE po TP1**,
+  ostatnia 1/3 jak runner wyżej. (tryb `pivotTargets`, do porównania w T4)
+- Kod: `replayRr` — `runnerLockR` param; `?runnerLock=` na endpoincie. Domyślnie 1.0.
+- **Konstrukcja „linijką Fib"**: 0 % = wejście, 100 % = SL; 200/300/400 % = TP1/TP2/TP3 (czyli 1R/2R/3R);
+  **50 % = poziom ostrzegawczy** (korekta w połowie drogi do stopu → redukcja / czujność, sygnał do maila).
+- Hipoteza (OI‑1): linijka Fib to tylko **sprawdzenie R:R**, a faktyczne TP stawiamy na **pivotach**.
+
+**Stop — dokładnie**
+- Strukturalny, ale **nie idealnie na krawędzi wstęgi — delikatnie dalej**: krawędź szybkiej wstęgi
+  odsunięta o `stopBufferFrac × szerokość szybkiej wstęgi` (kod: domyślnie 0.25). Knot do krawędzi
+  nie wybija wtedy na samej linii struktury.
+- Wariant wąski = wstęga 33, szeroki = wstęga 144 (film 3 opisuje to odwrotnie — **prawdopodobnie
+  błąd transkrypcji**, OI‑9).
 
 **Zarządzanie ryzykiem (film 3)**
 - Ryzyko / trade: **max 1%, docelowo 0.25–0.5%**, liczone łącznie dla WSZYSTKICH otwartych pozycji
   (swing + scalpy razem ≤ 1–2%).
 - Sizing przez dystans stopu: bliższy stop → większa pozycja, dalszy → mniejsza, strata w PLN stała.
+  Wzór: **`lot = ryzyko$ / (dystans_SL_w_pipsach × wartość_pipsa_na_lot)`**.
 - **2 straty pod rząd → koniec dnia.** „One trade" = jeden setup dziennie, bez uśredniania/dokładania.
 - Twardy DD **20%** (close‑all). Dzienny DD ≤ 5%. 20 dni × 1% = 20% max/mies (nie powinno wystąpić).
+- Cel **~2 %/mies.**; strategia zyskowna nawet **poniżej 50 % WR przy 1:3**. Reżim sizingu i DD
+  ma być **zgodny z prop‑firm**.
+
+> **Kierunek: priorytet to system SWINGOWY.** Główny model **D1/H1**, core do rozszerzania
+> **H4/M15** — te dwa robimy pierwsze. **H1/M5 = 3. wariant, później** (T11), bez okien handlu /
+> filtrów sesyjnych. Wejścia liczą się na zamknięciu świecy LTF, trzymanie pozycji przez dni.
 - **Split‑entry** (NIE martingale): dziel pozycję na 2–3 mniejsze rozstawione w zakresie cenowym,
   ten sam permanentny stop, łączna strata = limit. Daje rynkowi „oddech".
 - **Piramidowanie** (w zysku): dokładasz na kolejnych cofnięciach do wstęgi w tym samym trendzie;
+  **równe loty (nie martingale)**, dodatki **tylko na re‑teście wstęgi**, łączne ryzyko ≤ 1%;
   pełne wyjście przy złamaniu wolnej wstęgi.
 - **ATR** = miernik zmienności: rosnący ATR → prowadź ciaśniej, szerokie ruchy, „najgorzej się gra".
 - **Blackout**: nie handlujemy przed danymi; po danych nie od razu (min. kilka świec).
@@ -69,40 +99,76 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 - `Band` = RMA(high/low), 33/144 — **zrobione** (`com.adam.server.sdd.Band`).
 - `HtsBacktestService` — timeframe‑generyczny per‑trade backtest:
   - wejście: pullback do szybkiej wstęgi + reclaim ciałem + szybka wstęga czysto nad wolną + HTF wstęga w trendzie
-  - stop: strukturalny (dalsza krawędź szybkiej wstęgi)
-  - target: RR param (sweep 1 / 2 / 3)
-  - runner: połowa RR + połowa „close pod wolną wstęgą"
+  - stop: strukturalny (dalsza krawędź szybkiej wstęgi) **+ bufor `stopBufferFrac × szer. wstęgi`**
+    (domyślnie 0.25 — „delikatnie dalej", nie na samej linii)
+  - target: **TP1 = 1:2 RR (połowa)**; RR param dla sweepów 1 / 2 / 3
+  - runner: druga połowa — po TP1 stop na zablokowany zysk (`runnerLockR`, dom. 1.0), trail pod
+    szybką wstęgą, wyjście dopiero na „close ciałem za wolną wstęgą"
   - wyjście per‑trade CSV → `tools/equity_simulator.py`
-- Wymaga `Resolution.M5` (+ mapowanie `MINUTE_5` w `CapitalComBrokerClient`, `PaperBrokerClient`).
-- Uruchamiany dla **3 par**: H4/M15 (core), D1/H1, H1/M5.
-- **Deliverable:** tabela per‑ticker × 3 modele, HTS vs SDD baseline, train/test, RR 1/2/3.
+- `Resolution.M5` + mapowanie `MINUTE_5` już są (z T1); model H1/M5 zostaje w kodzie backtestu
+  jako opcja, ale **nie jest rozwijany** (scalp).
+- Uruchamiany dla par swingowych: **D1/H1 (główny), H4/M15 (core)**.
+- **Deliverable:** tabela per‑ticker × modele swingowe, HTS vs SDD baseline, train/test, RR 1/2/3.
 
 ### T2 — Filtr konsolidacji (brak wejść gdy wstęgi się nakładają)
 - Skip gdy: `fast.lower ≤ slow.upper` nie jest wyraźnie spełnione (wstęgi się stykają),
   albo separacja wstęg `< k·ATR`, albo szerokość szybkiej wstęgi płaska (brak nachylenia).
 - **Test: z filtrem konsolidacji i bez.**
 
-### T3 — Filtr ADX
-- Port ADX (Wilder) do pakietu `sdd` (jak `Supertrend`/`WaveTrend`).
-- Bramka: wejścia tylko gdy `ADX > próg` (trend) LUB „zielone pole ADX" → zgoda na wejście przed crossem.
-- **Test KAŻDEGO wariantu (T1, T2, T4…) z ADX i bez ADX.**
+### T3 — Filtr ADX (twarda bramka)  ← zrobione, backtest pokazał że SZKODZI
+- Port ADX (Wilder) do `com.adam.server.sdd.Adx` — zrobione.
+- Bramka: wejścia tylko gdy `ADX > próg` **i** DI po stronie trendu.
+- Wniosek z backtestu: twarda bramka wycina zyskowne wczesne wejścia → patrz T3'.
 
-### T4 — Multi‑target na pivotach + BE
-- Dzienne PP → R1/R2/R3 / S1/S2/S3 jako TP1/TP2/TP3.
-- Częściowa realizacja (33/33/33 lub 50/50/0), **stop → BE po TP1**.
-- Zastępuje pojedynczy stały RR z T1 dla stylu swing.
+### T3' — ADX jako „permisja koloru", nie filtr siły  ← zrobione w kodzie
+- W filmach ADX to **strefy kolorów** (zielony = graj, niebieski = trend boczny = nie graj,
+  czerwony = ostrożność/odwrót). **Progi nie padają** (OI‑2) — nasze 20 to zgadywanka.
+- `adxPermit=true` w `HtsBacktestService`: veto **tylko** w „niebieskiej" strefie (`ADX < ADX_BLUE_FLOOR`,
+  15.0) lub gdy przeciwne DI wyraźnie prowadzi (`> aligned + DI_OPPOSE_MARGIN`, 5.0).
+  Wczesne, przed‑crossowe wejścia **przechodzą**.
+- Backtest: 3 stany ADX {off, hard T3, permit T3'} × bufor stopu {0.0, 0.25}.
+
+### T4 — Multi‑target na pivotach + BE  ← zrobione, backtest: gorsze od runner‑lock
+- Dzienne PP → R1/R2/R3 / S1/S2/S3 jako TP1/TP2/TP3, 1/3 każdy, **stop → BE po TP1**, ostatnia
+  1/3 jak runner. Tryb `pivotTargets`.
+- Wynik: D1/H1 recent +0.23 (22) vs +0.58 runner‑lock; **H4/M15 −0.62/−0.33** — tryb pivotów
+  na M15 nie działa. **Runner‑lock (TP1 1:2 + trail) zostaje modelem domyślnym.** Pivoty jako
+  opcja tylko dla D1/H1.
 
 ### T5 — Model ryzyka / sizing wg filmów
-- Sizing przez dystans stopu → strata stała % (0.25–1%).
+- Sizing przez dystans stopu → strata stała % (0.25–1%). Wzór:
+  `lot = ryzyko$ / (dystans_SL_pips × wartość_pipsa_na_lot)`.
 - Łączny cap ryzyka na koncie; **2 straty pod rząd → stop dnia**; twardy DD 20% → close‑all.
-- Po stronie backtestu: `equity_simulator` już liczy % ryzyka — dodać regułę day‑stop + DD.
+- Po stronie backtestu: **zrobione** — `equity_simulator.py --day-stop N --max-dd PCT`
+  (kolumny `skipped_daystop`, `skipped_ddstop`, `ddstop_hit` w `summary.csv`).
+- Do zrobienia: sizing‑formula w żywym `RiskPolicy` (T9). **Bez** okien handlu / filtra sesji — to scalp.
 
-### T6 — Split‑entry (skalowanie w zakres, nie martingale)
-- Sygnał → 2–3 częściowe wejścia rozstawione w zakresie, ten sam stop.
-- Wpływ na avgR / DD w backteście.
+### T6 — Split‑entry (skalowanie w zakres, nie martingale)  ← zrobione w backteście
+- `splitEntries=n` (`?split=`): `n` równych rung od ceny sygnału w stronę stopu (górna połowa
+  zakresu entry→stop), fill przez `PULLBACK_BARS` świec. Pozycja ma **wejście uśrednione** i
+  frakcję wielkości = filled/n. Ryzyko liczone od **oryginalnego** dystansu entry→stop →
+  częściowo wypełniona drabinka + stop = strata **< 1R**. Wyjście = model runner‑lock.
+- `replaySplit` w `HtsBacktestService`. Backtest T6: `HtsExportTest#splitEntry` (split {1,2,3}).
+- **Wyniki (ADX‑permit, buf 0.25, RR 2):**
 
-### T7 — Piramidowanie
+  | model / okno | split 1 | split 2 | split 3 |
+  |---|---|---|---|
+  | H4/M15 m2back | −0.377 (55) | −0.328 (55) | −0.285 (55) |
+  | H4/M15 recent | **+0.197 (65)** | +0.157 (65) | +0.079 (65) |
+  | D1/H1 recent | **+0.584 (9)** | +0.268 (9) | +0.221 (9) |
+
+  **Wniosek: split‑entry (ten model) NIE poprawia edge.** W trendzie skaluje wygrane w dół
+  mocniej niż lepsze uśrednione wejście to nadrabia (drabinka rzadko wypełnia się w całości →
+  frakcja wielkości ~0.4–0.6). W stratnym oknie „pomaga" tylko przez mniejszą ekspozycję — to
+  samo daje po prostu niższe ryzyko. **Domyślnie split=1.** Sensowny split wymagałby rung
+  sizowanych własnym (ciaśniejszym) stopem tak, że pełne wypełnienie = pełne 1R — to model z T7‑style
+  księgowaniem, odłożony.
+
+### T7 — Piramidowanie  ← wymaga rozpisania (odłożone)
 - Dokładanie na kolejnych cofnięciach do wstęgi w tym samym trendzie; pełne wyjście przy złamaniu wolnej.
+- **Problem:** księgowanie ryzyka dla dokładek jest niejednoznaczne (równe loty + własne stopy →
+  ryzyko rośnie; „w zysku" → dokładki finansowane otwartym zyskiem). Potrzebny osobny projekt
+  modelu (stop dokładki na entry poprzedniej jednostki? wspólny stop pod wstęgą?).
 - Konflikt z obecnym `ExecutionGate` („NO pyramid") — najpierw backtest, potem decyzja o żywej egzekucji.
 
 ### T8 — Supertrend / WaveTrend jako opcje
@@ -120,9 +186,10 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 - Jak task 6 dla swinga: stan obu interwałów (wstęgi HTF+LTF, ADX, ATR, pozycja vs PP),
   entry/stop/targety, jedno zdanie „dlaczego". Adres `adam.mendak@gmail.com`.
 
-### T11 — Pozostałe modele TF jako osobne żywe konfiguracje
-- Po ustabilizowaniu **HTS‑core (H4/M15)** na 3. koncie: dołożyć D1/H1 i H1/M5 jako warianty
-  (osobne booki / konta albo przełącznik konfiguracji) — **po** domaszerowaniu M15 + swing + HTS‑core.
+### T11 — Kolejne warianty HTS jako osobne żywe konfiguracje
+- Po ustabilizowaniu głównego modelu HTS na 3. koncie: dołożyć drugą parę swingową,
+  a potem **H1/M5 jako 3. wariant** (scalp mechaniki wstęg, bez okien sesyjnych) —
+  **po** domaszerowaniu M15 + swing + 2 modeli swingowych HTS.
 
 ---
 
@@ -146,10 +213,68 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 
 ---
 
+## Otwarte kwestie (OI) — z 2. podsumowania filmów
+
+| # | kwestia | robocza hipoteza / co robimy |
+|---|---|---|
+| OI‑1 | pivoty vs linijka Fib jako TP | Fib = sprawdzenie R:R; pivoty = faktyczne TP. Mamy oba tryby → porównanie w T4. |
+| OI‑2 | progi ADX (zielony/niebieski/czerwony) nie padają | T3': veto tylko strefa „niebieska" (`ADX<15`) + DI. Do kalibracji na forwardzie. |
+| OI‑3 | warunki re‑entry po wyjściu | nieostre — na razie: nowy pełny setup (pullback+reclaim), nie „wskok z powrotem". |
+| OI‑9 | opis SL w filmie 3 wygląda na odwrócony | trzymamy: wąski = wstęga 33, szeroki = wstęga 144. |
+| — | filmy opisują **2 opcje**: swing (D1/H1) i scalp (H1/M5 + okna 2 h) | **priorytet: 2 modele swingowe**; H1/M5 jako 3. wariant później (T11), bez okien handlu. |
+| — | moduł 1 (Mindset) i moduł 4 (Position Mgmt / Trade Styles) | **nieprzeanalizowane** — jest jeszcze materiał źródłowy poza 3 transkrypcjami. |
+
+---
+
+## Wyniki (backtest, RR=2, model wyjścia = TP1 1:2 + runner z lock 1.0R + trail wstęgi, limit 4, skip‑konsolidacji on)
+
+### Model D1/H1 (główny swing) — ALL avgR w R (stop = −1.0), n w nawiasie — **przebieg zaufany**
+
+| okno | ADX off, buf 0 | ADX off, buf .25 | ADX hard, buf 0 | ADX hard, buf .25 | ADX permit, buf 0 | ADX permit, buf .25 |
+|---|---|---|---|---|---|---|
+| m2back | −0.079 (6) | −0.113 (6) | −0.646 (5) | −0.657 (5) | −0.079 (6) | −0.113 (6) |
+| recent | +0.194 (16) | +0.402 (12) | +0.188 (9) | +0.002 (8) | +0.430 (15) | **+0.584 (9)** |
+
+Pivoty (tryb `pivotTargets`): D1/H1 recent **+0.230 (22)**, m2back −0.152 (6). H4/M15 pivoty
+**−0.62 (121) / −0.33 (122)** — dużo tradów, mocno ujemne, tryb pivotów na M15 nie działa.
+
+**Wnioski:**
+1. **Bufor stopu 0.25 pomaga** na oknie recent (D1/H1: +0.194→+0.402 bez ADX; +0.430→+0.584 permit).
+   Na m2back marginalnie gorzej (próbka 6). **Zostaje jako domyślne.**
+2. **Model wyjścia z lockiem ścina straty runnera** — D1/H1 m2back bez ADX z −0.245 (stary runner)
+   na **−0.079**. Druga połowa nie oddaje już zysku po TP1.
+3. **ADX‑permit ≥ ADX‑off** na D1/H1 (recent +0.430 vs +0.194 buf0; +0.584 vs +0.402 buf25) —
+   tu **pomaga**. **ADX‑hard dalej szkodzi** (recent buf25 +0.002). Na D1/H1 rozważyć permit jako
+   domyślny.
+4. **Runner‑lock >> pivoty** na obu modelach; pivoty na H4/M15 wręcz szkodzą.
+5. **Flip reżimu trwa** — m2back ≈ −0.08…−0.66, recent +0.0…+0.58. Trend‑rider.
+6. **H4/M15 (core) — brak zaufanego przebiegu:** Capital.com throttluje przy dłuższych gridach
+   (druga tura pod rząd = same n=0). Trzeba puszczać **jeden model / świeża sesja**, nie łańcuchem.
+   Pierwsza (częściowo zdegradowana) tura H4/M15 dawała ten sam kierunek: buf pomaga, permit≫hard.
+
+**Wniosek zbiorczy (SDD‑M15 + swing + HTS):** żadna nie ma udowodnionego stabilnego edge na tych
+danych. Wszystkie to trend‑followery — EV zależy od tego czy okno testowe trendowało.
+Miesiąc forward na 3 kontach demo rozstrzygnie to lepiej niż backtest.
+
+### H4/M15 (core) — czysty przebieg z modelem runner‑lock (split=1, ADX‑permit, buf 0.25)
+m2back **−0.377 (55)** · recent **+0.197 (65)**. Ten sam flip reżimu, brak stabilnego edge,
+spójne z D1/H1 i z SDD/swing. Sample 55–65 tradów = wiarygodny.
+
+**Konfiguracja domyślna po T1–T6:** RR 2, `runner=true`, `runnerLockR=1.0`, `stopBufferFrac=0.25`,
+`skipConsolidation=true`, ADX off (permit jako opcja, na D1/H1 pomaga), `pivotTargets=false`,
+`splitEntries=1`.
+
+**Następne:** T9 — żywy book `hts` + konto „Account m5", `HtsEngine`/`HtsScanService`/
+`HtsExecutionGate`, `HTS_EXECUTION_ENABLED` (domyślnie off), grant Liquibase, `CAPITAL_HTS_*`,
+book w UI/overview. Potem T10 (mail). T7 (piramida) po zaprojektowaniu modelu ryzyka dokładek.
+
 ## Stan „co jest w kodzie" (backtest, nie live)
 
 - `Band` (high/low 33/144) — jest.
 - `Supertrend`, `WaveTrend`, `Ema`, `Sma` — jest (niewpięte w silnik).
 - Band‑entry + runner „close pod wstęgą" — jest w `SwingBacktestService` (H4/H1) i `BacktestService` (H1/M15)
-  jako tryby backtestu. `HtsBacktestService` (D1/H1, H1/M5) — **do zrobienia w T1**.
+  jako tryby backtestu.
+- `HtsBacktestService` — **jest** (T1‑T4): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
+  `adxPermit` (T3'), `pivotTargets` (T4), runner. Endpoint `GET /api/hts/backtest` (admin).
+- `equity_simulator.py` — **jest** `--day-stop` / `--max-dd` (T5, strona backtestu).
 - Żywe silniki (`SddEngine`, `SddSwingEngine`) i egzekucja (`ExecutionGate`, `SwingExecutionGate`) — **nietknięte**.

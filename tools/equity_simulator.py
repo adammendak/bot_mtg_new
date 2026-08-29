@@ -37,6 +37,13 @@ Użycie:
 
   (etykieta po dwukropku to nazwa scenariusza używana w wykresie/raporcie)
 
+Reguły ryzyka (opcjonalne, do modelowania T5 z filmów HTS):
+  --day-stop N   po N stratnych tradach POD RZĄD w jednym dniu kalendarzowym
+                 pomiń resztę tradów tego dnia (licznik zeruje wygrana / nowy
+                 dzień). Kolumny summary: skipped_daystop.
+  --max-dd PCT   gdy drawdown od szczytu ≥ PCT% → close-all i STOP całej
+                 symulacji (twardy DD, np. 20). Kolumny: skipped_ddstop, ddstop_hit.
+
 Wyjście:
   - equity_<scenario>.csv  (pełna krzywa equity: trade#, time, symbol, r, equity, drawdown%)
   - summary.csv            (zbiorcze metryki per scenariusz [+ per symbol w trybie per-symbol])
@@ -115,6 +122,9 @@ class SimResult:
     dd_curve: list[float] = field(default_factory=list)
     times: list[datetime] = field(default_factory=list)
     trades: list[Trade] = field(default_factory=list)
+    skipped_daystop: int = 0   # trady pominięte przez regułę „2 straty pod rząd → stop dnia"
+    skipped_ddstop: int = 0    # trady pominięte po zadziałaniu twardego DD (close-all)
+    dd_stop_hit: bool = False
 
     def summary(self) -> dict:
         eq = self.equity_curve
@@ -150,16 +160,41 @@ class SimResult:
             "total_return_%": round(total_return, 2),
             "max_drawdown_%": round(max_dd, 2),
             "return_over_maxdd": round(calmar, 2) if calmar != float("inf") else "inf",
+            "skipped_daystop": self.skipped_daystop,
+            "skipped_ddstop": self.skipped_ddstop,
+            "ddstop_hit": self.dd_stop_hit,
         }
 
 
-def simulate(trades: list[Trade], capital: float, risk_pct: float, label: str, symbol: str) -> SimResult:
+def simulate(trades: list[Trade], capital: float, risk_pct: float, label: str, symbol: str,
+             day_stop: int = 0, max_dd_pct: float = 0.0) -> SimResult:
+    """
+    day_stop  > 0 : po `day_stop` stratnych tradach POD RZĄD w obrębie jednego
+                    dnia kalendarzowego pomiń resztę tradów tego dnia (licznik
+                    zeruje wygrana albo nowy dzień) — reguła „2 straty → stop dnia".
+    max_dd_pct > 0: gdy drawdown od szczytu ≥ max_dd_pct — close-all i STOP całej
+                    symulacji (twardy DD 20% z filmu 3). Kolejne trady pominięte.
+    """
     res = SimResult(label=label, symbol=symbol)
     equity = capital
     peak = capital
     res.equity_curve.append(equity)
     res.dd_curve.append(0.0)
+    cur_day = None
+    consec_losses = 0
+    day_halted = False
     for t in trades:
+        day = t.entry_time.date()
+        if day != cur_day:
+            cur_day = day
+            consec_losses = 0
+            day_halted = False
+        if res.dd_stop_hit:
+            res.skipped_ddstop += 1
+            continue
+        if day_stop and day_halted:
+            res.skipped_daystop += 1
+            continue
         # ryzyko liczone jako % AKTUALNEGO equity w momencie wejścia (compounding),
         # zgodnie z RiskPolicy.riskAmount() w kodzie bota (1% aktualnego salda).
         equity = equity * (1 + risk_pct * t.r_multiple)
@@ -169,6 +204,14 @@ def simulate(trades: list[Trade], capital: float, risk_pct: float, label: str, s
         res.dd_curve.append(dd)
         res.times.append(t.entry_time)
         res.trades.append(t)
+        if t.r_multiple < 0:
+            consec_losses += 1
+            if day_stop and consec_losses >= day_stop:
+                day_halted = True
+        elif t.r_multiple > 0:
+            consec_losses = 0
+        if max_dd_pct and dd >= max_dd_pct:
+            res.dd_stop_hit = True
     return res
 
 
@@ -180,6 +223,10 @@ def main():
     ap.add_argument("--risk", type=float, default=0.01, help="ryzyko na trade jako ułamek equity (0.01 = 1%%)")
     ap.add_argument("--win-r", type=float, default=1.0, help="fallback R dla WIN gdy brak r_multiple w CSV")
     ap.add_argument("--loss-r", type=float, default=2.5, help="fallback R dla LOSS gdy brak r_multiple w CSV")
+    ap.add_argument("--day-stop", type=int, default=0,
+                    help="N stratnych tradów pod rząd w jednym dniu → pomiń resztę dnia (0 = wyłączone)")
+    ap.add_argument("--max-dd", type=float, default=0.0,
+                    help="twardy DD od szczytu w %% → close-all i stop symulacji (0 = wyłączone)")
     ap.add_argument("--out-dir", default=".")
     args = ap.parse_args()
 
@@ -204,7 +251,8 @@ def main():
             continue
 
         if args.mode == "portfolio":
-            res = simulate(trades, args.capital, args.risk, label, "PORTFOLIO")
+            res = simulate(trades, args.capital, args.risk, label, "PORTFOLIO",
+                           day_stop=args.day_stop, max_dd_pct=args.max_dd)
             all_summaries.append(res.summary())
             _write_equity_csv(res, out_dir / f"equity_{_safe(label)}_portfolio.csv")
             plot_series.append((label, res.times, res.equity_curve[1:]))
@@ -213,7 +261,8 @@ def main():
             for t in trades:
                 by_symbol.setdefault(t.symbol, []).append(t)
             for symbol, sym_trades in by_symbol.items():
-                res = simulate(sym_trades, args.capital, args.risk, label, symbol)
+                res = simulate(sym_trades, args.capital, args.risk, label, symbol,
+                               day_stop=args.day_stop, max_dd_pct=args.max_dd)
                 all_summaries.append(res.summary())
                 _write_equity_csv(res, out_dir / f"equity_{_safe(label)}_{_safe(symbol)}.csv")
                 plot_series.append((f"{label}/{symbol}", res.times, res.equity_curve[1:]))

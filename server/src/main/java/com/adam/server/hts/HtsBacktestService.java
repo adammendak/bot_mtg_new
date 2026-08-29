@@ -33,10 +33,13 @@ import java.util.Map;
  * fully clear above the slow band (144) on both the execution timeframe and the
  * HTF; price pulled back into the fast band within the last {@link #PULLBACK_BARS}
  * bars; the current candle <b>body</b> closes back above the fast band's upper
- * edge. Optional gates: skip when the bands are consolidating (T2), require ADX
- * to be trending (T3).
+ * edge. Optional gates: skip when the bands are consolidating (T2), and an ADX
+ * gate that is either a hard trend filter (T3) or a colour-zone permit that
+ * still allows early, pre-cross entries (T3', {@code adxPermit}).
  *
- * <p><b>Stop</b>: structural — the far edge of the fast band at entry.
+ * <p><b>Stop</b>: structural — the far edge of the fast band at entry, pushed
+ * out by {@code stopBufferFrac} × fast-band-width so a wick to the edge doesn't
+ * stop us exactly on the structure line.
  * <b>Target</b>: {@code rr × stopDistance}, or (T4) the daily pivots R1/R2/R3 as
  * TP1/TP2/TP3 with the stop moved to break-even after TP1.
  * <b>Runner</b> ({@code runner=true}): half takes the fixed target, the other
@@ -54,6 +57,8 @@ public class HtsBacktestService {
     private static final int SLOPE_BARS = 20;              // slow band must be sloping over this many bars
     private static final double CONSOLIDATION_SEP = 0.25;  // required band separation as a fraction of slow-band width
     private static final int LOOK_AHEAD_BARS = 600;
+    private static final double ADX_BLUE_FLOOR = 15.0;     // T3': below this ADX is the "blue" no-trend zone → no entry
+    private static final double DI_OPPOSE_MARGIN = 5.0;    // T3': permit entry unless the opposing DI leads by more than this
     private static final DateTimeFormatter ISO_UTC = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
     private static final ZoneId ZONE = ZoneId.of("Europe/Warsaw");
 
@@ -76,12 +81,18 @@ public class HtsBacktestService {
             double adxThreshold,
             boolean skipConsolidation,
             boolean pivotTargets,
-            int maxNames
+            int maxNames,
+            double stopBufferFrac,
+            boolean adxPermit,
+            double runnerLockR,
+            int splitEntries
     ) {
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
                     /*runner*/ false, /*adxFilter*/ false, /*adxThreshold*/ Adx.TREND_THRESHOLD,
-                    /*skipConsolidation*/ false, /*pivotTargets*/ false, /*maxNames*/ 4);
+                    /*skipConsolidation*/ false, /*pivotTargets*/ false, /*maxNames*/ 4,
+                    /*stopBufferFrac*/ 0.25, /*adxPermit*/ false, /*runnerLockR*/ 1.0,
+                    /*splitEntries*/ 1);
         }
     }
 
@@ -119,7 +130,14 @@ public class HtsBacktestService {
                     continue;
                 }
             }
-            Replayed r = p.pivotTargets() ? replayPivots(c) : replayRr(c, p.rr(), p.runner());
+            Replayed r;
+            if (p.pivotTargets()) {
+                r = replayPivots(c);
+            } else if (p.splitEntries() > 1) {
+                r = replaySplit(c, p.rr(), p.runnerLockR(), p.splitEntries());
+            } else {
+                r = replayRr(c, p.rr(), p.runner(), p.runnerLockR());
+            }
             out.add(new SwingTradeRow(iso(c.time), iso(r.exit), c.symbol, c.buy ? "LONG" : "SHORT",
                     r.result, Math.round(r.r * 10000.0) / 10000.0));
             if (p.maxNames() > 0) {
@@ -130,7 +148,7 @@ public class HtsBacktestService {
     }
 
     private record Cand(Instant time, String symbol, boolean buy, double entry, double stop,
-                        List<Candle> ltf, Band.Series slow, int idx, PivotPoints.Levels pivots) {
+                        List<Candle> ltf, Band.Series fast, Band.Series slow, int idx, PivotPoints.Levels pivots) {
     }
 
     private record Replayed(Instant exit, String result, double r) {
@@ -187,7 +205,12 @@ public class HtsBacktestService {
             }
             boolean buy = dir > 0;
             double entry = bar.close();
-            double stop = buy ? lFast.lower()[i] : lFast.upper()[i];
+            // structural stop = far edge of the fast band, pushed slightly further
+            // out by a fraction of the band's own width so a wick into the edge
+            // doesn't stop us at the exact structure line.
+            double bandW = Math.max(0, lFast.upper()[i] - lFast.lower()[i]);
+            double buf = Math.max(0, p.stopBufferFrac()) * bandW;
+            double stop = buy ? lFast.lower()[i] - buf : lFast.upper()[i] + buf;
             if (buy ? stop >= entry : stop <= entry) {
                 continue;
             }
@@ -196,7 +219,7 @@ public class HtsBacktestService {
             if (p.pivotTargets() && piv == null) {
                 continue;
             }
-            out.add(new Cand(bar.time(), code, buy, entry, stop, ltf, lSlow, i, piv));
+            out.add(new Cand(bar.time(), code, buy, entry, stop, ltf, lFast, lSlow, i, piv));
         }
     }
 
@@ -227,20 +250,52 @@ public class HtsBacktestService {
         return false;
     }
 
+    /**
+     * ADX gate. Two modes:
+     * <ul>
+     *   <li><b>hard</b> ({@code adxPermit=false}, T3): ADX ≥ threshold <i>and</i>
+     *       the aligned DI leads — only fully confirmed trends pass.</li>
+     *   <li><b>permit</b> ({@code adxPermit=true}, T3'): ADX is a colour-zone
+     *       permit, not a strength gate. Veto only the "blue" no-trend zone
+     *       ({@code ADX < ADX_BLUE_FLOOR}) or a clearly opposing DI; early,
+     *       pre-cross entries are allowed.</li>
+     * </ul>
+     */
     private static boolean adxOk(List<Adx.Point> adx, int i, boolean buy, Params p) {
         if (!p.adxFilter() || adx == null || i >= adx.size()) {
             return true;
         }
         Adx.Point a = adx.get(i);
+        double aligned = buy ? a.plusDi() : a.minusDi();
+        double against = buy ? a.minusDi() : a.plusDi();
+        if (p.adxPermit()) {
+            if (Double.isNaN(a.adx()) || a.adx() < ADX_BLUE_FLOOR) {
+                return false;
+            }
+            return against <= aligned + DI_OPPOSE_MARGIN;
+        }
         if (!a.trending(p.adxThreshold())) {
             return false;
         }
-        return buy ? a.plusDi() >= a.minusDi() : a.minusDi() >= a.plusDi();
+        return aligned >= against;
     }
 
     // ---- exit models ----
 
-    private static Replayed replayRr(Cand c, double rr, boolean runner) {
+    /**
+     * Fixed-RR / runner exit.
+     *
+     * <p>{@code runner=false}: whole position to {@code rr × stopDist}.
+     *
+     * <p>{@code runner=true}: half takes the fixed {@code rr} target (the videos
+     * use 1:2); the other half is the runner. When {@code lockR > 0} the runner's
+     * stop, <b>once TP1 is filled</b>, ratchets up to {@code entry ± lockR×stopDist}
+     * (a locked profit — „przycina do 1% zysku") and then trails the far edge of
+     * the fast band, whichever is higher. The runner still exits for good when a
+     * candle body closes beyond the slow band. {@code lockR ≤ 0} = no lock/trail,
+     * runner just held to the slow-band body-close.
+     */
+    private static Replayed replayRr(Cand c, double rr, boolean runner, double lockR) {
         boolean buy = c.buy;
         double stopDist = Math.abs(c.entry - c.stop);
         double target = buy ? c.entry + rr * stopDist : c.entry - rr * stopDist;
@@ -262,30 +317,148 @@ public class HtsBacktestService {
             return mtm(c, c.ltf.get(end - 1), end - 1, buy, stopDist);
         }
 
+        boolean lockTrail = lockR > 0;
+        double lockLevel = buy ? c.entry + lockR * stopDist : c.entry - lockR * stopDist;
+        double runnerStop = c.stop;
         Double rA = null;
         Double rB = null;
         Instant exA = null;
         Instant exB = null;
         for (int i = c.idx + 1; i < end && (rA == null || rB == null); i++) {
             Candle b = c.ltf.get(i);
-            if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
-                if (rA == null) { rA = -1.0; exA = b.time(); }
-                if (rB == null) { rB = -1.0; exB = b.time(); }
-                break;
+
+            // half A — fixed RR target; a stop hit before it fills takes both halves
+            if (rA == null) {
+                if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
+                    rA = -1.0;
+                    exA = b.time();
+                    if (rB == null) { rB = -1.0; exB = b.time(); }
+                    break;
+                }
+                if (buy ? b.high() >= target : b.low() <= target) {
+                    rA = rr;
+                    exA = b.time();
+                }
             }
-            if (rA == null && (buy ? b.high() >= target : b.low() <= target)) {
-                rA = rr;
-                exA = b.time();
-            }
-            if (rB == null && bodyBeyondSlow(c, b, i, buy)) {
-                rB = (buy ? b.close() - c.entry : c.entry - b.close()) / stopDist;
-                exB = b.time();
+
+            // half B — runner
+            if (rB == null) {
+                boolean afterTp1 = lockTrail && rA != null && rA > 0;
+                if (afterTp1) {
+                    double edge = c.fast.ready(i)
+                            ? (buy ? c.fast.lower()[i] : c.fast.upper()[i])
+                            : (buy ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY);
+                    runnerStop = buy
+                            ? Math.max(runnerStop, Math.max(lockLevel, edge))
+                            : Math.min(runnerStop, Math.min(lockLevel, edge));
+                }
+                double effStop = afterTp1 ? runnerStop : c.stop;
+                if (buy ? b.low() <= effStop : b.high() >= effStop) {
+                    rB = (buy ? effStop - c.entry : c.entry - effStop) / stopDist;
+                    exB = b.time();
+                } else if (bodyBeyondSlow(c, b, i, buy)) {
+                    rB = (buy ? b.close() - c.entry : c.entry - b.close()) / stopDist;
+                    exB = b.time();
+                }
             }
         }
         Candle last = c.ltf.get(end - 1);
         if (rA == null) { rA = (buy ? last.close() - c.entry : c.entry - last.close()) / stopDist; exA = last.time(); }
         if (rB == null) { rB = (buy ? last.close() - c.entry : c.entry - last.close()) / stopDist; exB = last.time(); }
         double r = 0.5 * rA + 0.5 * rB;
+        return new Replayed(exA.isAfter(exB) ? exA : exB, r > 1e-9 ? "WIN" : r < -1e-9 ? "LOSS" : "OPEN", r);
+    }
+
+    /**
+     * T6 — split entry. Ladder {@code n} equal‑notional rungs from the signal
+     * close down toward the structural stop (top half of the entry→stop range),
+     * filled over the next {@link #PULLBACK_BARS} bars. The position that forms
+     * has a <b>blended entry</b> and a size fraction = filledRungs / n. Risk is
+     * still measured against the <b>original</b> entry→stop distance, so a
+     * partially‑filled ladder that stops out loses <i>less</i> than 1R ("give the
+     * market breathing room, capped loss"). Exit = the same runner‑lock model as
+     * {@link #replayRr} (TP1 at {@code rr}, then locked profit + fast‑band trail,
+     * final exit on a slow‑band body close).
+     */
+    private static Replayed replaySplit(Cand c, double rr, double lockR, int n) {
+        boolean buy = c.buy;
+        double origDist = Math.abs(c.entry - c.stop);
+        double step = origDist / (2.0 * n);
+        double[] rung = new double[n];
+        boolean[] filled = new boolean[n];
+        for (int k = 0; k < n; k++) {
+            rung[k] = buy ? c.entry - k * step : c.entry + k * step;
+        }
+        filled[0] = true;
+        int end = Math.min(c.idx + LOOK_AHEAD_BARS, c.ltf.size());
+        int fillDeadline = Math.min(end, c.idx + 1 + PULLBACK_BARS);
+
+        // fill rungs that trade through before the stop
+        int fi = c.idx + 1;
+        for (; fi < fillDeadline; fi++) {
+            Candle b = c.ltf.get(fi);
+            if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
+                break;
+            }
+            for (int k = 1; k < n; k++) {
+                if (!filled[k] && (buy ? b.low() <= rung[k] : b.high() >= rung[k])) {
+                    filled[k] = true;
+                }
+            }
+        }
+        int nf = 0;
+        double sum = 0;
+        for (int k = 0; k < n; k++) {
+            if (filled[k]) { nf++; sum += rung[k]; }
+        }
+        double entry = sum / nf;
+        double sizeFrac = (double) nf / n;
+
+        double target = buy ? c.entry + rr * origDist : c.entry - rr * origDist;
+        double lockLevel = buy ? c.entry + lockR * origDist : c.entry - lockR * origDist;
+        double runnerStop = c.stop;
+        Double rA = null;
+        Double rB = null;
+        Instant exA = null;
+        Instant exB = null;
+        for (int i = c.idx + 1; i < end && (rA == null || rB == null); i++) {
+            Candle b = c.ltf.get(i);
+            if (rA == null) {
+                if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
+                    rA = (buy ? c.stop - entry : entry - c.stop) / origDist;
+                    exA = b.time();
+                    if (rB == null) { rB = rA; exB = b.time(); }
+                    break;
+                }
+                if (buy ? b.high() >= target : b.low() <= target) {
+                    rA = rr;
+                    exA = b.time();
+                }
+            }
+            if (rB == null) {
+                boolean afterTp1 = lockR > 0 && rA != null && rA > 0;
+                if (afterTp1) {
+                    double edge = c.fast.ready(i)
+                            ? (buy ? c.fast.lower()[i] : c.fast.upper()[i])
+                            : (buy ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY);
+                    runnerStop = buy
+                            ? Math.max(runnerStop, Math.max(lockLevel, edge))
+                            : Math.min(runnerStop, Math.min(lockLevel, edge));
+                }
+                double effStop = afterTp1 ? runnerStop : c.stop;
+                if (buy ? b.low() <= effStop : b.high() >= effStop) {
+                    rB = (buy ? effStop - entry : entry - effStop) / origDist;
+                    exB = b.time();
+                } else if (bodyBeyondSlow(c, b, i, buy)) {
+                    rB = (buy ? b.close() - entry : entry - b.close()) / origDist;
+                    exB = b.time();
+                }
+            }
+        }
+        Candle last = c.ltf.get(end - 1);
+        if (rA == null) { rA = (buy ? last.close() - entry : entry - last.close()) / origDist; exA = last.time(); }
+        if (rB == null) { rB = (buy ? last.close() - entry : entry - last.close()) / origDist; exB = last.time(); }
+        double r = sizeFrac * (0.5 * rA + 0.5 * rB);
         return new Replayed(exA.isAfter(exB) ? exA : exB, r > 1e-9 ? "WIN" : r < -1e-9 ? "LOSS" : "OPEN", r);
     }
 
