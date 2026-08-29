@@ -85,8 +85,15 @@ public class AuthService {
     public record LoginResult(String token, AppUser user) {
     }
 
+    /**
+     * One shared encoder so the seed / admin-created hash format can never drift
+     * from what the {@code PasswordEncoder} bean in {@code SecurityConfiguration}
+     * verifies. Plain bcrypt, no {@code {bcrypt}} prefix.
+     */
+    private static final org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder HASH_ENCODER =
+            new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+
     public static String hashFor(String raw) {
-        // Plain bcrypt — matches the PasswordEncoder bean (BCryptPasswordEncoder).
-        return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(raw);
+        return HASH_ENCODER.encode(raw);
     }
 }

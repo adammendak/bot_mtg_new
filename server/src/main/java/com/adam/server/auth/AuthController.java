@@ -39,7 +39,11 @@ public class AuthController {
         return ResponseEntity.ok(out);
     }
 
-    /** Current caller (also refreshes book grants from the DB). */
+    /**
+     * Current caller (also refreshes book grants from the DB). Wraps the profile
+     * as {@code {"user": …}} to match the {@code POST /api/auth/login} response
+     * shape and the frontend {@code AuthService.refresh()} contract.
+     */
     @GetMapping(value = "/me", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Object> me(Authentication authentication) {
         AppUser user = currentUser(authentication);
@@ -52,7 +56,7 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "unauthorized"));
         }
-        return ResponseEntity.ok(userJson(fresh));
+        return ResponseEntity.ok(Map.of("user", userJson(fresh)));
     }
 
     /** Invalidates the caller's token. */

@@ -10,4 +10,5 @@
     <include file="changes/004-execution-entries.xml" relativeToChangelogFile="true"/>
     <include file="changes/005-execution-flags.xml" relativeToChangelogFile="true"/>
     <include file="changes/006-users.xml" relativeToChangelogFile="true"/>
+    <include file="changes/007-fix-password-hash.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

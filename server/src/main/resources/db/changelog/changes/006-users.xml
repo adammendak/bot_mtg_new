@@ -57,7 +57,15 @@
                                  onDelete="CASCADE"/>
     </changeSet>
 
-    <!-- Seed: adam (admin, 2 live books) + test (user, demo book). -->
+    <!--
+      Seed: adam (admin, 2 live books) + test (user, demo book).
+
+      The password_hash values keep the Spring "{bcrypt}" prefix ON PURPOSE: this
+      changeSet already ran on deployed databases with that exact content, so
+      changing it here would break Liquibase checksum validation on the next
+      deploy. The prefix is unusable by the plain BCryptPasswordEncoder bean and
+      is stripped by 007-fix-password-hash.xml right after this runs.
+    -->
     <changeSet id="006-users-seed" author="amendak">
         <preConditions onFail="MARK_RAN">
             <tableIsEmpty tableName="app_users"/>
@@ -65,14 +73,14 @@
         <insert tableName="app_users">
             <column name="username" value="adam"/>
             <column name="display_name" value="Adam Adam"/>
-            <column name="password_hash" value="$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
+            <column name="password_hash" value="{bcrypt}$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
             <column name="role" value="ADMIN"/>
             <column name="created_at" valueDate="2026-08-27T00:00:00"/>
         </insert>
         <insert tableName="app_users">
             <column name="username" value="test"/>
             <column name="display_name" value="test"/>
-            <column name="password_hash" value="$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
+            <column name="password_hash" value="{bcrypt}$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
             <column name="role" value="USER"/>
             <column name="created_at" valueDate="2026-08-27T00:00:00"/>
         </insert>
