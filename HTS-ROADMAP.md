@@ -149,7 +149,20 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
   frakcję wielkości = filled/n. Ryzyko liczone od **oryginalnego** dystansu entry→stop →
   częściowo wypełniona drabinka + stop = strata **< 1R**. Wyjście = model runner‑lock.
 - `replaySplit` w `HtsBacktestService`. Backtest T6: `HtsExportTest#splitEntry` (split {1,2,3}).
-- Wyniki: **(uzupełnić po przebiegu)**.
+- **Wyniki (ADX‑permit, buf 0.25, RR 2):**
+
+  | model / okno | split 1 | split 2 | split 3 |
+  |---|---|---|---|
+  | H4/M15 m2back | −0.377 (55) | −0.328 (55) | −0.285 (55) |
+  | H4/M15 recent | **+0.197 (65)** | +0.157 (65) | +0.079 (65) |
+  | D1/H1 recent | **+0.584 (9)** | +0.268 (9) | +0.221 (9) |
+
+  **Wniosek: split‑entry (ten model) NIE poprawia edge.** W trendzie skaluje wygrane w dół
+  mocniej niż lepsze uśrednione wejście to nadrabia (drabinka rzadko wypełnia się w całości →
+  frakcja wielkości ~0.4–0.6). W stratnym oknie „pomaga" tylko przez mniejszą ekspozycję — to
+  samo daje po prostu niższe ryzyko. **Domyślnie split=1.** Sensowny split wymagałby rung
+  sizowanych własnym (ciaśniejszym) stopem tak, że pełne wypełnienie = pełne 1R — to model z T7‑style
+  księgowaniem, odłożony.
 
 ### T7 — Piramidowanie  ← wymaga rozpisania (odłożone)
 - Dokładanie na kolejnych cofnięciach do wstęgi w tym samym trendzie; pełne wyjście przy złamaniu wolnej.
@@ -243,8 +256,17 @@ Pivoty (tryb `pivotTargets`): D1/H1 recent **+0.230 (22)**, m2back −0.152 (6).
 danych. Wszystkie to trend‑followery — EV zależy od tego czy okno testowe trendowało.
 Miesiąc forward na 3 kontach demo rozstrzygnie to lepiej niż backtest.
 
-**Następne:** czysty przebieg H4/M15 (świeża sesja); potem T6/T7 (split‑entry, piramida) na CSV,
-potem T9 (żywy book `hts` + konto „Account m5").
+### H4/M15 (core) — czysty przebieg z modelem runner‑lock (split=1, ADX‑permit, buf 0.25)
+m2back **−0.377 (55)** · recent **+0.197 (65)**. Ten sam flip reżimu, brak stabilnego edge,
+spójne z D1/H1 i z SDD/swing. Sample 55–65 tradów = wiarygodny.
+
+**Konfiguracja domyślna po T1–T6:** RR 2, `runner=true`, `runnerLockR=1.0`, `stopBufferFrac=0.25`,
+`skipConsolidation=true`, ADX off (permit jako opcja, na D1/H1 pomaga), `pivotTargets=false`,
+`splitEntries=1`.
+
+**Następne:** T9 — żywy book `hts` + konto „Account m5", `HtsEngine`/`HtsScanService`/
+`HtsExecutionGate`, `HTS_EXECUTION_ENABLED` (domyślnie off), grant Liquibase, `CAPITAL_HTS_*`,
+book w UI/overview. Potem T10 (mail). T7 (piramida) po zaprojektowaniu modelu ryzyka dokładek.
 
 ## Stan „co jest w kodzie" (backtest, nie live)
 
