@@ -248,6 +248,8 @@ public class EquityHistoryService {
                 }
             } else if (Books.GLOWNE.equals(client.book())) {
                 chosen = risk.pickGlowneAccount(accounts);
+            } else if (Books.SWING.equals(client.book())) {
+                chosen = risk.pickSwingAccount(accounts);
             } else {
                 chosen = risk.pickDemoAccount(accounts);
             }

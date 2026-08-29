@@ -141,6 +141,27 @@ public class RiskPolicy {
         return first;
     }
 
+    /**
+     * "Swing" book pick — a separate Capital.com DEMO sub-account for SDD-SWING.
+     * Accepts only the account named {@code SWING_ACCOUNT_NAME}
+     * ({@code app.swing-account-name}, default {@code "Account H1"}); falls back
+     * to the preferred / first non-Fintokei demo account if that name is absent.
+     */
+    public Account pickSwingAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        String name = properties.getSwingAccountName();
+        if (name != null && !name.isBlank()) {
+            for (Account a : accounts) {
+                if (!isFintokei(a.name()) && name.equals(a.name())) {
+                    return a;
+                }
+            }
+        }
+        return pickDemoAccount(accounts);
+    }
+
     public record LivePick(Account account, String hideReason) {
         static LivePick visible(Account account) {
             return new LivePick(account, null);

@@ -35,7 +35,6 @@ public class SwingExecutionGate {
     private final BrokerBooks books;
     private final RiskPolicy risk;
     private final boolean enabled;
-    private final String accountName;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
 
     private final com.adam.server.scan.Mailer mailer;
@@ -44,30 +43,17 @@ public class SwingExecutionGate {
             BrokerBooks books,
             RiskPolicy risk,
             com.adam.server.scan.Mailer mailer,
-            @Value("${app.swing.execution-enabled:false}") boolean enabled,
-            @Value("${app.swing.account-name:Account}") String accountName
+            @Value("${app.swing.execution-enabled:false}") boolean enabled
     ) {
         this.books = books;
         this.risk = risk;
         this.mailer = mailer;
         this.enabled = enabled;
-        this.accountName = accountName;
     }
 
-    /**
-     * The swing sub-account: the one named {@code app.swing.account-name}
-     * ({@code SWING_ACCOUNT_NAME}, default {@code "Account"}) if present,
-     * otherwise the preferred / first non-Fintokei demo account.
-     */
+    /** The swing sub-account ({@code SWING_ACCOUNT_NAME}, default {@code "Account H1"}). */
     private Account pickAccount(java.util.List<Account> accounts) {
-        if (accounts != null && accountName != null && !accountName.isBlank()) {
-            for (Account a : accounts) {
-                if (accountName.equals(a.name())) {
-                    return a;
-                }
-            }
-        }
-        return risk.pickDemoAccount(accounts);
+        return risk.pickSwingAccount(accounts);
     }
 
     /** Best-effort: never throws to the scan. */
