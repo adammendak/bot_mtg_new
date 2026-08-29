@@ -7,6 +7,7 @@ import com.adam.server.config.AppProperties;
 import com.adam.server.web.dto.SymbolStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -32,6 +33,18 @@ public class SymbolStatsService {
     private final BrokerBooks books;
     private final AppProperties properties;
 
+    /**
+     * Lookback for {@code days <= 0} ("all"). Capital.com only retains a short
+     * transaction window and rate-limits the paging hard, so walking from a fixed
+     * 2020 start fired hundreds of sequential requests, tripped 429s / session
+     * expiry, and on the Eco dyno could exhaust the request thread with an Error
+     * that left the broker session degraded until restart (analytics + overview
+     * + monitoring all "stopped working"). 120 days covers the account's trading
+     * life with margin; raise only if the broker starts retaining more.
+     */
+    @Value("${app.symbol-stats.lookback-days:120}")
+    private int maxLookbackDays;
+
     public SymbolStatsService(BrokerBooks books, AppProperties properties) {
         this.books = books;
         this.properties = properties;
@@ -42,6 +55,15 @@ public class SymbolStatsService {
      * @param days  how far back to look (0 = all available since 2020)
      */
     public List<SymbolStats> stats(String book, int days) {
+        try {
+            return computeStats(book, days);
+        } catch (Exception e) {
+            log.warn("SymbolStats failed for {}: {}", book, e.toString());
+            return List.of();
+        }
+    }
+
+    private List<SymbolStats> computeStats(String book, int days) {
         BrokerClient client = books.forBook(book);
         if (!client.configured()) {
             return List.of();
@@ -98,10 +120,13 @@ public class SymbolStatsService {
                 client.login();
             }
             Instant to = Instant.now();
-            Instant from = days > 0 ? to.minusSeconds(days * 86400L) : Instant.parse("2020-01-01T00:00:00Z");
+            long lookback = days > 0 ? days : Math.max(1, maxLookbackDays);
+            Instant from = to.minusSeconds(lookback * 86400L);
             return client.transactionHistory(from, to);
-        } catch (Exception e) {
-            log.warn("SymbolStats transaction fetch failed for {}: {}", client.book(), e.getClass().getSimpleName());
+        } catch (Exception | LinkageError | StackOverflowError e) {
+            // Includes an Error escaping the broker walk on a starved dyno — degrade
+            // to "no data" instead of a 500 that also poisons the shared session.
+            log.warn("SymbolStats transaction fetch failed for {}: {}", client.book(), e.toString());
             return List.of();
         }
     }

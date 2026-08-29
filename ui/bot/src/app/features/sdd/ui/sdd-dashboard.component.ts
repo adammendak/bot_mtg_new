@@ -2,7 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { SddService } from '../service/sdd.service';
 import { AuthService } from '../../auth/auth.service';
-import { AccountView, BookId, Position, SddScan } from '../model/sdd.model';
+import { AccountView, BookId, Position, SwingScan } from '../model/sdd.model';
 
 @Component({
   selector: 'app-sdd-dashboard',
@@ -69,137 +69,121 @@ import { AccountView, BookId, Position, SddScan } from '../model/sdd.model';
     @if (sdd.scanLoadError()) {
       <div class="alert alert-danger py-2">{{ sdd.scanLoadError() }}</div>
     }
-    @if (sdd.signalsError()) {
-      <div class="alert alert-danger py-2">{{ sdd.signalsError() }}</div>
-    }
     @if (sdd.positionsError()) {
       <div class="alert alert-danger py-2">{{ sdd.positionsError() }}</div>
     }
 
-    <div class="row g-3">
-      @for (book of books; track book.id) {
-        <div class="col-lg-6">
-          <div class="card shadow-sm">
-            <div class="card-header" [class]="book.headerClass">{{ book.title }}</div>
-            <div class="card-body pb-2">
-              <h6 class="text-muted text-uppercase small mb-2">Account</h6>
-              <div class="table-responsive">
-                <table class="table table-sm table-striped table-hover mb-3">
-                  <thead class="table-dark">
-                    <tr>
-                      <th>Field</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td class="text-muted">Name</td>
-                      <td>{{ account(book.id)?.accountName || '—' }}</td>
-                    </tr>
-                    <tr>
-                      <td class="text-muted">Connected</td>
-                      <td>
-                        <span class="badge" [class]="connClass(account(book.id)?.connected)">
-                          {{ account(book.id)?.connected ? 'connected' : 'disconnected' }}
-                        </span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td class="text-muted">Equity</td>
-                      <td>{{ formatMoney(account(book.id)?.equity) }}</td>
-                    </tr>
-                    <tr>
-                      <td class="text-muted">Available</td>
-                      <td>{{ formatMoney(account(book.id)?.available) }}</td>
-                    </tr>
-                    <tr>
-                      <td class="text-muted">Day P/L</td>
-                      <td [class]="pnlClass(account(book.id)?.dayPnl)">
-                        {{ formatMoney(account(book.id)?.dayPnl) }}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td class="text-muted">Currency</td>
-                      <td>{{ account(book.id)?.currency || '—' }}</td>
-                    </tr>
-                    <tr>
-                      <td class="text-muted">Halt / error</td>
-                      <td>
-                        @if (haltOrError(book.id); as halt) {
-                          <span class="text-danger">{{ halt }}</span>
-                        } @else {
-                          —
-                        }
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <h6 class="text-muted text-uppercase small mb-2">
-                Positions
-                @if (positionsWithoutStop(book.id) > 0) {
-                  <span class="badge text-bg-danger ms-1" title="Open positions with no stop level">⚠ {{ positionsWithoutStop(book.id) }} bez SL</span>
-                }
-              </h6>
-              <div class="table-responsive">
-                <table class="table table-sm table-striped table-hover mb-0">
-                  <thead class="table-dark">
-                    <tr>
-                      <th>Epic</th>
-                      <th>Dir</th>
-                      <th>Size</th>
-                      <th>Level</th>
-                      <th>Stop</th>
-                      <th>1R</th>
-                      <th>uP/L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @if (sdd.positionsError()) {
-                      <tr>
-                        <td colspan="7" class="text-danger text-center">{{ sdd.positionsError() }}</td>
-                      </tr>
-                    } @else if (positions(book.id).length === 0) {
-                      <tr>
-                        <td colspan="7" class="text-muted text-center">brak pozycji</td>
-                      </tr>
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white">Accounts</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped table-hover align-middle mb-0">
+            <thead class="table-dark">
+              <tr>
+                <th>Book</th>
+                <th>Account</th>
+                <th>Status</th>
+                <th class="text-end">Equity</th>
+                <th class="text-end">Available</th>
+                <th class="text-end">Day P/L</th>
+                <th>Ccy</th>
+                <th>Halt / error</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (book of books; track book.id) {
+                <tr>
+                  <td><span class="badge" [class]="book.headerClass">{{ book.title }}</span></td>
+                  <td>{{ account(book.id)?.accountName || '—' }}</td>
+                  <td>
+                    <span class="badge" [class]="connClass(account(book.id)?.connected)">
+                      {{ account(book.id)?.connected ? 'connected' : 'disconnected' }}
+                    </span>
+                  </td>
+                  <td class="text-end">{{ formatMoney(account(book.id)?.equity) }}</td>
+                  <td class="text-end">{{ formatMoney(account(book.id)?.available) }}</td>
+                  <td class="text-end" [class]="pnlClass(account(book.id)?.dayPnl)">
+                    {{ formatMoney(account(book.id)?.dayPnl) }}
+                  </td>
+                  <td>{{ account(book.id)?.currency || '—' }}</td>
+                  <td>
+                    @if (haltOrError(book.id); as halt) {
+                      <span class="text-danger small">{{ halt }}</span>
                     } @else {
-                      @for (p of positions(book.id); track p.dealId) {
-                        <tr [class]="p.stopLevel == null ? 'table-warning' : ''" [title]="p.stopLevel == null ? 'Brak stop loss!' : ''">
-                          <td>{{ p.epic }}</td>
-                          <td>
-                            <span class="badge" [class]="dirClass(p.direction)">{{ p.direction }}</span>
-                          </td>
-                          <td>{{ p.size | number: '1.2-2' }}</td>
-                          <td>{{ p.level | number: '1.2-5' }}</td>
-                          <td>
-                            @if (p.stopLevel == null) {
-                              <span class="badge text-bg-danger">brak SL</span>
-                            } @else {
-                              {{ p.stopLevel | number: '1.2-5' }}
-                            }
-                          </td>
-                          <td [class]="p.riskPln != null && p.riskPln > 0 ? 'text-danger fw-semibold' : ''" title="1R w walucie — maks. strata jeśli stop zadziała">
-                            @if (p.riskPln != null) {
-                              {{ p.riskPln | number: '1.2-2' }}
-                            } @else {
-                              <span class="text-muted">—</span>
-                            }
-                          </td>
-                          <td [class]="pnlClass(p.unrealizedPnl)">
-                            {{ p.unrealizedPnl | number: '1.2-2' }}
-                          </td>
-                        </tr>
-                      }
+                      —
                     }
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
         </div>
-      }
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-dark text-white">
+        Open positions
+        @if (totalWithoutStop() > 0) {
+          <span class="badge text-bg-danger ms-1" title="Open positions with no stop level">⚠ {{ totalWithoutStop() }} bez SL</span>
+        }
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped table-hover mb-0">
+            <thead class="table-dark">
+              <tr>
+                <th>Book</th>
+                <th>Epic</th>
+                <th>Dir</th>
+                <th class="text-end">Size</th>
+                <th class="text-end">Level</th>
+                <th class="text-end">Stop</th>
+                <th class="text-end">1R</th>
+                <th class="text-end">uP/L</th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (sdd.positionsError()) {
+                <tr>
+                  <td colspan="8" class="text-danger text-center">{{ sdd.positionsError() }}</td>
+                </tr>
+              } @else if (allPositions().length === 0) {
+                <tr>
+                  <td colspan="8" class="text-muted text-center">brak pozycji</td>
+                </tr>
+              } @else {
+                @for (row of allPositions(); track row.book + '|' + row.p.dealId) {
+                  <tr [class]="row.p.stopLevel == null ? 'table-warning' : ''" [title]="row.p.stopLevel == null ? 'Brak stop loss!' : ''">
+                    <td><span class="badge" [class]="bookBadge(row.book)">{{ row.book }}</span></td>
+                    <td>{{ row.p.epic }}</td>
+                    <td><span class="badge" [class]="dirClass(row.p.direction)">{{ row.p.direction }}</span></td>
+                    <td class="text-end">{{ row.p.size | number: '1.2-2' }}</td>
+                    <td class="text-end">{{ row.p.level | number: '1.2-5' }}</td>
+                    <td class="text-end">
+                      @if (row.p.stopLevel == null) {
+                        <span class="badge text-bg-danger">brak SL</span>
+                      } @else {
+                        {{ row.p.stopLevel | number: '1.2-5' }}
+                      }
+                    </td>
+                    <td class="text-end" [class]="row.p.riskPln != null && row.p.riskPln > 0 ? 'text-danger fw-semibold' : ''" title="1R w walucie — maks. strata jeśli stop zadziała">
+                      @if (row.p.riskPln != null) {
+                        {{ row.p.riskPln | number: '1.2-2' }}
+                      } @else {
+                        <span class="text-muted">—</span>
+                      }
+                    </td>
+                    <td class="text-end" [class]="pnlClass(row.p.unrealizedPnl)">
+                      {{ row.p.unrealizedPnl | number: '1.2-2' }}
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <div class="card shadow-sm mt-3">
@@ -256,53 +240,58 @@ import { AccountView, BookId, Position, SddScan } from '../model/sdd.model';
       </div>
     </div>
 
-    <div class="card shadow-sm mt-3">
-      <div class="card-header bg-dark text-white">Signals</div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-sm table-striped table-hover mb-0">
-            <thead class="table-dark">
-              <tr>
-                <th>Time</th>
-                <th>Symbol</th>
-                <th>Direction</th>
-                <th>FULL/flip</th>
-                <th>Entry</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              @if (sdd.signalsError()) {
+    @if (canSeeSwing) {
+      <div class="card shadow-sm mt-3">
+        <div class="card-header bg-info text-dark">
+          SDD-SWING scan (H1)
+          <span class="small text-dark-emphasis ms-2">
+            {{ (sdd.swingLast()?.scannedAt | date: 'short') || 'never' }}
+          </span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover mb-0">
+              <thead class="table-dark">
                 <tr>
-                  <td colspan="6" class="text-danger text-center">{{ sdd.signalsError() }}</td>
+                  <th>Time</th>
+                  <th>Symbol</th>
+                  <th>Direction</th>
+                  <th>H4 trend</th>
+                  <th class="text-end">Entry</th>
+                  <th class="text-end">Stop</th>
+                  <th class="text-end">Target (1R)</th>
                 </tr>
-              } @else if (sdd.signals().length === 0) {
-                <tr>
-                  <td colspan="6" class="text-muted text-center">No HA flips or full stacks yet</td>
-                </tr>
-              } @else {
-                @for (s of latestSignals(); track $index) {
+              </thead>
+              <tbody>
+                @if (sdd.swingError()) {
                   <tr>
-                    <td>{{ s.timestamp | date: 'short' }}</td>
-                    <td>{{ s.symbol }}</td>
-                    <td>
-                      <span class="badge" [class]="dirClass(s.direction)">{{ s.direction }}</span>
-                    </td>
-                    <td>
-                      <span class="badge" [class]="s.fullStack ? 'text-bg-success' : 'text-bg-secondary'">
-                        {{ s.fullStack ? 'FULL' : 'flip' }}
-                      </span>
-                    </td>
-                    <td>{{ s.entry | number: '1.2-5' }}</td>
-                    <td>{{ s.reason }}</td>
+                    <td colspan="7" class="text-danger text-center">{{ sdd.swingError() }}</td>
                   </tr>
+                } @else if (swingSignals().length === 0) {
+                  <tr>
+                    <td colspan="7" class="text-muted text-center">
+                      {{ sdd.swingLast()?.error || 'No swing entry signals from the last H1 scan' }}
+                    </td>
+                  </tr>
+                } @else {
+                  @for (s of swingSignals(); track $index) {
+                    <tr>
+                      <td>{{ s.timestamp | date: 'short' }}</td>
+                      <td>{{ s.symbol }}</td>
+                      <td><span class="badge" [class]="dirClass(s.direction)">{{ s.direction }}</span></td>
+                      <td><span class="badge" [class]="trendClass(s.h4Trend)">{{ s.h4Trend }}</span></td>
+                      <td class="text-end">{{ s.entry | number: '1.2-5' }}</td>
+                      <td class="text-end">{{ s.stopLevel | number: '1.2-5' }}</td>
+                      <td class="text-end">{{ s.targetLevel | number: '1.2-5' }}</td>
+                    </tr>
+                  }
                 }
-              }
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    }
   `,
 })
 export class SddDashboardComponent implements OnInit {
@@ -315,9 +304,11 @@ export class SddDashboardComponent implements OnInit {
       { id: 'swing', title: 'Swing', headerClass: 'bg-info text-dark' },
     ] as { id: BookId; title: string; headerClass: string }[]
   ).filter((b) => this.auth.canSeeBook(b.id));
+  readonly canSeeSwing = this.auth.canSeeBook('swing');
 
   ngOnInit(): void {
     this.sdd.refresh();
+    this.sdd.loadSwingLast();
   }
 
   account(id: BookId): AccountView | undefined {
@@ -328,8 +319,38 @@ export class SddDashboardComponent implements OnInit {
     return this.sdd.positions()[id] ?? [];
   }
 
-  positionsWithoutStop(id: BookId): number {
-    return this.positions(id).filter((p) => p.stopLevel == null).length;
+  /** Every visible book's open positions, flattened with the book label. */
+  allPositions(): { book: string; p: Position }[] {
+    const out: { book: string; p: Position }[] = [];
+    for (const b of this.books) {
+      for (const p of this.positions(b.id)) {
+        out.push({ book: b.title, p });
+      }
+    }
+    return out;
+  }
+
+  totalWithoutStop(): number {
+    return this.allPositions().filter((r) => r.p.stopLevel == null).length;
+  }
+
+  bookBadge(title: string): string {
+    return this.books.find((b) => b.title === title)?.headerClass ?? 'bg-secondary text-white';
+  }
+
+  swingSignals(): SwingScan[] {
+    return this.sdd.swingLast()?.signals ?? [];
+  }
+
+  trendClass(trend: string | undefined): string {
+    const u = (trend || '').toUpperCase();
+    if (u === 'UP') {
+      return 'text-bg-success';
+    }
+    if (u === 'DOWN') {
+      return 'text-bg-danger';
+    }
+    return 'text-bg-secondary';
   }
 
   haltOrError(id: BookId): string | null {
@@ -343,10 +364,6 @@ export class SddDashboardComponent implements OnInit {
       return 'off';
     }
     return health?.lastWebhook || this.sdd.lastScan()?.lastWebhookError || '…';
-  }
-
-  latestSignals(): SddScan[] {
-    return this.sdd.signals().slice(0, 20);
   }
 
   executionOn(): boolean {
