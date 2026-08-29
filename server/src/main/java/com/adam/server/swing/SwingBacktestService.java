@@ -5,8 +5,10 @@ import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.Resolution;
 import com.adam.server.broker.model.Candle;
+import com.adam.server.sdd.HeikenAshi;
 import com.adam.server.sdd.Supertrend;
 import com.adam.server.sdd.WaveTrend;
+import com.adam.server.sdd.Wilder;
 import com.adam.server.web.dto.BacktestResult;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.slf4j.Logger;
@@ -176,24 +178,90 @@ public class SwingBacktestService {
             if (bar.time().isBefore(fromEval)) {
                 continue;
             }
+            List<Candle> h1Upto = h1.subList(0, i + 1);
             List<Candle> h4Upto = h4ClosedBy(h4, bar.time());
-            SwingScan scan = engine.evaluate(symbol, epic, h1.subList(0, i + 1), h4Upto, bar.time());
-            if (scan == null) {
-                continue;
+
+            Candidate cand = htfFilter
+                    ? mrCandidate(symbol, epic, h1, h1Upto, h4Upto, i, bar.time())
+                    : baselineCandidate(symbol, epic, h1, h1Upto, h4Upto, i, bar.time());
+            if (cand != null) {
+                out.add(cand);
             }
-            if (htfFilter) {
-                boolean buy = scan.direction() == Direction.BUY;
-                if (!htfExtremeResuming(h4Upto, buy) || !ltfSupertrendTrigger(h1.subList(0, i + 1), buy)) {
-                    continue;
-                }
-            }
-            // Back out the H4 ATR the engine used (stopLevel = entry ∓ 2.5×ATR).
-            double atrH4 = Math.abs(scan.entry() - scan.stopLevel()) / SddSwingEngine.STOP_ATR_MULT;
-            if (atrH4 <= 0 || Double.isNaN(atrH4)) {
-                continue;
-            }
-            out.add(new Candidate(scan, h1, i, atrH4));
         }
+    }
+
+    /** The live SDD-SWING full stack, via {@link SddSwingEngine}. */
+    private Candidate baselineCandidate(SwingSymbol symbol, String epic, List<Candle> h1, List<Candle> h1Upto,
+                                        List<Candle> h4Upto, int i, Instant now) {
+        SwingScan scan = engine.evaluate(symbol, epic, h1Upto, h4Upto, now);
+        if (scan == null) {
+            return null;
+        }
+        double atrH4 = Math.abs(scan.entry() - scan.stopLevel()) / SddSwingEngine.STOP_ATR_MULT;
+        if (atrH4 <= 0 || Double.isNaN(atrH4)) {
+            return null;
+        }
+        return new Candidate(scan, h1, i, atrH4);
+    }
+
+    /**
+     * The HTF mean-reversion entry: H1 HA flip + price <b>reclaiming</b> RMA33
+     * (a pullback below the mean, now back above — NOT the trend-follow full
+     * stack) + H4 WaveTrend leaving an extreme in that direction + a fresh H1
+     * Supertrend flip. PP is dropped here: the pullback puts price on the "wrong"
+     * side of the pivot by construction.
+     */
+    private Candidate mrCandidate(SwingSymbol symbol, String epic, List<Candle> h1, List<Candle> h1Upto,
+                                  List<Candle> h4Upto, int i, Instant now) {
+        List<HeikenAshi.Bar> ha = HeikenAshi.from(h1Upto);
+        int m = ha.size();
+        if (m < 3) {
+            return null;
+        }
+        boolean flip = ha.get(m - 1).bullish() != ha.get(m - 2).bullish();
+        if (!flip) {
+            return null;
+        }
+        boolean buy = ha.get(m - 1).bullish();
+
+        double[] closes = Wilder.closes(h1Upto);
+        double rma33 = Wilder.last(Wilder.rma(closes, SddSwingEngine.RMA_FAST));
+        if (Double.isNaN(rma33)) {
+            return null;
+        }
+        double close = h1.get(i).close();
+        // Reclaim: now on the trade side of RMA33, but at least one of the last 5
+        // bars was on the other side (there was a pullback through the mean).
+        boolean nowAbove = buy ? close > rma33 : close < rma33;
+        if (!nowAbove) {
+            return null;
+        }
+        boolean pulledThrough = false;
+        for (int k = Math.max(0, i - 5); k < i; k++) {
+            double c = h1.get(k).close();
+            if (buy ? c < rma33 : c > rma33) {
+                pulledThrough = true;
+                break;
+            }
+        }
+        if (!pulledThrough) {
+            return null;
+        }
+
+        if (!htfExtremeResuming(h4Upto, buy) || !ltfSupertrendTrigger(h1Upto, buy)) {
+            return null;
+        }
+
+        double atrH4 = Wilder.last(Wilder.atr(h4Upto, SddSwingEngine.ATR_PERIOD));
+        if (Double.isNaN(atrH4) || atrH4 <= 0) {
+            return null;
+        }
+        Direction dir = buy ? Direction.BUY : Direction.SELL;
+        double placeholderStop = buy ? close - atrH4 : close + atrH4;
+        double placeholderTarget = buy ? close + atrH4 : close - atrH4;
+        SwingScan scan = new SwingScan(now, symbol.code(), epic, dir, close,
+                placeholderStop, placeholderTarget, SddSwingEngine.h4Trend(h4Upto));
+        return new Candidate(scan, h1, i, atrH4);
     }
 
     /**

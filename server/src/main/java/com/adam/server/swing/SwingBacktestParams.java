@@ -12,8 +12,10 @@ package com.adam.server.swing;
  * @param lookAhead  H1 bars to resolve a trade before marking to market
  * @param maxNames   &gt;0 = live bot slot gate (max concurrent names + no pyramid);
  *                   0 = take every qualifying signal
- * @param htfFilter  add the HTF WaveTrend-extreme window + LTF Supertrend-flip
- *                   trigger as an extra AND gate on top of the SDD full stack
+ * @param htfFilter  swap the SDD full-stack entry for the HTF mean-reversion
+ *                   model: H1 HA flip + price reclaiming RMA33 (pullback, not
+ *                   trend-follow stack) + H4 WaveTrend leaving an extreme + a
+ *                   fresh H1 Supertrend flip
  */
 public record SwingBacktestParams(
         int days,
