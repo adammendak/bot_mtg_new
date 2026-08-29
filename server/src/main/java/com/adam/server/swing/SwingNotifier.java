@@ -7,5 +7,15 @@ package com.adam.server.swing;
  */
 public interface SwingNotifier {
 
-    void onSwingSignal(SwingScan signal);
+    /**
+     * @param signal  the entry signal
+     * @param context the market snapshot around it (both timeframes); may be
+     *                {@code null} if it could not be assembled
+     */
+    void onSwingSignal(SwingScan signal, SwingSignalContext context);
+
+    /** Convenience for callers / tests without a context. */
+    default void onSwingSignal(SwingScan signal) {
+        onSwingSignal(signal, null);
+    }
 }

@@ -104,7 +104,7 @@ public class SwingScanService {
                     if (signal != null) {
                         found.add(signal);
                         persist(signal);
-                        notify(signal);
+                        notify(signal, context(h1, h4, signal));
                         execution.executeSignal(signal);
                         log.info("SWING signal {} {} entry {} stop {} target {} (H4 {})",
                                 signal.symbol(), signal.direction(), signal.entry(),
@@ -151,10 +151,19 @@ public class SwingScanService {
         }
     }
 
-    private void notify(SwingScan s) {
+    private SwingSignalContext context(List<Candle> h1, List<Candle> h4, SwingScan s) {
+        try {
+            return SwingSignalContext.from(h1, h4, s, java.time.ZoneId.of(properties.getTimezone()));
+        } catch (RuntimeException e) {
+            log.warn("SWING signal context build failed for {}: {}", s.symbol(), e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private void notify(SwingScan s, SwingSignalContext ctx) {
         for (SwingNotifier n : notifiers) {
             try {
-                n.onSwingSignal(s);
+                n.onSwingSignal(s, ctx);
             } catch (Exception e) {
                 log.warn("SWING notifier {} failed: {}", n.getClass().getSimpleName(), e.getClass().getSimpleName());
             }
