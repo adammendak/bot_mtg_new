@@ -38,14 +38,18 @@ public class SwingExecutionGate {
     private final String accountName;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
 
+    private final com.adam.server.scan.Mailer mailer;
+
     public SwingExecutionGate(
             BrokerBooks books,
             RiskPolicy risk,
+            com.adam.server.scan.Mailer mailer,
             @Value("${app.swing.execution-enabled:false}") boolean enabled,
             @Value("${app.swing.account-name:Account}") String accountName
     ) {
         this.books = books;
         this.risk = risk;
+        this.mailer = mailer;
         this.enabled = enabled;
         this.accountName = accountName;
     }
@@ -121,6 +125,10 @@ public class SwingExecutionGate {
         } catch (Exception e) {
             log.warn("SWING execution failed for {}: {}", s.symbol(), e.getClass().getSimpleName());
             placed.remove(key);
+            mailer.sendThrottled("exec-swing", "SDD-SWING execution failed",
+                    "Placing a SWING entry failed for " + s.symbol() + " " + s.direction()
+                            + ":\n\n" + e.getClass().getSimpleName()
+                            + "\n\n(further failures within 30 min are suppressed)");
         }
     }
 }

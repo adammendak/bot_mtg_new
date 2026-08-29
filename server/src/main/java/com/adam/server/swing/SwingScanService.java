@@ -45,6 +45,7 @@ public class SwingScanService {
     private final Clock clock;
     private final List<SwingNotifier> notifiers;
     private final SwingExecutionGate execution;
+    private final com.adam.server.scan.Mailer mailer;
 
     private volatile List<SwingScan> lastSignals = List.of();
     private volatile Instant lastScanAt;
@@ -57,7 +58,8 @@ public class SwingScanService {
             AppProperties properties,
             Clock clock,
             List<SwingNotifier> notifiers,
-            SwingExecutionGate execution
+            SwingExecutionGate execution,
+            com.adam.server.scan.Mailer mailer
     ) {
         this.books = books;
         this.engine = engine;
@@ -66,6 +68,7 @@ public class SwingScanService {
         this.clock = clock;
         this.notifiers = notifiers;
         this.execution = execution;
+        this.mailer = mailer;
     }
 
     public List<SwingScan> last() {
@@ -112,12 +115,19 @@ public class SwingScanService {
                 }
             }
             lastError = null;
+            mailer.clearThrottle("scan-swing");
         } catch (BrokerException e) {
             lastError = e.getMessage();
             log.warn("SWING scan aborted: {}", e.getMessage());
+            mailer.sendThrottled("scan-swing", "SDD-SWING scan failed",
+                    "The hourly SDD-SWING scan failed:\n\n" + e.getMessage()
+                            + "\n\n(further failures within 30 min are suppressed)");
         } catch (Exception e) {
             lastError = e.getClass().getSimpleName();
             log.warn("SWING scan failed: {}", e.getClass().getSimpleName());
+            mailer.sendThrottled("scan-swing", "SDD-SWING scan failed",
+                    "The hourly SDD-SWING scan failed: " + e.getClass().getSimpleName()
+                            + "\n\n(further failures within 30 min are suppressed)");
         }
         lastSignals = List.copyOf(found);
         lastScanAt = now;

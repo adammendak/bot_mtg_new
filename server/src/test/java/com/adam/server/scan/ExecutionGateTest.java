@@ -84,7 +84,7 @@ class ExecutionGateTest {
         books = new BrokerBooks(demoClient, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"));
-        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor);
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
 
         when(demoClient.book()).thenReturn("demo");
         when(demoClient.id()).thenReturn("capital");
@@ -292,7 +292,7 @@ class ExecutionGateTest {
         BrokerBooks liveBooks = new BrokerBooks(demoClient, liveClient,
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"));
-        ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor);
+        ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
 
         liveGate.executeBook("live", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("live", 0), false);
@@ -511,7 +511,7 @@ class ExecutionGateTest {
         when(repo.save(any(SddExecutionEntity.class)))
                 .thenThrow(new InvalidDataAccessApiUsageException("Executing an update/delete query"));
         state = new SddExecutionState(repo);
-        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor);
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
 
         when(demoClient.openPositions()).thenReturn(List.of());
         when(demoClient.placeMarketOrder(any()))

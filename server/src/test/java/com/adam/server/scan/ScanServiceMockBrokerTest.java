@@ -346,11 +346,12 @@ class ScanServiceMockBrokerTest {
                 publisher,
                 new NewsBlackout(props, RestClient.builder(), clock),
                 risk,
-                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram, monitor),
+                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram, monitor, com.adam.server.scan.Mailer.disabled()),
                 accounts,
                 clock,
                 null,
-                telegram
+                telegram,
+                com.adam.server.scan.Mailer.disabled()
         );
     }
 

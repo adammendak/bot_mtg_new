@@ -73,6 +73,7 @@ public class ExecutionGate {
     private final SignalWebhookPublisher webhooks;
     private final TelegramNotifier telegram;
     private final MonitoringService monitor;
+    private final Mailer mailer;
     private final Map<String, String> epicToSddName;
 
     public ExecutionGate(
@@ -82,7 +83,8 @@ public class ExecutionGate {
             SddExecutionState state,
             SignalWebhookPublisher webhooks,
             TelegramNotifier telegram,
-            MonitoringService monitor
+            MonitoringService monitor,
+            Mailer mailer
     ) {
         this.properties = properties;
         this.books = books;
@@ -91,6 +93,7 @@ public class ExecutionGate {
         this.webhooks = webhooks;
         this.telegram = telegram;
         this.monitor = monitor;
+        this.mailer = mailer;
         this.epicToSddName = new LinkedHashMap<>();
         for (SddSymbol symbol : SddSymbol.universe()) {
             epicToSddName.put(symbol.epic(properties).toUpperCase(), symbol.code());
@@ -220,6 +223,11 @@ public class ExecutionGate {
             return placeTickets(client, book, scan, size);
         } catch (Exception e) {
             log.warn("Entry failed for {} on {}: {}", scan.symbol(), book, e.getClass().getSimpleName());
+            mailer.sendThrottled("exec-m15-" + book,
+                    "SDD-M15 execution failed (" + book + ")",
+                    "Entry placement failed for " + scan.symbol() + " " + scan.direction()
+                            + " on " + book + ":\n\n" + AccountQueryService.publicMessage(e)
+                            + "\n\n(further failures on this book within 30 min are suppressed)");
             return "entry failed: " + e.getClass().getSimpleName();
         }
     }
@@ -325,6 +333,15 @@ public class ExecutionGate {
             webhooks.publishExecution(book, scan.symbol(), dir, "persist_failed",
                     "Capital fill not saved to DB after retries — manual check needed");
             telegram.onExecutionPersistFailure(book, scan.symbol(), dir);
+            mailer.send("SDD-M15 execution: DB write failed after fill",
+                    "A Capital.com fill was NOT saved to the DB after retries.\n\n"
+                            + "book      " + book + "\n"
+                            + "symbol    " + scan.symbol() + "\n"
+                            + "direction " + dir + "\n"
+                            + "entry     " + scan.entry() + "\n\n"
+                            + "The position is live on Capital but only tracked in RAM — a dyno "
+                            + "restart before the next successful write orphans it. Check manually.\n"
+                            + "cause: " + (last == null ? "?" : last.toString()));
         } catch (Exception alertEx) {
             log.warn("SDD persist-failure alert failed for {} {}: {}",
                     book, scan.symbol(), alertEx.getClass().getSimpleName());
