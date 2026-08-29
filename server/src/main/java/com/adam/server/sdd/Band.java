@@ -5,10 +5,11 @@ import com.adam.server.broker.model.Candle;
 import java.util.List;
 
 /**
- * HTS-style RMA <b>band</b> (ribbon): the zone bounded by the RMA of the open
- * and the RMA of the close. Matches the TradingView "HTS Ribbon" setting
- * (method RMA, open/close). {@code upper[i] = max(rmaOpen, rmaClose)},
- * {@code lower[i] = min(...)}; {@code NaN} until the RMA is defined.
+ * HTS-style RMA <b>band</b> (ribbon): the zone bounded by the RMA of the highs
+ * and the RMA of the lows — a channel around price. Matches the TradingView
+ * "HTS Ribbon" setting (method RMA, high/low, fast 33 / slow 144).
+ * {@code upper[i] = rma(high, n)}, {@code lower[i] = rma(low, n)}; {@code NaN}
+ * until the RMA is defined.
  */
 public final class Band {
 
@@ -56,23 +57,23 @@ public final class Band {
 
     public static Series rma(List<Candle> candles, int period) {
         int n = candles.size();
-        double[] opens = new double[n];
-        double[] closes = new double[n];
+        double[] highs = new double[n];
+        double[] lows = new double[n];
         for (int i = 0; i < n; i++) {
-            opens[i] = candles.get(i).open();
-            closes[i] = candles.get(i).close();
+            highs[i] = candles.get(i).high();
+            lows[i] = candles.get(i).low();
         }
-        double[] ro = Wilder.rma(opens, period);
-        double[] rc = Wilder.rma(closes, period);
+        double[] rh = Wilder.rma(highs, period);
+        double[] rl = Wilder.rma(lows, period);
         double[] upper = new double[n];
         double[] lower = new double[n];
         for (int i = 0; i < n; i++) {
-            if (Double.isNaN(ro[i]) || Double.isNaN(rc[i])) {
+            if (Double.isNaN(rh[i]) || Double.isNaN(rl[i])) {
                 upper[i] = Double.NaN;
                 lower[i] = Double.NaN;
             } else {
-                upper[i] = Math.max(ro[i], rc[i]);
-                lower[i] = Math.min(ro[i], rc[i]);
+                upper[i] = Math.max(rh[i], rl[i]);
+                lower[i] = Math.min(rh[i], rl[i]);
             }
         }
         return new Series(upper, lower);
