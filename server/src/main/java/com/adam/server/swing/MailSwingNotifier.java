@@ -27,7 +27,7 @@ public class MailSwingNotifier implements SwingNotifier {
     public MailSwingNotifier(
             ObjectProvider<JavaMailSender> mail,
             @Value("${app.mail.to:adam.mendak@gmail.com}") String to,
-            @Value("${app.mail.from:${spring.mail.username:}}") String from
+            @Value("${app.mail.from:adam.mtg.bot@gmail.com}") String from
     ) {
         this.mail = mail.getIfAvailable();
         this.to = to;
