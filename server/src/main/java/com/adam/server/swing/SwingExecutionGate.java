@@ -35,16 +35,35 @@ public class SwingExecutionGate {
     private final BrokerBooks books;
     private final RiskPolicy risk;
     private final boolean enabled;
+    private final String accountName;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
 
     public SwingExecutionGate(
             BrokerBooks books,
             RiskPolicy risk,
-            @Value("${app.swing.execution-enabled:false}") boolean enabled
+            @Value("${app.swing.execution-enabled:false}") boolean enabled,
+            @Value("${app.swing.account-name:Account}") String accountName
     ) {
         this.books = books;
         this.risk = risk;
         this.enabled = enabled;
+        this.accountName = accountName;
+    }
+
+    /**
+     * The swing sub-account: the one named {@code app.swing.account-name}
+     * ({@code SWING_ACCOUNT_NAME}, default {@code "Account"}) if present,
+     * otherwise the preferred / first non-Fintokei demo account.
+     */
+    private Account pickAccount(java.util.List<Account> accounts) {
+        if (accounts != null && accountName != null && !accountName.isBlank()) {
+            for (Account a : accounts) {
+                if (accountName.equals(a.name())) {
+                    return a;
+                }
+            }
+        }
+        return risk.pickDemoAccount(accounts);
     }
 
     /** Best-effort: never throws to the scan. */
@@ -67,7 +86,7 @@ public class SwingExecutionGate {
             if (!swing.isSessionOpen()) {
                 swing.login();
             }
-            Account account = risk.pickDemoAccount(swing.accounts());
+            Account account = pickAccount(swing.accounts());
             if (account == null) {
                 log.warn("SWING execution {}: no swing demo account", s.symbol());
                 placed.remove(key);
