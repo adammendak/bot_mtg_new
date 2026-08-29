@@ -2,6 +2,9 @@ package com.adam.server.sdd;
 
 import com.adam.server.config.AppProperties;
 
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 public enum SddSymbol {
@@ -40,5 +43,23 @@ public enum SddSymbol {
 
     public static List<SddSymbol> universe() {
         return List.of(values());
+    }
+
+    /**
+     * Scan universe for {@code now} in {@code zone} (Heroku: Europe/Warsaw).
+     * Monday–Friday: GER40, XAU, US100, EURUSD, BTC.
+     * Saturday and Sunday: BTC only — GER40 / US100 / XAU / EURUSD are closed.
+     */
+    public static List<SddSymbol> universeFor(Instant now, ZoneId zone) {
+        DayOfWeek day = now.atZone(zone).getDayOfWeek();
+        if (day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY) {
+            return weekendUniverse();
+        }
+        return universe();
+    }
+
+    /** BTC is the only SDD name open on a Warsaw Saturday or Sunday. */
+    public static List<SddSymbol> weekendUniverse() {
+        return List.of(BTC);
     }
 }

@@ -16,7 +16,7 @@ OAuth2 client remains on the classpath from the original app but is **unused**. 
 - Do not flatten TQQQ / CRCL / SPOT / SHOP. No Fintokei. No QQQ restore.
 - News blackout T−30 / T+30 around red USD/EUR: no new SDD.
 
-Scheduler: 1 minute after every M15 close, `Europe/Warsaw`, Spring 6-field cron `0 1,16,31,46 * * * *` (all hours, all week — BTC weekends and the Asian session). Override with `SCAN_CRON`. Closed-market / unknown-epic 404s skip that symbol, not the whole scan. Quiet if nothing. JSON webhooks to `AGENT_SIGNAL_WEBHOOK_URLS` on a new full stack or skip-worthy HA flip. Hard scan failures POST `type=failover` (Computron resumes his loop); a later healthy scan POSTs `type=scan_ok` once. Cursor automation sender key is `AGENT_SIGNAL_WEBHOOK_SECRET` (host config only).
+Scheduler: 1 minute after every M15 close, `Europe/Warsaw`, Spring 6-field cron `0 1,16,31,46 * * * *` (all hours, all week). The scan universe is then filtered on the Warsaw calendar: Monday–Friday GER40 / XAU / US100 / EURUSD / BTC; Saturday and Sunday BTC only (the other names are closed — no scan, no new SDD tickets, no junk full-stack/flip webhooks). Leftover tickets on closed names keep weekday-style management. Override the cron with `SCAN_CRON`. Closed-market / unknown-epic 404s skip that symbol, not the whole scan. Quiet if nothing. JSON webhooks to `AGENT_SIGNAL_WEBHOOK_URLS` on a new full stack or skip-worthy HA flip. Hard scan failures POST `type=failover` (Computron resumes his loop); a later healthy scan POSTs `type=scan_ok` once. Cursor automation sender key is `AGENT_SIGNAL_WEBHOOK_SECRET` (host config only).
 
 ## Local run
 
