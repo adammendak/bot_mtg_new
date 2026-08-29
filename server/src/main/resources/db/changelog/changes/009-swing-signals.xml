@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      SDD-SWING (H1) signals, kept alongside sdd_signals so the two strategies
+      can be compared over the same period. Portable types only (Postgres + H2).
+    -->
+    <changeSet id="009-swing-signals" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="swing_signals"/>
+            </not>
+        </preConditions>
+        <createTable tableName="swing_signals">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scanned_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="symbol" type="VARCHAR(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="epic" type="VARCHAR(64)"/>
+            <column name="direction" type="VARCHAR(8)"/>
+            <column name="entry" type="DOUBLE"/>
+            <column name="stop_level" type="DOUBLE"/>
+            <column name="target_level" type="DOUBLE"/>
+            <column name="h4_trend" type="VARCHAR(8)"/>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="swing_signals" indexName="idx_swing_signals_scanned_at">
+            <column name="scanned_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
