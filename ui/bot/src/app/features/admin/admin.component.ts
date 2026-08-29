@@ -5,7 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { formatHttpError } from '../sdd/service/sdd.service';
 import { AdminUser } from './admin.model';
 
-const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing'];
+const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
 
 /**
  * Admin panel: manage portal users, their role (ADMIN/USER) and which broker

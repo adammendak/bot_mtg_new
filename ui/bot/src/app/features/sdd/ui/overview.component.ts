@@ -156,7 +156,7 @@ export class OverviewComponent implements OnInit {
   }
 
   syncBook(id: string): void {
-    const book = (['demo', 'live', 'glowne', 'swing'].includes(id) ? id : 'demo') as BookId;
+    const book = (['demo', 'live', 'glowne', 'swing', 'hts'].includes(id) ? id : 'demo') as BookId;
     this.sdd.syncHistory(book, true);
   }
 

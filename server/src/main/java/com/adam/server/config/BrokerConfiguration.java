@@ -91,6 +91,21 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("htsBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalHtsBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint hts = properties.getCapital().getHts();
+        if (hts.getHost() == null || hts.getHost().isBlank()) {
+            hts.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "hts",
+                hts,
+                "Capital.com HTS credentials are not set (CAPITAL_HTS_API_KEY / CAPITAL_HTS_EMAIL / CAPITAL_HTS_PASSWORD)"
+        );
+    }
+
     @Bean("demoBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperDemoBroker(Clock clock) {
@@ -113,5 +128,11 @@ public class BrokerConfiguration {
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperSwingPlaceholder() {
         return new UnavailableBrokerClient("swing", "SWING book is not wired in paper mode");
+    }
+
+    @Bean("htsBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperHtsPlaceholder() {
+        return new UnavailableBrokerClient("hts", "HTS book is not wired in paper mode");
     }
 }

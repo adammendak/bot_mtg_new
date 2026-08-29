@@ -40,7 +40,8 @@ class AccountQueryServiceTest {
         AppProperties props = new AppProperties();
         BrokerBooks books = new BrokerBooks(demo, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"),
-                new UnavailableBrokerClient("swing", "test"));
+                new UnavailableBrokerClient("swing", "test"),
+                new UnavailableBrokerClient("hts", "test"));
         service = new AccountQueryService(books, new RiskPolicy(props), props);
         when(demo.book()).thenReturn("demo");
         when(demo.id()).thenReturn("capital");
@@ -100,7 +101,7 @@ class AccountQueryServiceTest {
 
         List<OverviewView> rows = service.overview();
 
-        assertThat(rows).hasSize(4);
+        assertThat(rows).hasSize(5);
         OverviewView demoRow = rows.stream().filter(r -> r.id().equals("demo")).findFirst().orElseThrow();
         assertThat(demoRow.kind()).isEqualTo("DEMO");
         assertThat(demoRow.strategy()).isEqualTo("SDD-M15");

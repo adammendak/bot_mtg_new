@@ -67,13 +67,13 @@ class ApiSmokeTest {
     @Test
     void seedCreatedUsers() {
         assertThat(jdbc.queryForObject("select count(*) from app_users", Integer.class)).isEqualTo(2);
-        // adam: live + glowne (006) + swing (008); test: demo (006) + swing (008)
+        // adam: live + glowne (006) + swing (008) + hts (010); test: demo (006) + swing (008) + hts (010)
         assertThat(jdbc.queryForObject(
                 "select count(*) from user_books where user_id = (select id from app_users where username='adam')",
-                Integer.class)).isEqualTo(3);
+                Integer.class)).isEqualTo(4);
         assertThat(jdbc.queryForObject(
                 "select count(*) from user_books where user_id = (select id from app_users where username='test')",
-                Integer.class)).isEqualTo(2);
+                Integer.class)).isEqualTo(3);
     }
 
     @Test
@@ -134,18 +134,19 @@ class ApiSmokeTest {
         mvc.perform(get("/api/broker").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.executionEnabled").value(false))
-                .andExpect(jsonPath("$.books", hasSize(4)))
+                .andExpect(jsonPath("$.books", hasSize(5)))
                 .andExpect(jsonPath("$.books[0].id").value("demo"))
                 .andExpect(jsonPath("$.books[1].id").value("live"))
                 .andExpect(jsonPath("$.books[2].id").value("glowne"))
-                .andExpect(jsonPath("$.books[3].id").value("swing"));
+                .andExpect(jsonPath("$.books[3].id").value("swing"))
+                .andExpect(jsonPath("$.books[4].id").value("hts"));
     }
 
     @Test
     void accountsEndpointReturnsAllBooksForAdmin() throws Exception {
         mvc.perform(get("/api/accounts").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(4)))
+                .andExpect(jsonPath("$", hasSize(5)))
                 .andExpect(jsonPath("$[0].id").value("demo"))
                 .andExpect(jsonPath("$[0].connected").value(true))
                 .andExpect(jsonPath("$[0].equity").value(1000))
@@ -153,24 +154,29 @@ class ApiSmokeTest {
                 .andExpect(jsonPath("$[1].connected").value(false))
                 .andExpect(jsonPath("$[2].id").value("glowne"))
                 .andExpect(jsonPath("$[3].id").value("swing"))
-                .andExpect(jsonPath("$[3].connected").value(false));
+                .andExpect(jsonPath("$[3].connected").value(false))
+                .andExpect(jsonPath("$[4].id").value("hts"))
+                .andExpect(jsonPath("$[4].connected").value(false));
     }
 
     @Test
     void testUserSeesOnlyGrantedBooks() throws Exception {
-        // test is granted demo (006) + swing (008) — not live / glowne
+        // test is granted demo (006) + swing (008) + hts (010) — not live / glowne
         mvc.perform(get("/api/accounts").header("Authorization", bearer(testToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$", hasSize(3)))
                 .andExpect(jsonPath("$[0].id").value("demo"))
                 .andExpect(jsonPath("$[0].connected").value(true))
                 .andExpect(jsonPath("$[0].equity").value(1000))
                 .andExpect(jsonPath("$[1].id").value("swing"))
-                .andExpect(jsonPath("$[1].connected").value(false));
+                .andExpect(jsonPath("$[1].connected").value(false))
+                .andExpect(jsonPath("$[2].id").value("hts"))
+                .andExpect(jsonPath("$[2].connected").value(false));
         mvc.perform(get("/api/positions").header("Authorization", bearer(testToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.demo").isArray())
                 .andExpect(jsonPath("$.swing").isArray())
+                .andExpect(jsonPath("$.hts").isArray())
                 .andExpect(jsonPath("$.live").doesNotExist())
                 .andExpect(jsonPath("$.glowne").doesNotExist());
     }

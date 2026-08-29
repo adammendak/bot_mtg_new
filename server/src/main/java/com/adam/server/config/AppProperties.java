@@ -269,12 +269,14 @@ public class AppProperties {
         private final Endpoint live = new Endpoint();
         private final Endpoint glowne = new Endpoint();
         private final Endpoint swing = new Endpoint();
+        private final Endpoint hts = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
             live.setHost("https://api-capital.backend-capital.com");
             glowne.setHost("https://api-capital.backend-capital.com");
             swing.setHost("https://demo-api-capital.backend-capital.com");
+            hts.setHost("https://demo-api-capital.backend-capital.com");
         }
 
         public Endpoint getDemo() {
@@ -291,6 +293,10 @@ public class AppProperties {
 
         public Endpoint getSwing() {
             return swing;
+        }
+
+        public Endpoint getHts() {
+            return hts;
         }
     }
 

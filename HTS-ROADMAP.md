@@ -176,11 +176,24 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
 - WaveTrend: timing OB/OS jako dodatkowy filtr wejścia (extreme → czekaj na reclaim).
 - Wskaźniki już w kodzie (`com.adam.server.sdd.Supertrend`, `WaveTrend`).
 
-### T9 — Live: 3. book `hts` + 3. konto Capital
-- `HtsEngine` + `HtsScanService` + `HtsExecutionGate` (opt‑in `HTS_EXECUTION_ENABLED`).
-- `Books.HTS`, grant Liquibase, `CAPITAL_HTS_*` config vars, book w UI/API/overview.
-- Wdrożyć **zwycięską konfigurację** z T1–T8 na osobnym demo koncie, na miesiąc forward,
-  równolegle z SDD‑M15 i swing.
+### T9 — Live: 3. book `hts` + 3. konto Capital  ← zrobione (egzekucja domyślnie OFF)
+- **Plumbing:** `Books.HTS` + `BrokerBooks.hts()` + bean `htsBroker` (`CAPITAL_HTS_*`),
+  `app.capital.hts.*`, `RiskPolicy.pickHtsAccount` (pinuje „Account m5"), grant Liquibase
+  `010-hts-book.xml`, book w `/api/accounts` `/api/broker` `/api/positions` `/health`
+  (`htsConfigured`), zakładka „HTS" w UI (dashboard, admin, overview).
+- **Silnik live:** `HtsEngine` (ostatnia zamknięta świeca, konfiguracja domyślna T1–T6:
+  wstęgi 33/144 high/low, pullback+reclaim, skip‑konsolidacji, stop = krawędź szybkiej
+  wstęgi + bufor 0.25×szer., TP1 = 2×dystans stopu, ADX off). Model główny **D1(kontekst)/H1(egzekucja)**.
+- **Skan:** `HtsScanService` + `HtsScanScheduler` (cron `HTS_CRON`, dom. `0 2 * * * *` — minutę
+  za swingiem). Persist do `hts_signals` (`011-hts-signals.xml`), notyfikacja (`LogHtsNotifier`,
+  rich mail = T10), oddanie do `HtsExecutionGate`.
+- **Egzekucja:** `HtsExecutionGate` na booku `hts`, jeden market ticket (stop + TP1 razem),
+  sizing `ryzyko$ / dystans_stopu`. **`HTS_EXECUTION_ENABLED` domyślnie `false`.**
+- **API:** `GET /api/hts/last`, `GET /api/hts/signals`, `POST /api/hts/scan` (gate: book `hts`).
+- **Do zrobienia po stronie Heroku (Ty):** ustawić `CAPITAL_HTS_API_KEY` / `CAPITAL_HTS_EMAIL` /
+  `CAPITAL_HTS_PASSWORD` (konto „Account m5"). Potem `HTS_EXECUTION_ENABLED=true` gdy gotowe.
+- **Rozważ:** wyłączenie egzekucji SDD‑M15 na „Account m15" jeśli HTS‑core (H4/M15) ma tam wejść —
+  do Twojej decyzji; teraz HTS live idzie na osobne „Account m5".
 
 ### T10 — Bogaty mail sygnału HTS
 - Jak task 6 dla swinga: stan obu interwałów (wstęgi HTF+LTF, ADX, ATR, pozycja vs PP),
@@ -274,7 +287,10 @@ book w UI/overview. Potem T10 (mail). T7 (piramida) po zaprojektowaniu modelu ry
 - `Supertrend`, `WaveTrend`, `Ema`, `Sma` — jest (niewpięte w silnik).
 - Band‑entry + runner „close pod wstęgą" — jest w `SwingBacktestService` (H4/H1) i `BacktestService` (H1/M15)
   jako tryby backtestu.
-- `HtsBacktestService` — **jest** (T1‑T4): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
-  `adxPermit` (T3'), `pivotTargets` (T4), runner. Endpoint `GET /api/hts/backtest` (admin).
+- `HtsBacktestService` — **jest** (T1‑T6): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
+  `adxPermit` (T3'), `pivotTargets` (T4), `splitEntries` (T6), runner‑lock. `GET /api/hts/backtest`.
 - `equity_simulator.py` — **jest** `--day-stop` / `--max-dd` (T5, strona backtestu).
+- **Live (T9)** — **jest**: `HtsEngine`, `HtsScanService`, `HtsScanScheduler`, `HtsExecutionGate`
+  (`HTS_EXECUTION_ENABLED=false`), book `hts` na „Account m5", `hts_signals`, `/api/hts/last|signals|scan`.
+  Żywe silniki SDD‑M15/swing i ich egzekucja — **nietknięte**.
 - Żywe silniki (`SddEngine`, `SddSwingEngine`) i egzekucja (`ExecutionGate`, `SwingExecutionGate`) — **nietknięte**.
