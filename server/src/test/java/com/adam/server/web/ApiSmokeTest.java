@@ -76,6 +76,15 @@ class ApiSmokeTest {
     }
 
     @Test
+    void loginIsCaseInsensitiveOnUsername() throws Exception {
+        String body = "{\"username\":\"Adam\",\"password\":\"dupa1234\"}";
+        mvc.perform(post("/api/auth/login").contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.user.username").value("adam"));
+    }
+
+    @Test
     void staticDashboardServesBootstrapTables() throws Exception {
         mvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
