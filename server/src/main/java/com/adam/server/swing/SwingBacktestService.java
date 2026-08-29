@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * SDD-SWING (H1) backtest — replays H1 candles through {@link SddSwingEngine}
@@ -86,6 +87,16 @@ public class SwingBacktestService {
      * same bar (conservative).
      */
     public List<SwingTradeRow> runTrades(int days, double stopMult, double targetAtr, int lookAhead) {
+        return runTrades(days, stopMult, targetAtr, lookAhead, 0);
+    }
+
+    /**
+     * @param maxNames when &gt; 0, apply the live bot's gates: at most this many
+     *                 symbols in a position at once, and no pyramiding (a symbol
+     *                 with an open trade rejects new signals until it closes).
+     *                 0 = every qualifying signal is taken (worst-case correlation).
+     */
+    public List<SwingTradeRow> runTrades(int days, double stopMult, double targetAtr, int lookAhead, int maxNames) {
         BrokerClient market = books.marketData();
         if (!market.configured()) {
             return List.of();
@@ -100,20 +111,52 @@ public class SwingBacktestService {
             log.warn("SWING trade-backtest: market-data login failed: {}", e.getClass().getSimpleName());
             return List.of();
         }
-        List<SwingTradeRow> out = new ArrayList<>();
+
+        // 1. Collect every qualifying signal across all symbols, in global time order.
+        List<Candidate> cands = new ArrayList<>();
         for (SwingSymbol symbol : SwingSymbol.universe()) {
             try {
-                collectTrades(out, market, symbol, symbol.epic(), window, sm, ta, la);
+                collectCandidates(cands, market, symbol, symbol.epic(), window);
             } catch (Exception e) {
                 log.warn("SWING trade-backtest failed for {}: {}", symbol.code(), e.getClass().getSimpleName());
             }
         }
-        out.sort(Comparator.comparing(SwingTradeRow::entryTime));
+        cands.sort(Comparator.comparing((Candidate c) -> c.scan.timestamp()));
+
+        // 2. Replay, optionally gated by the live bot's slot rules.
+        List<SwingTradeRow> out = new ArrayList<>();
+        Map<String, Instant> openUntil = new java.util.HashMap<>();
+        for (Candidate c : cands) {
+            Instant entryTime = c.scan.timestamp();
+            if (maxNames > 0) {
+                openUntil.values().removeIf(exit -> !exit.isAfter(entryTime)); // free closed slots
+                if (openUntil.containsKey(c.scan.symbol())) {
+                    continue; // no pyramid
+                }
+                if (openUntil.size() >= maxNames) {
+                    continue; // max concurrent names
+                }
+            }
+            Replayed r = replay(c.scan, c.h1, c.idx, c.atrH4, sm, ta, la);
+            out.add(new SwingTradeRow(
+                    iso(entryTime), iso(r.exit()), c.scan.symbol(),
+                    c.scan.direction() == Direction.BUY ? "LONG" : "SHORT",
+                    r.result(), Math.round(r.r() * 10000.0) / 10000.0));
+            if (maxNames > 0) {
+                openUntil.put(c.scan.symbol(), r.exit());
+            }
+        }
         return out;
     }
 
-    private void collectTrades(List<SwingTradeRow> out, BrokerClient market, SwingSymbol symbol, String epic,
-                               int days, double stopMult, double targetAtr, int lookAhead) {
+    private record Candidate(SwingScan scan, List<Candle> h1, int idx, double atrH4) {
+    }
+
+    private record Replayed(Instant exit, String result, double r) {
+    }
+
+    private void collectCandidates(List<Candidate> out, BrokerClient market, SwingSymbol symbol, String epic,
+                                   int days) {
         Instant to = Instant.now().minusSeconds(3600L);
         Instant fromEval = to.minusSeconds(days * 86400L);
         Instant fromH1 = fromEval.minusSeconds(H1_WARMUP_DAYS * 86400L);
@@ -137,12 +180,12 @@ public class SwingBacktestService {
             if (atrH4 <= 0 || Double.isNaN(atrH4)) {
                 continue;
             }
-            out.add(replayTrade(scan, h1, i, atrH4, stopMult, targetAtr, lookAhead));
+            out.add(new Candidate(scan, h1, i, atrH4));
         }
     }
 
-    private static SwingTradeRow replayTrade(SwingScan scan, List<Candle> h1, int entryIdx,
-                                             double atrH4, double stopMult, double targetAtr, int lookAhead) {
+    private static Replayed replay(SwingScan scan, List<Candle> h1, int entryIdx,
+                                   double atrH4, double stopMult, double targetAtr, int lookAhead) {
         boolean buy = scan.direction() == Direction.BUY;
         double entry = scan.entry();
         double stopDist = stopMult * atrH4;
@@ -157,26 +200,16 @@ public class SwingBacktestService {
             boolean stopHit = buy ? c.low() <= stop : c.high() >= stop;
             boolean targetHit = buy ? c.high() >= target : c.low() <= target;
             if (stopHit) {
-                return row(scan, c.time(), "LOSS", -1.0);
+                return new Replayed(c.time(), "LOSS", -1.0);
             }
             if (targetHit) {
-                return row(scan, c.time(), "WIN", winR);
+                return new Replayed(c.time(), "WIN", winR);
             }
         }
         // Unresolved after the look-ahead window: mark to market at its last bar.
         Candle lastBar = h1.get(Math.max(entryIdx + 1, end - 1));
         double mtm = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
-        return row(scan, lastBar.time(), "OPEN", mtm);
-    }
-
-    private static SwingTradeRow row(SwingScan scan, Instant exit, String result, double r) {
-        return new SwingTradeRow(
-                iso(scan.timestamp()),
-                iso(exit),
-                scan.symbol(),
-                scan.direction() == Direction.BUY ? "LONG" : "SHORT",
-                result,
-                Math.round(r * 10000.0) / 10000.0);
+        return new Replayed(lastBar.time(), "OPEN", mtm);
     }
 
     private static final java.time.format.DateTimeFormatter ISO_UTC =

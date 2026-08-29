@@ -203,6 +203,41 @@ obsługę `--label`.
 
 ---
 
+## 7b. Wyniki testu portfela (120 dni, wspólne konto 10k, swing)
+
+Wygenerowane lokalnie (`SwingBacktestService.runTrades`, żywe świece Capital), policzone
+`tools/equity_simulator.py --mode portfolio --risk 0.01`.
+
+**Bez limitu pozycji** (687 tradów/wariant — worst‑case korelacja):
+
+| wariant | win% | avg R | PF | final | zwrot | max DD |
+|---|---|---|---|---|---|---|
+| stop 2.5R | 66.2 | −0.060 | 0.82 | 6 544 | −34.6% | 38.5% |
+| stop 1.5R | 56.9 | −0.048 | 0.89 | 7 002 | −30.0% | 41.2% |
+| stop 1:1  | 47.2 | −0.058 | 0.89 | 6 489 | −35.1% | 43.1% |
+
+**Z limitem 4 nazw + no‑pyramid** (jak realny bot — `MAX_OPEN_NAMES`):
+
+| wariant | trades | win% | avg R | PF | final | zwrot | max DD |
+|---|---|---|---|---|---|---|---|
+| stop 2.5R | 256 | 68.0 | −0.036 | 0.88 | 9 068 | −9.3% | 16.3% |
+| **stop 1.5R** | 309 | 59.5 | **−0.004** | **0.99** | **9 781** | **−2.2%** | **16.3%** |
+| stop 1:1  | 375 | 49.3 | −0.016 | 0.97 | 9 260 | −7.4% | 18.9% |
+
+Model 2 (1R = 1 ATR, szeroki stop ryzykuje proporcjonalnie więcej), z limitem 4:
+2.5R → −23.2% / DD 37%; 1.5R → −4.0% / DD 24%; 1:1 → −7.4% / DD 19%.
+
+**Wnioski:**
+1. **Drawdown to była korelacja, nie szerokość stopu.** Limit 4 nazw (który bot już ma)
+   redukuje DD z ~40% do ~16–19% i zwrot z −35% do ok. zera. Bez limitu strategia nie
+   przeżywa; z limitem — przeżywa, ale bez edge.
+2. **`avg R ≈ 0` w każdym wariancie** → sygnał + stały target 1×ATR nie mają wartości
+   dodatniej. Zmiana stopu tego nie naprawi.
+3. Jeśli już cokolwiek ruszać w stopie: **2.5R → 1.5R** (najlepszy lub równy najlepszemu
+   w każdym realistycznym przebiegu; obecny 2.5R jest najgorszy przy limicie 4, zwł. Model 2).
+4. **Realna dźwignia to filtr sygnału** (HTF‑MR + LTF‑trigger, Supertrend/WaveTrend) — pkt 3–5.
+5. To in‑sample 120 dni. Split OOS (pkt 2) obowiązkowy zanim cokolwiek wdrożymy.
+
 ## 8. Proponowana kolejność
 
 1. **(zablokowane)** symulator portfela na Twoich CSV — podeślij pliki.
