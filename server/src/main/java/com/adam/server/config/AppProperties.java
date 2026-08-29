@@ -21,6 +21,8 @@ public class AppProperties {
     private String liveAccountName = "bot trading konto";
     private String glowneAccountName = "Glowne";
     private String swingAccountName = "Account H1";
+    private String demoAccountName = "Account m15";
+    private String htsAccountName = "Account m5";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -155,6 +157,22 @@ public class AppProperties {
 
     public void setSwingAccountName(String swingAccountName) {
         this.swingAccountName = swingAccountName;
+    }
+
+    public String getDemoAccountName() {
+        return demoAccountName;
+    }
+
+    public void setDemoAccountName(String demoAccountName) {
+        this.demoAccountName = demoAccountName;
+    }
+
+    public String getHtsAccountName() {
+        return htsAccountName;
+    }
+
+    public void setHtsAccountName(String htsAccountName) {
+        this.htsAccountName = htsAccountName;
     }
 
     public double getLiveEquityRefuse() {

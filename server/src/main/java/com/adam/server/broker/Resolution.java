@@ -1,6 +1,7 @@
 package com.adam.server.broker;
 
 public enum Resolution {
+    M5,
     M15,
     H1,
     H4,
