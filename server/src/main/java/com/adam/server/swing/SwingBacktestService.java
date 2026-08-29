@@ -393,7 +393,7 @@ public class SwingBacktestService {
                     return new Replayed(c.time(), "WIN", winR);
                 }
             }
-            Candle lastBar = h1.get(Math.max(entryIdx + 1, end - 1));
+            Candle lastBar = h1.get(end - 1);
             double mtm = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
             return new Replayed(lastBar.time(), "OPEN", mtm);
         }
@@ -437,7 +437,7 @@ public class SwingBacktestService {
                 }
             }
         }
-        Candle lastBar = h1.get(Math.max(entryIdx + 1, end - 1));
+        Candle lastBar = h1.get(end - 1);
         if (rA == null) {
             rA = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
             exitA = lastBar.time();

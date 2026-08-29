@@ -160,7 +160,7 @@ public class BacktestService {
             if (!runner) {
                 result = "OPEN";
                 r = 0;
-                exit = c.m15.get(Math.max(c.idx + 1, endIdx - 1)).time();
+                exit = c.m15.get(endIdx - 1).time();
                 for (int i = c.idx + 1; i < endIdx; i++) {
                     Candle bar = c.m15.get(i);
                     if (buy ? bar.low() <= stop : bar.high() >= stop) {
@@ -177,7 +177,7 @@ public class BacktestService {
                     }
                 }
                 if ("OPEN".equals(result)) {
-                    Candle lastBar = c.m15.get(Math.max(c.idx + 1, endIdx - 1));
+                    Candle lastBar = c.m15.get(endIdx - 1);
                     r = (buy ? lastBar.close() - c.entry : c.entry - lastBar.close()) / stopDist;
                 }
             } else {
@@ -204,7 +204,7 @@ public class BacktestService {
                         }
                     }
                 }
-                Candle lastBar = c.m15.get(Math.max(c.idx + 1, endIdx - 1));
+                Candle lastBar = c.m15.get(endIdx - 1);
                 if (rA == null) {
                     rA = (buy ? lastBar.close() - c.entry : c.entry - lastBar.close()) / stopDist;
                     exitA = lastBar.time();
