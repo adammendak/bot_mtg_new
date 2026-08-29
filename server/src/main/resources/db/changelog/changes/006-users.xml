@@ -65,14 +65,14 @@
         <insert tableName="app_users">
             <column name="username" value="adam"/>
             <column name="display_name" value="Adam Adam"/>
-            <column name="password_hash" value="{bcrypt}$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
+            <column name="password_hash" value="$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
             <column name="role" value="ADMIN"/>
             <column name="created_at" valueDate="2026-08-27T00:00:00"/>
         </insert>
         <insert tableName="app_users">
             <column name="username" value="test"/>
             <column name="display_name" value="test"/>
-            <column name="password_hash" value="{bcrypt}$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
+            <column name="password_hash" value="$2b$10$U9kRqtYyYQMpRql8Q/fDC.o/p.9S0aqi..IEvhQTjStpl4pmnOE4m"/>
             <column name="role" value="USER"/>
             <column name="created_at" valueDate="2026-08-27T00:00:00"/>
         </insert>

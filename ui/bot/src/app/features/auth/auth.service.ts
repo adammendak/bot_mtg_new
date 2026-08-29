@@ -1,119 +1,112 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-
-export interface AuthUser {
-  id: number;
-  username: string;
-  displayName: string;
-  role: 'ADMIN' | 'USER' | string;
-  books: string[];
-}
-
-export interface LoginResponse {
-  token: string;
-  user: AuthUser;
-}
+import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
+import { Observable, catchError, map, of, tap } from 'rxjs';
+import { PortalUser } from './portal-user.model';
 
 const TOKEN_KEY = 'auth.token';
+const USER_KEY = 'auth.user';
 
+/**
+ * Real portal authentication against the backend:
+ *   POST /api/auth/login  -> { token, user }
+ *   GET  /api/auth/me     -> { user }
+ *
+ * The bearer token is kept in sessionStorage and attached to /api requests by
+ * {@link authInterceptor}. The current user profile (with role + granted books)
+ * drives what the UI shows and what the backend lets through.
+ */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
-  readonly user = signal<AuthUser | null>(null);
-  private token: string | null = null;
+  private readonly router = inject(Router);
 
-  constructor() {
-    this.token = this.restoreToken();
-    if (this.token) {
-      this.me();
-    }
-  }
-
-  /** Bearer token the HTTP interceptor attaches to every request. */
-  bearerToken(): string | null {
-    return this.token;
-  }
+  readonly user = signal<PortalUser | null>(this.restoreUser());
 
   isAuthenticated(): boolean {
     return this.user() != null;
   }
 
-  /** ADMIN has full access (all books + Główne page); USER sees only granted books. */
+  /** ADMIN can manage users and sees every book; USER only what's granted. */
   isAdmin(): boolean {
     return this.user()?.role === 'ADMIN';
   }
 
-  /** Books this user may see (admin = all books). */
-  visibleBooks(): string[] {
-    const u = this.user();
-    if (!u) {
-      return [];
-    }
-    if (u.role === 'ADMIN') {
-      return ['demo', 'live', 'glowne'];
-    }
-    return u.books ?? [];
+  books(): string[] {
+    return this.user()?.books ?? [];
   }
 
   canSeeBook(book: string): boolean {
-    return this.isAdmin() || this.visibleBooks().includes(book);
+    return this.isAdmin() || this.books().includes(book);
   }
 
-  /** Logs in via POST /api/auth/login and stores the bearer token. */
-  login(username: string, password: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      this.http.post<LoginResponse>('/api/auth/login', { username, password }).subscribe({
-        next: (r) => {
-          this.token = r.token;
-          this.user.set(r.user);
-          try {
-            localStorage.setItem(TOKEN_KEY, this.token ?? '');
-          } catch {
-            // storage unavailable; keep in-memory
-          }
-          resolve(true);
-        },
-        error: (e: HttpErrorResponse) => {
-          console.warn('login failed', e.status);
-          this.user.set(null);
-          resolve(false);
-        },
-      });
-    });
+  bearerToken(): string | null {
+    try {
+      return sessionStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
   }
 
-  /** Refreshes the current user (books may have changed) from /api/auth/me. */
-  me(): void {
-    if (!this.token) {
+  login(username: string, password: string): Observable<boolean> {
+    return this.http
+      .post<{ token: string; user: PortalUser }>('/api/auth/login', { username, password })
+      .pipe(
+        tap((r) => this.setSession(r.token, r.user)),
+        map(() => true),
+        catchError(() => of(false)),
+      );
+  }
+
+  /** Refresh the profile from /me (e.g. books changed while logged in). */
+  refresh(): void {
+    if (!this.bearerToken()) {
       return;
     }
-    this.http.get<AuthUser>('/api/auth/me').subscribe({
-      next: (u) => this.user.set(u),
-      error: () => {
-        this.user.set(null);
-        this.token = null;
+    this.http.get<{ user: PortalUser }>('/api/auth/me').subscribe({
+      next: (r) => {
+        this.user.set(r.user);
         try {
-          localStorage.removeItem(TOKEN_KEY);
+          sessionStorage.setItem(USER_KEY, JSON.stringify(r.user));
         } catch {
-          // ignore
+          // storage unavailable; keep in-memory state
         }
       },
+      error: () => this.logout(),
     });
   }
 
   logout(): void {
     this.user.set(null);
-    this.token = null;
     try {
-      localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(USER_KEY);
     } catch {
       // ignore
     }
+    if (this.router.url !== '/login') {
+      this.router.navigate(['/login']);
+    }
   }
 
-  private restoreToken(): string | null {
+  private setSession(token: string, user: PortalUser): void {
+    this.user.set(user);
     try {
-      return localStorage.getItem(TOKEN_KEY);
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+    } catch {
+      // storage unavailable; keep in-memory state
+    }
+  }
+
+  private restoreUser(): PortalUser | null {
+    try {
+      const raw = sessionStorage.getItem(USER_KEY);
+      if (!raw || !sessionStorage.getItem(TOKEN_KEY)) {
+        return null;
+      }
+      const parsed = JSON.parse(raw) as PortalUser;
+      return parsed && typeof parsed.username === 'string' ? parsed : null;
     } catch {
       return null;
     }

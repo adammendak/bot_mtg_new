@@ -1,8 +1,11 @@
 package com.adam.server.web;
 
+import com.adam.server.auth.AppUser;
+import com.adam.server.auth.CurrentUser;
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.config.AppProperties;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,10 +25,14 @@ public class BrokerInfoController {
     }
 
     @GetMapping(value = "/api/broker", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> broker() {
+    public Map<String, Object> broker(Authentication authentication) {
+        AppUser user = CurrentUser.of(authentication);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionEnabled", properties.isExecutionEnabled());
-        body.put("books", List.of(book(books.demo()), book(books.live()), book(books.glowne())));
+        body.put("books", List.of(books.demo(), books.live(), books.glowne()).stream()
+                .filter(b -> user == null || user.canSeeBook(b.book()))
+                .map(BrokerInfoController::book)
+                .toList());
         return body;
     }
 

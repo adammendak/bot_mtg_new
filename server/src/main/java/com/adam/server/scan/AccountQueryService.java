@@ -210,6 +210,18 @@ public class AccountQueryService {
         return out;
     }
 
+    /** Positions grouped by book, filtered to what the caller may see. */
+    public Map<String, List<Position>> positionsByBookFor(com.adam.server.auth.AppUser user) {
+        Map<String, List<Position>> out = new LinkedHashMap<>();
+        for (String book : new String[]{"demo", "live", "glowne"}) {
+            if (user != null && !user.canSeeBook(book)) {
+                continue;
+            }
+            out.put(book, positions(book));
+        }
+        return out;
+    }
+
     /** Open positions with per-position cash risk (1R in currency). */
     public List<PositionRiskView> positionsWithRisk(String book) {
         return positions(book).stream()
@@ -222,6 +234,18 @@ public class AccountQueryService {
         out.put("demo", positionsWithRisk("demo"));
         out.put("live", positionsWithRisk("live"));
         out.put("glowne", positionsWithRisk("glowne"));
+        return out;
+    }
+
+    /** Risk view grouped by book, filtered to what the caller may see. */
+    public Map<String, List<PositionRiskView>> positionsWithRiskByBookFor(com.adam.server.auth.AppUser user) {
+        Map<String, List<PositionRiskView>> out = new LinkedHashMap<>();
+        for (String book : new String[]{"demo", "live", "glowne"}) {
+            if (user != null && !user.canSeeBook(book)) {
+                continue;
+            }
+            out.put(book, positionsWithRisk(book));
+        }
         return out;
     }
 

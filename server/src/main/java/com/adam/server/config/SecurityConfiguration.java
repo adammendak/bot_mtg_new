@@ -3,9 +3,12 @@ package com.adam.server.config;
 import com.adam.server.auth.TokenAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -14,14 +17,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Security wiring for the portal auth:
  * <ul>
- *   <li>{@code POST /api/auth/login} and everything else not under
- *       {@code /api/admin/**} stays open (the dashboard + read endpoints work
- *       without a login, as before).</li>
- *   <li>{@code /api/admin/**} (user management) requires {@code ROLE_ADMIN},
- *       enforced via the bearer token read by {@link TokenAuthFilter}.</li>
- *   <li>A {@link BCryptPasswordEncoder} backs {@code {bcrypt}…} hashes seeded in
- *       the {@code app_users} table.</li>
+ *   <li>Public: the SPA (static resources), {@code /health} and
+ *       {@code POST /api/auth/login}.</li>
+ *   <li>{@code /api/**} requires a valid bearer token (login required to see
+ *       any account data).</li>
+ *   <li>{@code /api/admin/**} additionally requires {@code ROLE_ADMIN}.</li>
  * </ul>
+ * Book-level isolation (which books a USER may see) is enforced in the
+ * controllers/services against {@link com.adam.server.auth.AppUser}.
  */
 @Configuration
 public class SecurityConfiguration {
@@ -34,8 +37,23 @@ public class SecurityConfiguration {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::disable))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.getWriter().write("{\"error\":\"unauthorized\",\"message\":\"Missing or invalid token.\"}");
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(HttpStatus.FORBIDDEN.value());
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.getWriter().write("{\"error\":\"forbidden\",\"message\":\"You do not have access to this resource.\"}");
+                        }))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/health", "/h2-console/**", "/error", "/").permitAll()
+                        .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(tokenAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

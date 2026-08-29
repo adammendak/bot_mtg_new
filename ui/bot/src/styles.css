@@ -8,3 +8,46 @@ body {
 .table th {
   vertical-align: middle;
 }
+
+/* ---- Mobile: keep the dashboard usable from ~320px (small iPhones) ---- */
+@media (max-width: 390px) {
+  .navbar-brand {
+    font-size: 1rem;
+  }
+  main.container-fluid {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  .h2,
+  h2 {
+    font-size: 1.2rem;
+  }
+  .h4,
+  h4 {
+    font-size: 1.05rem;
+  }
+  .card-header {
+    padding: 0.5rem 0.75rem;
+  }
+  .card-body {
+    padding: 0.5rem;
+  }
+  /* keep tables scrollable, don't let them blow out the viewport */
+  .table-responsive {
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-responsive table {
+    min-width: 560px;
+  }
+  .btn {
+    white-space: nowrap;
+  }
+  .d-flex.gap-2,
+  .d-flex.gap-3 {
+    gap: 0.4rem !important;
+  }
+  .badge {
+    font-size: 0.7em;
+  }
+}
+

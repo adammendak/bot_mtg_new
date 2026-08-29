@@ -89,6 +89,7 @@ public class AdminUserController {
         }
         if (body.books() != null) {
             userBooks.deleteByUserId(id);
+            userBooks.flush(); // force DELETE before re-INSERT (unique (user_id, book))
             saveBooks(id, body.books());
         }
         users.save(entity);

@@ -64,11 +64,14 @@ public class BacktestService {
 
     private BacktestResult backtestOne(BrokerClient market, SddEngine engine,
                                        SddSymbol symbol, String epic, int days) {
-        Instant now = Instant.now();
-        Instant from = now.minusSeconds((days > 0 ? days : 90) * 86400L);
-        List<Candle> m15 = market.candles(epic, Resolution.M15, from, now, 1000);
-        List<Candle> h1 = market.candles(epic, Resolution.H1, from.minusSeconds(30 * 86400L), now, 500);
-        List<Candle> h4 = market.candles(epic, Resolution.H4, from.minusSeconds(60 * 86400L), now, 300);
+        // End at the last closed M15 candle (Capital rejects ranges ending at "now").
+        Instant to = Instant.now().minusSeconds(15 * 60L);
+        Instant from = to.minusSeconds((days > 0 ? days : 90) * 86400L);
+        // Capital caps the daterange per resolution (M15 ~10d, H1 ~30-60d, H4 wider),
+        // so page long windows in chunks and merge the candles.
+        List<Candle> m15 = candlesChunked(market, epic, Resolution.M15, from, to, 1000, 10);
+        List<Candle> h1 = candlesChunked(market, epic, Resolution.H1, from.minusSeconds(30 * 86400L), to, 500, 30);
+        List<Candle> h4 = candlesChunked(market, epic, Resolution.H4, from.minusSeconds(60 * 86400L), to, 300, 60);
 
         int signals = 0;
         int wins = 0;
@@ -96,6 +99,33 @@ public class BacktestService {
         double profitFactor = losses == 0 ? (wins > 0 ? 999.0 : 0.0) : (double) wins / losses;
         double expectancy = avgR; // per-trade R expectation
         return new BacktestResult(symbol.code(), epic, signals, wins, losses, winRate, avgR, expectancy, profitFactor);
+    }
+
+    /** Fetches candles over a long window, paging in ≤{@code maxDaysPerChunk} slices (Capital daterange cap). */
+    private static List<Candle> candlesChunked(BrokerClient market, String epic, Resolution res,
+                                               Instant from, Instant to, int max, int maxDaysPerChunk) {
+        List<Candle> all = new ArrayList<>();
+        long chunkSecs = maxDaysPerChunk * 86400L;
+        Instant chunkTo = to;
+        while (chunkTo.isAfter(from)) {
+            Instant chunkFrom = chunkTo.minusSeconds(chunkSecs);
+            if (chunkFrom.isBefore(from)) {
+                chunkFrom = from;
+            }
+            all.addAll(market.candles(epic, res, chunkFrom, chunkTo, max));
+            chunkTo = chunkFrom;
+        }
+        all.sort(java.util.Comparator.comparing(Candle::time));
+        List<Candle> dedup = new ArrayList<>();
+        Instant prev = null;
+        for (Candle c : all) {
+            if (prev != null && c.time().equals(prev)) {
+                continue;
+            }
+            dedup.add(c);
+            prev = c.time();
+        }
+        return dedup;
     }
 
     /** +1 if price reaches entry+1R before entry−1R within look-ahead, −1 otherwise, 0 on no fill. */

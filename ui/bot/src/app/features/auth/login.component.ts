@@ -9,7 +9,7 @@ import { AuthService } from './auth.service';
   imports: [FormsModule],
   template: `
     <div class="row justify-content-center">
-      <div class="col-sm-10 col-md-6 col-lg-4">
+      <div class="col-11 col-sm-10 col-md-6 col-lg-4">
         <div class="card shadow-sm mt-4">
           <div class="card-header bg-dark text-white">Sign in</div>
           <div class="card-body">
@@ -41,8 +41,8 @@ import { AuthService } from './auth.service';
               @if (error) {
                 <div class="alert alert-danger py-2">Invalid username or password.</div>
               }
-              <button type="submit" class="btn btn-primary" [disabled]="!username || !password">
-                Sign in
+              <button type="submit" class="btn btn-primary w-100" [disabled]="busy || !username || !password">
+                {{ busy ? 'Signing in…' : 'Sign in' }}
               </button>
             </form>
           </div>
@@ -58,13 +58,21 @@ export class LoginComponent {
   username = '';
   password = '';
   error = false;
+  busy = false;
 
-  async onSubmit(): Promise<void> {
-    const ok = await this.auth.login(this.username, this.password);
-    if (ok) {
-      this.router.navigate(['/']);
-    } else {
-      this.error = true;
+  onSubmit(): void {
+    if (!this.username || !this.password) {
+      return;
     }
+    this.busy = true;
+    this.error = false;
+    this.auth.login(this.username, this.password).subscribe((ok) => {
+      this.busy = false;
+      if (ok) {
+        this.router.navigate(['/']);
+      } else {
+        this.error = true;
+      }
+    });
   }
 }

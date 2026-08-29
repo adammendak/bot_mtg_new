@@ -86,6 +86,7 @@ public class AuthService {
     }
 
     public static String hashFor(String raw) {
-        return "{bcrypt}" + new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(raw);
+        // Plain bcrypt — matches the PasswordEncoder bean (BCryptPasswordEncoder).
+        return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(raw);
     }
 }
