@@ -6,6 +6,20 @@ import { SddService } from '../service/sdd.service';
 import { HistoryResponse } from '../model/sdd.model';
 
 describe('HistoryComponent', () => {
+  // Base history payload (drawdown fields added in #15).
+  function h(over: Partial<HistoryResponse>): HistoryResponse {
+    return {
+      book: 'demo',
+      currency: null,
+      connected: false,
+      points: [],
+      maxDrawdownPct: null,
+      currentDrawdownPct: null,
+      recoveryDays: null,
+      ...over,
+    };
+  }
+
   async function setup(data: HistoryResponse) {
     await TestBed.configureTestingModule({
       imports: [HistoryComponent],
@@ -20,7 +34,7 @@ describe('HistoryComponent', () => {
   }
 
   it('renders the book selector and empty state', async () => {
-    const { fixture } = await setup({ book: 'demo', currency: 'EUR', connected: true, points: [] });
+    const { fixture } = await setup(h({ currency: 'EUR', connected: true }));
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('History');
     expect(text).toContain('Demo');
@@ -31,22 +45,21 @@ describe('HistoryComponent', () => {
   });
 
   it('shows the sync-all result message when present', async () => {
-    const { fixture, service } = await setup({ book: 'demo', currency: 'EUR', connected: true, points: [] });
+    const { fixture, service } = await setup(h({ currency: 'EUR', connected: true }));
     service.syncMessage.set('ok: synced demo · ok: synced live · ok: synced glowne');
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('synced glowne');
   });
 
   it('renders chart svg and table rows when data is present', async () => {
-    const { fixture } = await setup({
-      book: 'demo',
+    const { fixture } = await setup(h({
       currency: 'EUR',
       connected: true,
       points: [
         { date: '2026-08-01', equity: 1000, dayPnl: 0, pctChange: 0 },
         { date: '2026-08-02', equity: 990, dayPnl: -10, pctChange: -1 },
       ],
-    });
+    }));
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('svg.chart')).not.toBeNull();
     expect(el.querySelectorAll('table tbody tr').length).toBe(2);
@@ -56,8 +69,7 @@ describe('HistoryComponent', () => {
   });
 
   it('shows summary badges and renders bars for pnl data', async () => {
-    const { fixture } = await setup({
-      book: 'demo',
+    const { fixture } = await setup(h({
       currency: 'PLN',
       connected: true,
       points: [
@@ -65,7 +77,7 @@ describe('HistoryComponent', () => {
         { date: '2026-08-02', equity: 1015, dayPnl: 15, pctChange: 1.5 },
         { date: '2026-08-03', equity: 1005, dayPnl: -10, pctChange: 0.5 },
       ],
-    });
+    }));
     const el = fixture.nativeElement as HTMLElement;
     expect(el.textContent).toContain('Latest equity');
     expect(el.textContent).toContain('PLN');
@@ -76,8 +88,7 @@ describe('HistoryComponent', () => {
   });
 
   it('filters the chart and table by the custom date range and clears it', async () => {
-    const { fixture } = await setup({
-      book: 'demo',
+    const { fixture } = await setup(h({
       currency: 'PLN',
       connected: true,
       points: [
@@ -85,7 +96,7 @@ describe('HistoryComponent', () => {
         { date: '2026-08-02', equity: 1015, dayPnl: 15, pctChange: 1.5 },
         { date: '2026-08-03', equity: 1005, dayPnl: -10, pctChange: 0.5 },
       ],
-    });
+    }));
     const el = fixture.nativeElement as HTMLElement;
     const comp = fixture.componentInstance;
     // no range yet -> all 3 rows

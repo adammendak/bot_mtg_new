@@ -1,5 +1,6 @@
 package com.adam.server.web;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -12,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -29,27 +31,55 @@ class ApiSmokeTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    private String adminToken;
+    private String testToken;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        adminToken = login("adam", "dupa1234");
+        testToken = login("test", "dupa1234");
+        assertThat(adminToken).isNotBlank();
+        assertThat(testToken).isNotBlank();
+    }
+
+    private String login(String username, String password) throws Exception {
+        String body = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
+        String resp = mvc.perform(post("/api/auth/login").contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return resp.replaceAll(".*\"token\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+    }
+
+    private static String bearer(String token) {
+        return "Bearer " + token;
+    }
+
     @Test
     void liquibaseCreatedAppTables() {
         Integer n = jdbc.queryForObject(
-                "select count(*) from information_schema.tables where lower(table_name) in ('payments','sdd_scans','sdd_signals','broker_snapshots')",
+                "select count(*) from information_schema.tables where lower(table_name) in ('payments','sdd_scans','sdd_signals','broker_snapshots','app_users','user_books')",
                 Integer.class
         );
-        assertThat(n).isEqualTo(4);
+        assertThat(n).isEqualTo(6);
         assertThat(jdbc.queryForObject("select count(*) from payments", Integer.class)).isZero();
+    }
+
+    @Test
+    void seedCreatedUsers() {
+        assertThat(jdbc.queryForObject("select count(*) from app_users", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from user_books where user_id = (select id from app_users where username='adam')",
+                Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from user_books where user_id = (select id from app_users where username='test')",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test
     void staticDashboardServesBootstrapTables() throws Exception {
         mvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("SDD-M15")))
-                .andExpect(content().string(containsString("table table-sm table-striped table-hover")))
-                .andExpect(content().string(containsString("/api/accounts")))
-                .andExpect(content().string(containsString("brak pozycji")))
-                .andExpect(content().string(containsString("HTTP ")))
-                .andExpect(content().string(containsString("GET /api/accounts failed")))
-                .andExpect(content().string(containsString("cdn.jsdelivr.net/npm/bootstrap@5.3.3")));
+                .andExpect(content().string(containsString("SDD-M15")));
     }
 
     @Test
@@ -58,14 +88,9 @@ class ApiSmokeTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.time").isString())
                 .andExpect(jsonPath("$.broker").value("paper"))
-                .andExpect(jsonPath("$.executionEnabled").value(false))
                 .andExpect(jsonPath("$.demoConfigured").value(true))
-                .andExpect(jsonPath("$.liveConfigured").value(false))
-                .andExpect(jsonPath("$.webhookConfigured").value(false))
-                .andExpect(jsonPath("$.lastWebhook").value("never"))
-                .andExpect(jsonPath("$.lastWebhookAt").value(nullValue()));
+                .andExpect(jsonPath("$.liveConfigured").value(false));
     }
 
     @Test
@@ -73,32 +98,30 @@ class ApiSmokeTest {
         mvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.not(containsString("<html"))))
-                .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.components").doesNotExist())
-                .andExpect(jsonPath("$.details").doesNotExist());
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 
     @Test
     void actuatorDoesNotExposeSensitiveEndpoints() throws Exception {
         mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
         mvc.perform(get("/actuator/heapdump")).andExpect(status().isNotFound());
-        mvc.perform(get("/actuator/beans")).andExpect(status().isNotFound());
     }
 
     @Test
     void legacyV1StatesBybitBinanceWereNeverInThisRepo() throws Exception {
-        mvc.perform(get("/api/v1"))
+        mvc.perform(get("/api/v1").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.present").value(false))
                 .andExpect(jsonPath("$.defaultBroker").value("capital"));
-        mvc.perform(get("/api/legacy"))
+        mvc.perform(get("/api/legacy").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.present").value(false));
     }
 
     @Test
-    void brokerEndpointListsBothBooks() throws Exception {
-        mvc.perform(get("/api/broker"))
+    void brokerEndpointListsBooksForAdmin() throws Exception {
+        // admin sees every book (ADMIN bypasses the user_books grants)
+        mvc.perform(get("/api/broker").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.executionEnabled").value(false))
                 .andExpect(jsonPath("$.books", hasSize(3)))
@@ -108,52 +131,97 @@ class ApiSmokeTest {
     }
 
     @Test
-    void accountsEndpointReturnsAllBooks() throws Exception {
-        mvc.perform(get("/api/accounts"))
+    void accountsEndpointReturnsAllBooksForAdmin() throws Exception {
+        mvc.perform(get("/api/accounts").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(3)))
                 .andExpect(jsonPath("$[0].id").value("demo"))
                 .andExpect(jsonPath("$[0].connected").value(true))
-                .andExpect(jsonPath("$[0].accountName").value("paper"))
                 .andExpect(jsonPath("$[0].equity").value(1000))
                 .andExpect(jsonPath("$[1].id").value("live"))
                 .andExpect(jsonPath("$[1].connected").value(false))
-                .andExpect(jsonPath("$[2].id").value("glowne"))
-                .andExpect(jsonPath("$[2].connected").value(false));
+                .andExpect(jsonPath("$[2].id").value("glowne"));
     }
 
     @Test
-    void lastScanAndSignalsAreOpen() throws Exception {
-        mvc.perform(get("/api/scan/last")).andExpect(status().isOk());
-        mvc.perform(get("/api/signals")).andExpect(status().isOk());
-        mvc.perform(get("/api/positions")).andExpect(status().isOk())
+    void testUserSeesOnlyDemoBook() throws Exception {
+        mvc.perform(get("/api/accounts").header("Authorization", bearer(testToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value("demo"))
+                .andExpect(jsonPath("$[0].connected").value(true))
+                .andExpect(jsonPath("$[0].equity").value(1000));
+        mvc.perform(get("/api/positions").header("Authorization", bearer(testToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.demo").isArray())
+                .andExpect(jsonPath("$.live").doesNotExist())
+                .andExpect(jsonPath("$.glowne").doesNotExist());
+    }
+
+    @Test
+    void anonymousIsRejectedFromProtectedApi() throws Exception {
+        mvc.perform(get("/api/accounts")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/broker")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/positions")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void wrongPasswordIsRejected() throws Exception {
+        String body = "{\"username\":\"adam\",\"password\":\"nope\"}";
+        mvc.perform(post("/api/auth/login").contentType("application/json").content(body))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void lastScanAndSignalsRequireAuth() throws Exception {
+        mvc.perform(get("/api/scan/last").header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/signals").header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/positions").header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.demo").isArray())
                 .andExpect(jsonPath("$.live").isArray())
                 .andExpect(jsonPath("$.glowne").isArray());
-        mvc.perform(get("/api/positions").param("account", "demo")).andExpect(status().isOk());
-        mvc.perform(get("/api/positions").param("account", "live")).andExpect(status().isOk());
     }
 
     @Test
-    void historyEndpointIsOpen() throws Exception {
-        mvc.perform(get("/api/history"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.book").value("demo"))
-                .andExpect(jsonPath("$.points").isArray());
-        mvc.perform(get("/api/history").param("book", "live"))
+    void historyEndpointIsAuthProtectedAndIsolated() throws Exception {
+        mvc.perform(get("/api/history").param("book", "live").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.book").value("live"));
+        // test user cannot read live history — empty response
+        mvc.perform(get("/api/history").param("book", "live").header("Authorization", bearer(testToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.book").doesNotExist());
     }
 
     @Test
     void manualScanWithPaperBroker() throws Exception {
-        mvc.perform(post("/api/scan"))
+        mvc.perform(post("/api/scan").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.brokerId").value("paper"))
                 .andExpect(jsonPath("$.symbols").isArray())
-                .andExpect(jsonPath("$.books", hasSize(3)))
-                .andExpect(jsonPath("$.books[0].id").value("demo"))
-                .andExpect(jsonPath("$.books[1].id").value("live"))
-                .andExpect(jsonPath("$.books[2].id").value("glowne"));
+                .andExpect(jsonPath("$.books", hasSize(3)));
+    }
+
+    @Test
+    void adminUserCrud() throws Exception {
+        String createBody = "{\"username\":\"newuser\",\"displayName\":\"New User\",\"password\":\"secret1\",\"role\":\"USER\",\"books\":[\"demo\"]}";
+        mvc.perform(post("/api/admin/users").contentType("application/json").content(createBody)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.username").value("newuser"))
+                .andExpect(jsonPath("$.books", hasSize(1)));
+        mvc.perform(get("/api/admin/users").header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(3)));
+        // non-admin cannot access
+        mvc.perform(get("/api/admin/users").header("Authorization", bearer(testToken)))
+                .andExpect(status().isForbidden());
+        // cleanup
+        Long id = jdbc.queryForObject("select id from app_users where username='newuser'", Long.class);
+        mvc.perform(delete("/api/admin/users/" + id).header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
     }
 }

@@ -43,7 +43,7 @@ describe('SddDashboardComponent', () => {
     http.expectOne('/api/account').flush('nope', { status: 500, statusText: 'Server Error' });
     http.expectOne('/api/scan/last').flush('nope', { status: 503, statusText: 'Service Unavailable' });
     http.expectOne('/api/signals').flush('nope', { status: 500, statusText: 'Server Error' });
-    http.expectOne('/api/positions').flush('nope', { status: 502, statusText: 'Bad Gateway' });
+    http.expectOne('/api/positions/risk').flush('nope', { status: 502, statusText: 'Bad Gateway' });
     await fixture.whenStable();
     fixture.detectChanges();
 

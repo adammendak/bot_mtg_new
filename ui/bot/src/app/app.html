@@ -24,6 +24,9 @@
           <a class="nav-link" routerLink="/signals" routerLinkActive="active">Signals</a>
           <a class="nav-link" routerLink="/history" routerLinkActive="active">History</a>
           <a class="nav-link" routerLink="/payments" routerLinkActive="active">Payments</a>
+          @if (auth.isAdmin()) {
+            <a class="nav-link" routerLink="/admin" routerLinkActive="active">Admin</a>
+          }
         </div>
         <div class="d-flex ms-auto align-items-center gap-2">
           <div class="dropdown">

@@ -1,9 +1,12 @@
 package com.adam.server.web;
 
+import com.adam.server.auth.AppUser;
+import com.adam.server.auth.CurrentUser;
 import com.adam.server.scan.MonitoringService;
 import com.adam.server.web.dto.AuditEvent;
 import com.adam.server.web.dto.PositionMonitorView;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,6 +22,7 @@ import java.util.List;
  *   <li>{@code GET /api/monitor/audit?book=…} — execution timeline (#6).</li>
  *   <li>{@code POST /api/monitor/close|be|stop} — manual actions, demo only (#7).</li>
  * </ul>
+ * Every endpoint enforces the caller's book access.
  */
 @RestController
 public class MonitoringController {
@@ -31,23 +35,38 @@ public class MonitoringController {
 
     @GetMapping(value = "/api/monitor", produces = MediaType.APPLICATION_JSON_VALUE)
     public List<PositionMonitorView> monitor(
-            @RequestParam(name = "book", defaultValue = "demo") String book
+            @RequestParam(name = "book", defaultValue = "demo") String book,
+            Authentication authentication
     ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (user != null && !user.canSeeBook(book)) {
+            return List.of();
+        }
         return monitor.monitor(book);
     }
 
     @GetMapping(value = "/api/monitor/audit", produces = MediaType.APPLICATION_JSON_VALUE)
     public List<AuditEvent> audit(
-            @RequestParam(name = "book", required = false) String book
+            @RequestParam(name = "book", required = false) String book,
+            Authentication authentication
     ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (book != null && user != null && !user.canSeeBook(book)) {
+            return List.of();
+        }
         return monitor.audit(book);
     }
 
     @PostMapping(value = "/api/monitor/close", produces = MediaType.APPLICATION_JSON_VALUE)
     public String close(
             @RequestParam(name = "book", defaultValue = "demo") String book,
-            @RequestParam(name = "dealId") String dealId
+            @RequestParam(name = "dealId") String dealId,
+            Authentication authentication
     ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (user != null && !user.canSeeBook(book)) {
+            return "no access to book " + book;
+        }
         return monitor.close(book, dealId);
     }
 
@@ -55,8 +74,13 @@ public class MonitoringController {
     public String moveToBreakEven(
             @RequestParam(name = "book", defaultValue = "demo") String book,
             @RequestParam(name = "dealId") String dealId,
-            @RequestParam(name = "entry", defaultValue = "0") double entry
+            @RequestParam(name = "entry", defaultValue = "0") double entry,
+            Authentication authentication
     ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (user != null && !user.canSeeBook(book)) {
+            return "no access to book " + book;
+        }
         return monitor.moveToBreakEven(book, dealId, entry);
     }
 
@@ -64,8 +88,13 @@ public class MonitoringController {
     public String tightenStop(
             @RequestParam(name = "book", defaultValue = "demo") String book,
             @RequestParam(name = "dealId") String dealId,
-            @RequestParam(name = "stop") double stop
+            @RequestParam(name = "stop") double stop,
+            Authentication authentication
     ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (user != null && !user.canSeeBook(book)) {
+            return "no access to book " + book;
+        }
         return monitor.tightenStop(book, dealId, stop);
     }
 }

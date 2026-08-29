@@ -45,20 +45,28 @@ public class AccountController {
     }
 
     @GetMapping(value = "/api/positions", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Object positions(@RequestParam(name = "account", required = false) String account) {
+    public Object positions(@RequestParam(name = "account", required = false) String account,
+                            Authentication authentication) {
+        AppUser user = CurrentUser.of(authentication);
         if (account == null || account.isBlank()) {
-            Map<String, List<Position>> both = accounts.positionsByBook();
-            return both;
+            return accounts.positionsByBookFor(user);
+        }
+        if (user != null && !user.canSeeBook(account)) {
+            return Map.of();
         }
         return accounts.positions(account);
     }
 
     /** Positions with per-position cash risk (1R in currency). */
     @GetMapping(value = "/api/positions/risk", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Object positionsWithRisk(@RequestParam(name = "account", required = false) String account) {
+    public Object positionsWithRisk(@RequestParam(name = "account", required = false) String account,
+                                    Authentication authentication) {
+        AppUser user = CurrentUser.of(authentication);
         if (account == null || account.isBlank()) {
-            Map<String, List<PositionRiskView>> both = accounts.positionsWithRiskByBook();
-            return both;
+            return accounts.positionsWithRiskByBookFor(user);
+        }
+        if (user != null && !user.canSeeBook(account)) {
+            return Map.of();
         }
         return accounts.positionsWithRisk(account);
     }

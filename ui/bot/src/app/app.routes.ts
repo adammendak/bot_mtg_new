@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './features/auth/auth.guard';
+import { authGuard, adminGuard } from './features/auth/auth.guard';
 
 export const routes: Routes = [
   {
@@ -11,6 +11,12 @@ export const routes: Routes = [
     path: '',
     canActivate: [authGuard],
     loadChildren: () => import('./features/sdd/sdd.routes').then((m) => m.SDD_ROUTES),
+  },
+  {
+    path: 'admin',
+    canActivate: [adminGuard],
+    loadComponent: () =>
+      import('./features/admin/admin.component').then((m) => m.AdminComponent),
   },
   {
     path: 'signals',

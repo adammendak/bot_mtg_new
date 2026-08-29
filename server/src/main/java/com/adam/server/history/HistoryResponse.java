@@ -16,4 +16,7 @@ public record HistoryResponse(
         Double currentDrawdownPct,
         Integer recoveryDays
 ) {
+    public static HistoryResponse empty() {
+        return new HistoryResponse(null, null, false, List.of(), null, null, null);
+    }
 }
