@@ -43,11 +43,13 @@ public class SwingController {
         if (denied(authentication)) {
             return Map.of("error", "forbidden");
         }
-        return Map.of(
-                "scannedAt", scan.lastScanAt() == null ? null : scan.lastScanAt().toString(),
-                "error", scan.lastError() == null ? "" : scan.lastError(),
-                "signals", scan.last()
-        );
+        // LinkedHashMap, not Map.of — scannedAt is null before the first scan and
+        // Map.of rejects null values (NPE -> 500).
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("scannedAt", scan.lastScanAt() == null ? null : scan.lastScanAt().toString());
+        out.put("error", scan.lastError() == null ? "" : scan.lastError());
+        out.put("signals", scan.last());
+        return out;
     }
 
     /** Persisted swing signal history (newest first). */
