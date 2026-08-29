@@ -77,6 +77,7 @@ public class PaperBrokerClient implements BrokerClient {
     public List<Candle> candles(String epic, Resolution resolution, Instant from, Instant to, int max) {
         login();
         Duration step = switch (resolution) {
+            case M5 -> Duration.ofMinutes(5);
             case M15 -> Duration.ofMinutes(15);
             case H1 -> Duration.ofHours(1);
             case H4 -> Duration.ofHours(4);

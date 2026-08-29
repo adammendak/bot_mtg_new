@@ -176,6 +176,7 @@ public class CapitalComBrokerClient implements BrokerClient {
     @Override
     public List<Candle> candles(String epic, Resolution resolution, Instant from, Instant to, int max) {
         String capRes = switch (resolution) {
+            case M5 -> "MINUTE_5";
             case M15 -> "MINUTE_15";
             case H1 -> "HOUR";
             case H4 -> "HOUR_4";

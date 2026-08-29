@@ -22,7 +22,8 @@ public final class PivotPoints {
     private PivotPoints() {
     }
 
-    public record Levels(double pp, double r1, double s1, LocalDate sessionDay) {
+    public record Levels(double pp, double r1, double s1, double r2, double s2, double r3, double s3,
+                         LocalDate sessionDay) {
     }
 
     public static LocalDate sessionDay(Instant time, ZoneId zone) {
@@ -61,10 +62,15 @@ public final class PivotPoints {
             return null;
         }
         Ohlc ohlc = byDay.get(prev);
+        double range = ohlc.high - ohlc.low;
         double pp = (ohlc.high + ohlc.low + ohlc.close) / 3.0;
         double r1 = 2 * pp - ohlc.low;
         double s1 = 2 * pp - ohlc.high;
-        return new Levels(pp, r1, s1, prev);
+        double r2 = pp + range;
+        double s2 = pp - range;
+        double r3 = ohlc.high + 2 * (pp - ohlc.low);
+        double s3 = ohlc.low - 2 * (ohlc.high - pp);
+        return new Levels(pp, r1, s1, r2, s2, r3, s3, prev);
     }
 
     /**

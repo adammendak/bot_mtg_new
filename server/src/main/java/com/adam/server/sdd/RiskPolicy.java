@@ -81,6 +81,17 @@ public class RiskPolicy {
         if (accounts == null || accounts.isEmpty()) {
             return null;
         }
+        // With several demo sub-accounts on one Capital login (Account m15 / Account
+        // H1 / Account m5), "preferred / first" is not enough — pin the SDD-M15
+        // demo account by name when DEMO_ACCOUNT_NAME is set.
+        String name = properties.getDemoAccountName();
+        if (name != null && !name.isBlank()) {
+            for (Account a : accounts) {
+                if (!isFintokei(a.name()) && name.equals(a.name())) {
+                    return a;
+                }
+            }
+        }
         Account preferred = null;
         for (Account a : accounts) {
             if (isFintokei(a.name())) {
