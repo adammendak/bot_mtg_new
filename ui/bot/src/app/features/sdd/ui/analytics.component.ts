@@ -1,7 +1,8 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { SddService } from '../service/sdd.service';
-import { BookId } from '../model/sdd.model';
+import { AuthService } from '../../auth/auth.service';
+import { BookId, BOOK_TABS } from '../model/sdd.model';
 
 /**
  * Analytics: per-symbol performance (#14) and backtest replay (#13). Both are
@@ -16,10 +17,9 @@ import { BookId } from '../model/sdd.model';
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
       <h2 class="h4 mb-0">Analytics</h2>
       <div class="btn-group btn-group-sm" role="group">
-        <button type="button" class="btn" [class.btn-primary]="book() === 'demo'" [class.btn-outline-secondary]="book() !== 'demo'" (click)="setBook('demo')">Demo</button>
-        <button type="button" class="btn" [class.btn-primary]="book() === 'live'" [class.btn-outline-secondary]="book() !== 'live'" (click)="setBook('live')">Live</button>
-        <button type="button" class="btn" [class.btn-primary]="book() === 'glowne'" [class.btn-outline-secondary]="book() !== 'glowne'" (click)="setBook('glowne')">Główne</button>
-        <button type="button" class="btn" [class.btn-primary]="book() === 'swing'" [class.btn-outline-secondary]="book() !== 'swing'" (click)="setBook('swing')">Swing</button>
+        @for (b of visibleBooks; track b.id) {
+          <button type="button" class="btn" [class.btn-primary]="book() === b.id" [class.btn-outline-secondary]="book() !== b.id" (click)="setBook(b.id)">{{ b.label }}</button>
+        }
       </div>
       <button type="button" class="btn btn-info btn-sm" (click)="runBacktest()" [disabled]="sdd.backtestBusy()">
         {{ sdd.backtestBusy() ? 'Replaying…' : 'Run backtest' }}
@@ -112,7 +112,9 @@ import { BookId } from '../model/sdd.model';
 })
 export class AnalyticsComponent implements OnInit {
   readonly sdd = inject(SddService);
-  private current = 'demo';
+  private readonly auth = inject(AuthService);
+  readonly visibleBooks = BOOK_TABS.filter((b) => this.auth.canSeeBook(b.id));
+  private current: BookId = this.visibleBooks[0]?.id ?? 'demo';
 
   book(): string {
     return this.current;
@@ -123,6 +125,9 @@ export class AnalyticsComponent implements OnInit {
   }
 
   setBook(book: BookId): void {
+    if (!this.auth.canSeeBook(book)) {
+      return;
+    }
     this.current = book;
     this.reload();
   }

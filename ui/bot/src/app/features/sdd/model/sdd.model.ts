@@ -84,6 +84,14 @@ export interface Position {
 /** Broker book identifiers. `swing` = separate demo account for the SDD-SWING (H1) strategy. */
 export type BookId = 'demo' | 'live' | 'glowne' | 'swing';
 
+/** All book tabs in dashboard order — filter by AuthService.canSeeBook() before rendering. */
+export const BOOK_TABS: { id: BookId; label: string }[] = [
+  { id: 'demo', label: 'Demo' },
+  { id: 'live', label: 'Live' },
+  { id: 'glowne', label: 'Główne' },
+  { id: 'swing', label: 'Swing' },
+];
+
 export interface PositionsByBook {
   demo: Position[];
   live: Position[];

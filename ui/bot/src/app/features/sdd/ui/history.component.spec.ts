@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { HistoryComponent } from './history.component';
 import { SddService } from '../service/sdd.service';
+import { AuthService } from '../../auth/auth.service';
 import { HistoryResponse } from '../model/sdd.model';
 
 describe('HistoryComponent', () => {
@@ -25,6 +26,14 @@ describe('HistoryComponent', () => {
       imports: [HistoryComponent],
       providers: [provideHttpClient(), provideRouter([])],
     }).compileComponents();
+    // Book buttons are filtered by AuthService.canSeeBook(); an ADMIN sees all.
+    TestBed.inject(AuthService).user.set({
+      id: 1,
+      username: 'adam',
+      displayName: 'Adam',
+      role: 'ADMIN',
+      books: [],
+    });
     const fixture = TestBed.createComponent(HistoryComponent);
     const service = TestBed.inject(SddService);
     vi.spyOn(service, 'loadHistory').mockImplementation(() => {});
