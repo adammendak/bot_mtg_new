@@ -9,8 +9,10 @@ import com.adam.server.swing.SwingBacktestService;
 import com.adam.server.swing.SwingScan;
 import com.adam.server.swing.SwingScanService;
 import com.adam.server.web.dto.BacktestResult;
+import com.adam.server.web.dto.SwingTradeRow;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,17 +69,45 @@ public class SwingController {
 
     /**
      * Replay the SDD-SWING (H1) engine over the last {@code days} (default 30,
-     * max 180) and report win rate / avg R / profit factor per symbol.
-     * Runs against Capital.com market data, so it only works on a deployed
-     * instance with credentials.
+     * max 180). Runs against Capital.com market data, so it only works on a
+     * deployed instance with credentials.
+     *
+     * <ul>
+     *   <li>{@code format=json} (default) — win rate / avg R / profit factor per
+     *       symbol, fixed +1R / −2.5R exit model.</li>
+     *   <li>{@code format=trades} — {@code text/csv} of every replayed trade
+     *       ({@code entry_time,exit_time,symbol,direction,result,r_multiple}) with
+     *       a parametrised exit model, for tools/equity_simulator.py:
+     *       {@code stopMult}× H4 ATR stop, {@code targetAtr}× H4 ATR target,
+     *       {@code lookAhead} H1 bars. r_multiple is in stop-distance units
+     *       (stop-out = −1.0).</li>
+     * </ul>
      */
-    @GetMapping(value = "/api/swing/backtest", produces = MediaType.APPLICATION_JSON_VALUE)
-    public List<BacktestResult> backtest(
+    @GetMapping(value = "/api/swing/backtest", produces = {MediaType.APPLICATION_JSON_VALUE, "text/csv"})
+    public Object backtest(
             @RequestParam(name = "days", defaultValue = "30") int days,
+            @RequestParam(name = "stopMult", defaultValue = "0") double stopMult,
+            @RequestParam(name = "targetAtr", defaultValue = "1.0") double targetAtr,
+            @RequestParam(name = "lookAhead", defaultValue = "0") int lookAhead,
+            @RequestParam(name = "format", defaultValue = "json") String format,
             Authentication authentication
     ) {
         if (denied(authentication)) {
-            return List.of();
+            return "trades".equalsIgnoreCase(format)
+                    ? ResponseEntity.status(403).body("forbidden")
+                    : List.of();
+        }
+        if ("trades".equalsIgnoreCase(format)) {
+            List<SwingTradeRow> rows = backtest.runTrades(days, stopMult, targetAtr, lookAhead);
+            StringBuilder sb = new StringBuilder("entry_time,exit_time,symbol,direction,result,r_multiple\n");
+            for (SwingTradeRow r : rows) {
+                sb.append(r.entryTime()).append(',').append(r.exitTime()).append(',')
+                        .append(r.symbol()).append(',').append(r.direction()).append(',')
+                        .append(r.result()).append(',').append(r.rMultiple()).append('\n');
+            }
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("text/csv"))
+                    .body(sb.toString());
         }
         return backtest.run(days);
     }

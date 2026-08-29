@@ -6,6 +6,7 @@ import com.adam.server.broker.Direction;
 import com.adam.server.broker.Resolution;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.web.dto.BacktestResult;
+import com.adam.server.web.dto.SwingTradeRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -69,6 +70,120 @@ public class SwingBacktestService {
         }
         out.sort(Comparator.comparingDouble(BacktestResult::profitFactor).reversed());
         return out;
+    }
+
+    /**
+     * Per-trade replay for the portfolio equity simulator (tools/equity_simulator.py).
+     * Same signal machinery as {@link #run} (H1 flip + RMA stack + PP + H4 filter), but
+     * the exit model is parametrised so the 2.5R / 1.5R / 1:1 stop variants can be swept:
+     * <pre>
+     *   stop   = entry ∓ stopMult  × H4 ATR
+     *   target = entry ± targetAtr × H4 ATR
+     * </pre>
+     * {@code rMultiple} is in units of the stop distance: a stop-out is {@code -1.0},
+     * a target hit is {@code targetAtr/stopMult}, an unresolved trade at the end of the
+     * {@code lookAhead} window is marked to market. Stop is checked before target on the
+     * same bar (conservative).
+     */
+    public List<SwingTradeRow> runTrades(int days, double stopMult, double targetAtr, int lookAhead) {
+        BrokerClient market = books.marketData();
+        if (!market.configured()) {
+            return List.of();
+        }
+        int window = days <= 0 ? DEFAULT_DAYS : Math.min(days, MAX_DAYS);
+        double sm = stopMult <= 0 ? SddSwingEngine.STOP_ATR_MULT : stopMult;
+        double ta = targetAtr <= 0 ? 1.0 : targetAtr;
+        int la = lookAhead <= 0 ? LOOK_AHEAD_BARS : lookAhead;
+        try {
+            market.login();
+        } catch (Exception e) {
+            log.warn("SWING trade-backtest: market-data login failed: {}", e.getClass().getSimpleName());
+            return List.of();
+        }
+        List<SwingTradeRow> out = new ArrayList<>();
+        for (SwingSymbol symbol : SwingSymbol.universe()) {
+            try {
+                collectTrades(out, market, symbol, symbol.epic(), window, sm, ta, la);
+            } catch (Exception e) {
+                log.warn("SWING trade-backtest failed for {}: {}", symbol.code(), e.getClass().getSimpleName());
+            }
+        }
+        out.sort(Comparator.comparing(SwingTradeRow::entryTime));
+        return out;
+    }
+
+    private void collectTrades(List<SwingTradeRow> out, BrokerClient market, SwingSymbol symbol, String epic,
+                               int days, double stopMult, double targetAtr, int lookAhead) {
+        Instant to = Instant.now().minusSeconds(3600L);
+        Instant fromEval = to.minusSeconds(days * 86400L);
+        Instant fromH1 = fromEval.minusSeconds(H1_WARMUP_DAYS * 86400L);
+        Instant fromH4 = fromEval.minusSeconds((days + H4_WARMUP_DAYS) * 86400L);
+
+        List<Candle> h1 = candlesChunked(market, epic, Resolution.H1, fromH1, to, 1000, 20);
+        List<Candle> h4 = candlesChunked(market, epic, Resolution.H4, fromH4, to, 500, 60);
+
+        for (int i = SddSwingEngine.RMA_SLOW + 2; i < h1.size(); i++) {
+            Candle bar = h1.get(i);
+            if (bar.time().isBefore(fromEval)) {
+                continue;
+            }
+            List<Candle> h4Upto = h4ClosedBy(h4, bar.time());
+            SwingScan scan = engine.evaluate(symbol, epic, h1.subList(0, i + 1), h4Upto, bar.time());
+            if (scan == null) {
+                continue;
+            }
+            // Back out the H4 ATR the engine used (stopLevel = entry ∓ 2.5×ATR).
+            double atrH4 = Math.abs(scan.entry() - scan.stopLevel()) / SddSwingEngine.STOP_ATR_MULT;
+            if (atrH4 <= 0 || Double.isNaN(atrH4)) {
+                continue;
+            }
+            out.add(replayTrade(scan, h1, i, atrH4, stopMult, targetAtr, lookAhead));
+        }
+    }
+
+    private static SwingTradeRow replayTrade(SwingScan scan, List<Candle> h1, int entryIdx,
+                                             double atrH4, double stopMult, double targetAtr, int lookAhead) {
+        boolean buy = scan.direction() == Direction.BUY;
+        double entry = scan.entry();
+        double stopDist = stopMult * atrH4;
+        double targetDist = targetAtr * atrH4;
+        double stop = buy ? entry - stopDist : entry + stopDist;
+        double target = buy ? entry + targetDist : entry - targetDist;
+        double winR = targetDist / stopDist; // = targetAtr / stopMult
+
+        int end = Math.min(entryIdx + lookAhead, h1.size());
+        for (int i = entryIdx + 1; i < end; i++) {
+            Candle c = h1.get(i);
+            boolean stopHit = buy ? c.low() <= stop : c.high() >= stop;
+            boolean targetHit = buy ? c.high() >= target : c.low() <= target;
+            if (stopHit) {
+                return row(scan, c.time(), "LOSS", -1.0);
+            }
+            if (targetHit) {
+                return row(scan, c.time(), "WIN", winR);
+            }
+        }
+        // Unresolved after the look-ahead window: mark to market at its last bar.
+        Candle lastBar = h1.get(Math.max(entryIdx + 1, end - 1));
+        double mtm = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
+        return row(scan, lastBar.time(), "OPEN", mtm);
+    }
+
+    private static SwingTradeRow row(SwingScan scan, Instant exit, String result, double r) {
+        return new SwingTradeRow(
+                iso(scan.timestamp()),
+                iso(exit),
+                scan.symbol(),
+                scan.direction() == Direction.BUY ? "LONG" : "SHORT",
+                result,
+                Math.round(r * 10000.0) / 10000.0);
+    }
+
+    private static final java.time.format.DateTimeFormatter ISO_UTC =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
+    private static String iso(Instant t) {
+        return t == null ? "" : java.time.LocalDateTime.ofInstant(t, java.time.ZoneOffset.UTC).format(ISO_UTC);
     }
 
     private BacktestResult backtestOne(BrokerClient market, SwingSymbol symbol, String epic, int days) {
