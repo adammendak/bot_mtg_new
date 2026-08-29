@@ -13,15 +13,18 @@ public class BrokerBooks {
     private final BrokerClient demo;
     private final BrokerClient live;
     private final BrokerClient glowne;
+    private final BrokerClient swing;
 
     public BrokerBooks(
             @Qualifier("demoBroker") BrokerClient demo,
             @Qualifier("liveBroker") BrokerClient live,
-            @Qualifier("glowneBroker") BrokerClient glowne
+            @Qualifier("glowneBroker") BrokerClient glowne,
+            @Qualifier("swingBroker") BrokerClient swing
     ) {
         this.demo = demo;
         this.live = live;
         this.glowne = glowne;
+        this.swing = swing;
     }
 
     public BrokerClient demo() {
@@ -36,9 +39,16 @@ public class BrokerBooks {
         return glowne;
     }
 
+    public BrokerClient swing() {
+        return swing;
+    }
+
     public BrokerClient forBook(String id) {
         if (id != null && id.equalsIgnoreCase(Books.LIVE)) {
             return live;
+        }
+        if (id != null && id.equalsIgnoreCase(Books.SWING)) {
+            return swing;
         }
         if (Books.isGlowne(id)) {
             return glowne;

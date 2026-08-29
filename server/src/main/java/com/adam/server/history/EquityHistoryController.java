@@ -44,7 +44,7 @@ public class EquityHistoryController {
             Authentication authentication
     ) {
         AppUser user = CurrentUser.of(authentication);
-        List<String> allowed = List.of("demo", "live", "glowne").stream()
+        List<String> allowed = com.adam.server.broker.Books.ALL.stream()
                 .filter(book -> user == null || user.canSeeBook(book))
                 .toList();
         return allowed.stream().map(book -> service.sync(book, replace)).toList();

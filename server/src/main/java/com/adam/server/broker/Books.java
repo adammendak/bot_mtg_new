@@ -15,14 +15,19 @@ public final class Books {
     public static final String DEMO = "demo";
     public static final String LIVE = "live";
     public static final String GLOWNE = "glowne";
+    /** Separate Capital.com demo account reserved for the SDD-SWING (H1) strategy. */
+    public static final String SWING = "swing";
 
     /** Wire / config alias accepted for {@link #GLOWNE}. */
     public static final String GLOWNE_ALIAS = "main";
 
-    /** All books, dashboard order (Demo | Live | Główne). */
-    public static final List<String> ALL = List.of(DEMO, LIVE, GLOWNE);
+    /** All books, dashboard order (Demo | Live | Główne | Swing). */
+    public static final List<String> ALL = List.of(DEMO, LIVE, GLOWNE, SWING);
 
-    /** Books the execution gate may trade — Główne never executes. */
+    /**
+     * Books the SDD-M15 execution gate may trade. Główne and Swing are never
+     * traded by SDD-M15 (Swing has its own strategy; Główne is view-only).
+     */
     public static final List<String> EXECUTABLE = List.of(DEMO, LIVE);
 
     /** True when {@code id} names the Główne book (accepts the {@code "main"} alias). */

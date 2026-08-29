@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      Grant the new "swing" book (separate Capital.com demo account for the
+      SDD-SWING / H1 strategy) to the seed users. adam is ADMIN and already sees
+      every book; the explicit grant is harmless and keeps user_books complete.
+      Idempotent: skipped once any swing grant exists.
+    -->
+    <changeSet id="008-swing-book-grants" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM user_books WHERE book = 'swing'</sqlCheck>
+        </preConditions>
+        <insert tableName="user_books">
+            <column name="user_id" valueComputed="(SELECT id FROM app_users WHERE username='adam')"/>
+            <column name="book" value="swing"/>
+        </insert>
+        <insert tableName="user_books">
+            <column name="user_id" valueComputed="(SELECT id FROM app_users WHERE username='test')"/>
+            <column name="book" value="swing"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

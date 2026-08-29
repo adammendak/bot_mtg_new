@@ -36,12 +36,14 @@ public class AccountQueryService {
     }
 
     public List<AccountView> list() {
-        return List.of(view(books.demo()), view(books.live()), view(books.glowne()));
+        return List.of(view(books.demo()), view(books.live()), view(books.glowne()), view(books.swing()));
     }
 
     /** All books in one row each: account metrics + book kind + strategy + position tally. */
     public List<OverviewView> overview() {
-        return List.of(overview(books.demo()), overview(books.live()), overview(books.glowne()));
+        return List.of(
+                overview(books.demo()), overview(books.live()),
+                overview(books.glowne()), overview(books.swing()));
     }
 
     /** Overview filtered to the books the caller may see (non-admin users). */
@@ -120,6 +122,7 @@ public class AccountQueryService {
         return switch (book) {
             case "live" -> "LIVE";
             case "glowne" -> "MAIN";
+            case "swing" -> "SWING";
             default -> "DEMO";
         };
     }
@@ -133,9 +136,9 @@ public class AccountQueryService {
         return base;
     }
 
-    /** The strategy attached to a book; SDD-M15 is the only strategy today. */
+    /** The strategy attached to a book. */
     static String strategyOf(String book) {
-        return "SDD-M15";
+        return Books.SWING.equals(book) ? "SDD-SWING" : "SDD-M15";
     }
 
     public AccountView view(BrokerClient client) {
@@ -144,6 +147,7 @@ public class AccountQueryService {
             return disconnected(client, switch (client.book()) {
                 case "live" -> "LIVE not configured (CAPITAL_LIVE_API_KEY / CAPITAL_LIVE_EMAIL / CAPITAL_LIVE_PASSWORD)";
                 case "glowne" -> "GLOWNE not configured (CAPITAL_GLOWNE_API_KEY / CAPITAL_GLOWNE_EMAIL / CAPITAL_GLOWNE_PASSWORD)";
+                case "swing" -> "SWING not configured (CAPITAL_SWING_API_KEY / CAPITAL_SWING_EMAIL / CAPITAL_SWING_PASSWORD)";
                 default -> "DEMO not configured (CAPITAL_API_KEY / CAPITAL_EMAIL / CAPITAL_API_PASSWORD)";
             });
         }
@@ -205,9 +209,9 @@ public class AccountQueryService {
 
     public Map<String, List<Position>> positionsByBook() {
         Map<String, List<Position>> out = new LinkedHashMap<>();
-        out.put("demo", positions("demo"));
-        out.put("live", positions("live"));
-        out.put("glowne", positions("glowne"));
+        for (String book : Books.ALL) {
+            out.put(book, positions(book));
+        }
         return out;
     }
 
@@ -232,9 +236,9 @@ public class AccountQueryService {
 
     public Map<String, List<PositionRiskView>> positionsWithRiskByBook() {
         Map<String, List<PositionRiskView>> out = new LinkedHashMap<>();
-        out.put("demo", positionsWithRisk("demo"));
-        out.put("live", positionsWithRisk("live"));
-        out.put("glowne", positionsWithRisk("glowne"));
+        for (String book : Books.ALL) {
+            out.put(book, positionsWithRisk(book));
+        }
         return out;
     }
 

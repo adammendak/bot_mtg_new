@@ -82,7 +82,8 @@ class ExecutionGateTest {
         risk = new RiskPolicy(props);
         state = new SddExecutionState(mock(SddExecutionRepository.class));
         books = new BrokerBooks(demoClient, new UnavailableBrokerClient("live", "test"),
-                new UnavailableBrokerClient("glowne", "test"));
+                new UnavailableBrokerClient("glowne", "test"),
+                new UnavailableBrokerClient("swing", "test"));
         gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor);
 
         when(demoClient.book()).thenReturn("demo");
@@ -289,7 +290,8 @@ class ExecutionGateTest {
                 .thenReturn(List.of(new Account("2", "Other Account", "PLN", 400, 400, 0, false)));
         when(liveClient.openPositions()).thenReturn(List.of());
         BrokerBooks liveBooks = new BrokerBooks(demoClient, liveClient,
-                new UnavailableBrokerClient("glowne", "test"));
+                new UnavailableBrokerClient("glowne", "test"),
+                new UnavailableBrokerClient("swing", "test"));
         ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor);
 
         liveGate.executeBook("live", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),

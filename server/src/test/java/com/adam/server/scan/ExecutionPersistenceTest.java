@@ -118,7 +118,8 @@ class ExecutionPersistenceTest {
 
         state = new SddExecutionState(repository);
         books = new BrokerBooks(demoClient, new UnavailableBrokerClient("live", "test"),
-                new UnavailableBrokerClient("glowne", "test"));
+                new UnavailableBrokerClient("glowne", "test"),
+                new UnavailableBrokerClient("swing", "test"));
         gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor);
 
         when(demoClient.book()).thenReturn("demo");
