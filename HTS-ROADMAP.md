@@ -146,6 +146,34 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 
 ---
 
+## Wyniki T1–T3 (backtest, RR=2, runner on, limit 4)
+
+ALL avgR w R (stop = −1.0):
+
+| model | m2back noadx/allbands | m2back noadx/skipcons | recent noadx/allbands | recent noadx/skipcons | recent adx/allbands |
+|---|---|---|---|---|---|
+| **H4/M15 (core)** | −0.49 (46) | −0.46 (49) | **+0.59 (33)** | +0.25 (37) | +0.03 (31) |
+| D1/H1 | −0.36 (7) | −0.26 (6) | −0.12 (9) | +0.06 (9) | −0.18 (7) |
+| H1/M5 | −0.29 (58) | −0.21 (50) | **+0.84 (45)** | +0.53 (49) | +1.05 (27) |
+
+**Wnioski:**
+1. **HTS flipuje między oknami tak samo jak SDD/swing** — m2back wszystko ujemne (−0.2…−0.7),
+   recent wszystko dodatnie (0…+1). To reżim, nie edge. Trend‑rider: zarabia w trendowym
+   miesiącu, krwawi w chop.
+2. **Filtr ADX (T3) jako twarda bramka SZKODZI** — h4m15 recent +0.59 → +0.03. Wycina wczesne
+   wejścia w trend, które są zyskowne (film: „wejście przed potwierdzeniem" to dobre miejsce).
+   ADX ma **pozwalać** na wczesne wejścia, nie **filtrować** potwierdzone. Do przerobienia.
+3. **Filtr konsolidacji (T2)** — marginalny, nie szkodzi bardzo, zostaje jako opcja.
+4. **Runner** — te same outliery małej próbki: h1m5 recent BTC n=11 avgR **+2.62**, EURUSD **+2.21**
+   (monster‑nogi trendu). Nie powtarzalne. avgR +1.05 na h1m5 to głównie 2 trady.
+5. **D1/H1 prawie nie strzela** (5–9 tradów) — za mało do wniosków.
+
+**Wniosek zbiorczy (SDD‑M15 + swing + HTS):** żadna nie ma udowodnionego stabilnego edge na tych
+danych. Wszystkie to trend‑followery — oczekiwana wartość zależy od tego czy okno testowe trendowało.
+Miesiąc forward na 3 kontach demo jest właściwym ruchem bo backtest tego nie rozstrzygnie.
+
+**Następne:** przerobić ADX z bramki na „permisję wczesnego wejścia" (T3'), potem T4 (pivoty), T5.
+
 ## Stan „co jest w kodzie" (backtest, nie live)
 
 - `Band` (high/low 33/144) — jest.
