@@ -13,6 +13,11 @@ HTS to **3. strategia** — osobne konto demo, obok SDD‑M15 i swing, na miesi�
 | HTS‑swing | D1 | H1 | długie swingi |
 | HTS‑fast | H1 | M5 | intraday |
 
+> **Uwaga (2. podsumowanie filmów):** w samych filmach hierarchia to **D1 (filtr) → H1 (wejście) → M5 (scalp)**.
+> H4/M15 „core" to nasze rozszerzenie, nie materiał źródłowy. Trzymamy H4/M15 jako rdzeń (decyzja),
+> ale D1/H1 traktujemy jako model podstawowy, nie drugorzędny. cTrader ma wbudowany wskaźnik wstęg
+> („WWS") — potwierdza 33/144, mniej zgadywania.
+
 Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, potem PR, potem live.
 **Każdy wariant testujemy z ADX i bez ADX.**
 
@@ -42,17 +47,31 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   (33/33/33 lub 50/50), **BE po TP1**.
 - **Runner** (2. część pozycji, bez targetu): trzymana aż **cała świeca ciałem zamknie się pod wolną
   wstęgą** (long) lub złamie PP przeciw pozycji.
-- Fib 50% korekty: przekroczenie 50% zniesienia = pierwszy sygnał możliwej zmiany trendu.
+- **Konstrukcja „linijką Fib"**: 0 % = wejście, 100 % = SL; 200/300/400 % = TP1/TP2/TP3 (czyli 1R/2R/3R);
+  **50 % = poziom ostrzegawczy** (korekta w połowie drogi do stopu → redukcja / czujność, sygnał do maila).
+- Hipoteza (OI‑1): linijka Fib to tylko **sprawdzenie R:R**, a faktyczne TP stawiamy na **pivotach**.
+
+**Stop — dokładnie**
+- Strukturalny, ale **nie idealnie na krawędzi wstęgi — delikatnie dalej**: krawędź szybkiej wstęgi
+  odsunięta o `stopBufferFrac × szerokość szybkiej wstęgi` (kod: domyślnie 0.25). Knot do krawędzi
+  nie wybija wtedy na samej linii struktury.
+- Wariant wąski = wstęga 33, szeroki = wstęga 144 (film 3 opisuje to odwrotnie — **prawdopodobnie
+  błąd transkrypcji**, OI‑9).
 
 **Zarządzanie ryzykiem (film 3)**
 - Ryzyko / trade: **max 1%, docelowo 0.25–0.5%**, liczone łącznie dla WSZYSTKICH otwartych pozycji
   (swing + scalpy razem ≤ 1–2%).
 - Sizing przez dystans stopu: bliższy stop → większa pozycja, dalszy → mniejsza, strata w PLN stała.
+  Wzór: **`lot = ryzyko$ / (dystans_SL_w_pipsach × wartość_pipsa_na_lot)`**.
 - **2 straty pod rząd → koniec dnia.** „One trade" = jeden setup dziennie, bez uśredniania/dokładania.
 - Twardy DD **20%** (close‑all). Dzienny DD ≤ 5%. 20 dni × 1% = 20% max/mies (nie powinno wystąpić).
+- **Okna handlu ~2 h** — nie cały dzień; wejścia tylko w oknach sesyjnych (do sprecyzowania, OI).
+- Cel **~2 %/mies.**; strategia zyskowna nawet **poniżej 50 % WR przy 1:3**. Reżim sizingu i DD
+  ma być **zgodny z prop‑firm**.
 - **Split‑entry** (NIE martingale): dziel pozycję na 2–3 mniejsze rozstawione w zakresie cenowym,
   ten sam permanentny stop, łączna strata = limit. Daje rynkowi „oddech".
 - **Piramidowanie** (w zysku): dokładasz na kolejnych cofnięciach do wstęgi w tym samym trendzie;
+  **równe loty (nie martingale)**, dodatki **tylko na re‑teście wstęgi**, łączne ryzyko ≤ 1%;
   pełne wyjście przy złamaniu wolnej wstęgi.
 - **ATR** = miernik zmienności: rosnący ATR → prowadź ciaśniej, szerokie ruchy, „najgorzej się gra".
 - **Blackout**: nie handlujemy przed danymi; po danych nie od razu (min. kilka świec).
@@ -69,7 +88,8 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 - `Band` = RMA(high/low), 33/144 — **zrobione** (`com.adam.server.sdd.Band`).
 - `HtsBacktestService` — timeframe‑generyczny per‑trade backtest:
   - wejście: pullback do szybkiej wstęgi + reclaim ciałem + szybka wstęga czysto nad wolną + HTF wstęga w trendzie
-  - stop: strukturalny (dalsza krawędź szybkiej wstęgi)
+  - stop: strukturalny (dalsza krawędź szybkiej wstęgi) **+ bufor `stopBufferFrac × szer. wstęgi`**
+    (domyślnie 0.25 — „delikatnie dalej", nie na samej linii)
   - target: RR param (sweep 1 / 2 / 3)
   - runner: połowa RR + połowa „close pod wolną wstęgą"
   - wyjście per‑trade CSV → `tools/equity_simulator.py`
@@ -82,10 +102,18 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   albo separacja wstęg `< k·ATR`, albo szerokość szybkiej wstęgi płaska (brak nachylenia).
 - **Test: z filtrem konsolidacji i bez.**
 
-### T3 — Filtr ADX
-- Port ADX (Wilder) do pakietu `sdd` (jak `Supertrend`/`WaveTrend`).
-- Bramka: wejścia tylko gdy `ADX > próg` (trend) LUB „zielone pole ADX" → zgoda na wejście przed crossem.
-- **Test KAŻDEGO wariantu (T1, T2, T4…) z ADX i bez ADX.**
+### T3 — Filtr ADX (twarda bramka)  ← zrobione, backtest pokazał że SZKODZI
+- Port ADX (Wilder) do `com.adam.server.sdd.Adx` — zrobione.
+- Bramka: wejścia tylko gdy `ADX > próg` **i** DI po stronie trendu.
+- Wniosek z backtestu: twarda bramka wycina zyskowne wczesne wejścia → patrz T3'.
+
+### T3' — ADX jako „permisja koloru", nie filtr siły  ← zrobione w kodzie
+- W filmach ADX to **strefy kolorów** (zielony = graj, niebieski = trend boczny = nie graj,
+  czerwony = ostrożność/odwrót). **Progi nie padają** (OI‑2) — nasze 20 to zgadywanka.
+- `adxPermit=true` w `HtsBacktestService`: veto **tylko** w „niebieskiej" strefie (`ADX < ADX_BLUE_FLOOR`,
+  15.0) lub gdy przeciwne DI wyraźnie prowadzi (`> aligned + DI_OPPOSE_MARGIN`, 5.0).
+  Wczesne, przed‑crossowe wejścia **przechodzą**.
+- Backtest: 3 stany ADX {off, hard T3, permit T3'} × bufor stopu {0.0, 0.25}.
 
 ### T4 — Multi‑target na pivotach + BE
 - Dzienne PP → R1/R2/R3 / S1/S2/S3 jako TP1/TP2/TP3.
@@ -143,6 +171,19 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
 | para D1/H1 | nie istnieje | główna para HTS | T1 |
 | pivoty | tylko bramka wejścia | **targety** | T4 |
 | news blackout na swingu | brak | jest | T5/T9 |
+
+---
+
+## Otwarte kwestie (OI) — z 2. podsumowania filmów
+
+| # | kwestia | robocza hipoteza / co robimy |
+|---|---|---|
+| OI‑1 | pivoty vs linijka Fib jako TP | Fib = sprawdzenie R:R; pivoty = faktyczne TP. Mamy oba tryby → porównanie w T4. |
+| OI‑2 | progi ADX (zielony/niebieski/czerwony) nie padają | T3': veto tylko strefa „niebieska" (`ADX<15`) + DI. Do kalibracji na forwardzie. |
+| OI‑3 | warunki re‑entry po wyjściu | nieostre — na razie: nowy pełny setup (pullback+reclaim), nie „wskok z powrotem". |
+| OI‑9 | opis SL w filmie 3 wygląda na odwrócony | trzymamy: wąski = wstęga 33, szeroki = wstęga 144. |
+| — | okna handlu ~2 h — które godziny | do sprecyzowania; wstępnie: sesja londyńska + NY open. |
+| — | moduł 1 (Mindset) i moduł 4 (Position Mgmt / Trade Styles) | **nieprzeanalizowane** — jest jeszcze materiał źródłowy poza 3 transkrypcjami. |
 
 ---
 

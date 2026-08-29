@@ -33,10 +33,13 @@ import java.util.Map;
  * fully clear above the slow band (144) on both the execution timeframe and the
  * HTF; price pulled back into the fast band within the last {@link #PULLBACK_BARS}
  * bars; the current candle <b>body</b> closes back above the fast band's upper
- * edge. Optional gates: skip when the bands are consolidating (T2), require ADX
- * to be trending (T3).
+ * edge. Optional gates: skip when the bands are consolidating (T2), and an ADX
+ * gate that is either a hard trend filter (T3) or a colour-zone permit that
+ * still allows early, pre-cross entries (T3', {@code adxPermit}).
  *
- * <p><b>Stop</b>: structural — the far edge of the fast band at entry.
+ * <p><b>Stop</b>: structural — the far edge of the fast band at entry, pushed
+ * out by {@code stopBufferFrac} × fast-band-width so a wick to the edge doesn't
+ * stop us exactly on the structure line.
  * <b>Target</b>: {@code rr × stopDistance}, or (T4) the daily pivots R1/R2/R3 as
  * TP1/TP2/TP3 with the stop moved to break-even after TP1.
  * <b>Runner</b> ({@code runner=true}): half takes the fixed target, the other
@@ -54,6 +57,8 @@ public class HtsBacktestService {
     private static final int SLOPE_BARS = 20;              // slow band must be sloping over this many bars
     private static final double CONSOLIDATION_SEP = 0.25;  // required band separation as a fraction of slow-band width
     private static final int LOOK_AHEAD_BARS = 600;
+    private static final double ADX_BLUE_FLOOR = 15.0;     // T3': below this ADX is the "blue" no-trend zone → no entry
+    private static final double DI_OPPOSE_MARGIN = 5.0;    // T3': permit entry unless the opposing DI leads by more than this
     private static final DateTimeFormatter ISO_UTC = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
     private static final ZoneId ZONE = ZoneId.of("Europe/Warsaw");
 
@@ -76,12 +81,15 @@ public class HtsBacktestService {
             double adxThreshold,
             boolean skipConsolidation,
             boolean pivotTargets,
-            int maxNames
+            int maxNames,
+            double stopBufferFrac,
+            boolean adxPermit
     ) {
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
                     /*runner*/ false, /*adxFilter*/ false, /*adxThreshold*/ Adx.TREND_THRESHOLD,
-                    /*skipConsolidation*/ false, /*pivotTargets*/ false, /*maxNames*/ 4);
+                    /*skipConsolidation*/ false, /*pivotTargets*/ false, /*maxNames*/ 4,
+                    /*stopBufferFrac*/ 0.25, /*adxPermit*/ false);
         }
     }
 
@@ -187,7 +195,12 @@ public class HtsBacktestService {
             }
             boolean buy = dir > 0;
             double entry = bar.close();
-            double stop = buy ? lFast.lower()[i] : lFast.upper()[i];
+            // structural stop = far edge of the fast band, pushed slightly further
+            // out by a fraction of the band's own width so a wick into the edge
+            // doesn't stop us at the exact structure line.
+            double bandW = Math.max(0, lFast.upper()[i] - lFast.lower()[i]);
+            double buf = Math.max(0, p.stopBufferFrac()) * bandW;
+            double stop = buy ? lFast.lower()[i] - buf : lFast.upper()[i] + buf;
             if (buy ? stop >= entry : stop <= entry) {
                 continue;
             }
@@ -227,15 +240,34 @@ public class HtsBacktestService {
         return false;
     }
 
+    /**
+     * ADX gate. Two modes:
+     * <ul>
+     *   <li><b>hard</b> ({@code adxPermit=false}, T3): ADX ≥ threshold <i>and</i>
+     *       the aligned DI leads — only fully confirmed trends pass.</li>
+     *   <li><b>permit</b> ({@code adxPermit=true}, T3'): ADX is a colour-zone
+     *       permit, not a strength gate. Veto only the "blue" no-trend zone
+     *       ({@code ADX < ADX_BLUE_FLOOR}) or a clearly opposing DI; early,
+     *       pre-cross entries are allowed.</li>
+     * </ul>
+     */
     private static boolean adxOk(List<Adx.Point> adx, int i, boolean buy, Params p) {
         if (!p.adxFilter() || adx == null || i >= adx.size()) {
             return true;
         }
         Adx.Point a = adx.get(i);
+        double aligned = buy ? a.plusDi() : a.minusDi();
+        double against = buy ? a.minusDi() : a.plusDi();
+        if (p.adxPermit()) {
+            if (Double.isNaN(a.adx()) || a.adx() < ADX_BLUE_FLOOR) {
+                return false;
+            }
+            return against <= aligned + DI_OPPOSE_MARGIN;
+        }
         if (!a.trending(p.adxThreshold())) {
             return false;
         }
-        return buy ? a.plusDi() >= a.minusDi() : a.minusDi() >= a.plusDi();
+        return aligned >= against;
     }
 
     // ---- exit models ----
