@@ -7,12 +7,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-final class CandleFixtures {
+public final class CandleFixtures {
 
     private CandleFixtures() {
     }
 
-    static List<Candle> rising(Instant start, Duration step, int count, double seed, double increment) {
+    public static List<Candle> rising(Instant start, Duration step, int count, double seed, double increment) {
         List<Candle> out = new ArrayList<>(count);
         Instant t = start;
         double px = seed;
@@ -26,7 +26,7 @@ final class CandleFixtures {
         return out;
     }
 
-    static List<Candle> falling(Instant start, Duration step, int count, double seed, double increment) {
+    public static List<Candle> falling(Instant start, Duration step, int count, double seed, double increment) {
         List<Candle> out = new ArrayList<>(count);
         Instant t = start;
         double px = seed;

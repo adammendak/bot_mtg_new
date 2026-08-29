@@ -12,4 +12,5 @@
     <include file="changes/006-users.xml" relativeToChangelogFile="true"/>
     <include file="changes/007-fix-password-hash.xml" relativeToChangelogFile="true"/>
     <include file="changes/008-swing-book.xml" relativeToChangelogFile="true"/>
+    <include file="changes/009-swing-signals.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
