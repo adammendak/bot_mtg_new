@@ -21,6 +21,10 @@ HTS to **3. strategia** — osobne konto demo, obok SDD‑M15 i swing, na miesi�
 Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, potem PR, potem live.
 **Każdy wariant testujemy z ADX i bez ADX.**
 
+**Cel optymalizacji HTS:** wysoki **win rate** + niski **drawdown**. Docelowo **2–4 % / mies. na
+ticker** to już dobry wynik. Preferujemy dużo małych wygranych (TP na 1:2) + runner łapiący
+rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
+
 ---
 
 ## Zapamiętane punkty ze strategii (do nie‑pominięcia)
@@ -41,12 +45,16 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   kontrolnym (PP). ATR służy **tylko** do dobrania wielkości pozycji.
 - Long‑term: stop **prowadzony pod wstęgą** wraz z ceną (trailing strukturalny).
 
-**Target / wyjście**
-- Stałe **RR ≥ 1:1**, preferowane **1:2 / 1:3** (nie 1:6/1:8 — nie podzielisz na tyle TP).
-- Multi‑target na **dziennych pivotach**: R1/R2/R3 (S1/S2/S3) = TP1/TP2/TP3, częściowa realizacja
-  (33/33/33 lub 50/50), **BE po TP1**.
-- **Runner** (2. część pozycji, bez targetu): trzymana aż **cała świeca ciałem zamknie się pod wolną
-  wstęgą** (long) lub złamie PP przeciw pozycji.
+**Target / wyjście — model docelowy (potwierdzony)**
+- **TP1 na 1:2 RR → realizacja połowy pozycji.**
+- **Druga połowa = runner z trailingiem:** po TP1 stop runnera skacze na **zablokowany zysk**
+  `entry ± lockR × dystans_stopu` (`lockR` domyślnie 1.0 — „przycina do ~1 % zysku"), potem
+  **trailuje pod krawędzią szybkiej wstęgi** (co wyżej: lock albo krawędź wstęgi).
+- Runner wychodzi **do końca dopiero** gdy **cała świeca ciałem zamknie się za wolną wstęgą**
+  (long → poniżej dolnej krawędzi wolnej) — „reszta ile da".
+- Alternatywa: multi‑target na **dziennych pivotach** R1/R2/R3 = TP1/TP2/TP3 (1/3 każdy), **BE po TP1**,
+  ostatnia 1/3 jak runner wyżej. (tryb `pivotTargets`, do porównania w T4)
+- Kod: `replayRr` — `runnerLockR` param; `?runnerLock=` na endpoincie. Domyślnie 1.0.
 - **Konstrukcja „linijką Fib"**: 0 % = wejście, 100 % = SL; 200/300/400 % = TP1/TP2/TP3 (czyli 1R/2R/3R);
   **50 % = poziom ostrzegawczy** (korekta w połowie drogi do stopu → redukcja / czujność, sygnał do maila).
 - Hipoteza (OI‑1): linijka Fib to tylko **sprawdzenie R:R**, a faktyczne TP stawiamy na **pivotach**.
@@ -93,8 +101,9 @@ Zasada: nic do żywej egzekucji bez zgody. Każdy task = najpierw backtest, pote
   - wejście: pullback do szybkiej wstęgi + reclaim ciałem + szybka wstęga czysto nad wolną + HTF wstęga w trendzie
   - stop: strukturalny (dalsza krawędź szybkiej wstęgi) **+ bufor `stopBufferFrac × szer. wstęgi`**
     (domyślnie 0.25 — „delikatnie dalej", nie na samej linii)
-  - target: RR param (sweep 1 / 2 / 3)
-  - runner: połowa RR + połowa „close pod wolną wstęgą"
+  - target: **TP1 = 1:2 RR (połowa)**; RR param dla sweepów 1 / 2 / 3
+  - runner: druga połowa — po TP1 stop na zablokowany zysk (`runnerLockR`, dom. 1.0), trail pod
+    szybką wstęgą, wyjście dopiero na „close ciałem za wolną wstęgą"
   - wyjście per‑trade CSV → `tools/equity_simulator.py`
 - `Resolution.M5` + mapowanie `MINUTE_5` już są (z T1); model H1/M5 zostaje w kodzie backtestu
   jako opcja, ale **nie jest rozwijany** (scalp).

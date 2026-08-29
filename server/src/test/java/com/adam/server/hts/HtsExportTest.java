@@ -37,7 +37,7 @@ class HtsExportTest {
         return new HtsBacktestService.Params(htf, ltf, days, off, RR, /*runner*/ true,
                 /*adxFilter*/ adx != Adx.OFF, /*adxThreshold*/ 20.0, /*skipConsolidation*/ true,
                 /*pivotTargets*/ pivots, /*maxNames*/ 4,
-                /*stopBufferFrac*/ stopBuf, /*adxPermit*/ adx == Adx.PERMIT);
+                /*stopBufferFrac*/ stopBuf, /*adxPermit*/ adx == Adx.PERMIT, /*runnerLockR*/ 1.0);
     }
 
     @Test

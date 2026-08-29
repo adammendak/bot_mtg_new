@@ -83,13 +83,14 @@ public class HtsBacktestService {
             boolean pivotTargets,
             int maxNames,
             double stopBufferFrac,
-            boolean adxPermit
+            boolean adxPermit,
+            double runnerLockR
     ) {
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
                     /*runner*/ false, /*adxFilter*/ false, /*adxThreshold*/ Adx.TREND_THRESHOLD,
                     /*skipConsolidation*/ false, /*pivotTargets*/ false, /*maxNames*/ 4,
-                    /*stopBufferFrac*/ 0.25, /*adxPermit*/ false);
+                    /*stopBufferFrac*/ 0.25, /*adxPermit*/ false, /*runnerLockR*/ 1.0);
         }
     }
 
@@ -127,7 +128,7 @@ public class HtsBacktestService {
                     continue;
                 }
             }
-            Replayed r = p.pivotTargets() ? replayPivots(c) : replayRr(c, p.rr(), p.runner());
+            Replayed r = p.pivotTargets() ? replayPivots(c) : replayRr(c, p.rr(), p.runner(), p.runnerLockR());
             out.add(new SwingTradeRow(iso(c.time), iso(r.exit), c.symbol, c.buy ? "LONG" : "SHORT",
                     r.result, Math.round(r.r * 10000.0) / 10000.0));
             if (p.maxNames() > 0) {
@@ -138,7 +139,7 @@ public class HtsBacktestService {
     }
 
     private record Cand(Instant time, String symbol, boolean buy, double entry, double stop,
-                        List<Candle> ltf, Band.Series slow, int idx, PivotPoints.Levels pivots) {
+                        List<Candle> ltf, Band.Series fast, Band.Series slow, int idx, PivotPoints.Levels pivots) {
     }
 
     private record Replayed(Instant exit, String result, double r) {
@@ -209,7 +210,7 @@ public class HtsBacktestService {
             if (p.pivotTargets() && piv == null) {
                 continue;
             }
-            out.add(new Cand(bar.time(), code, buy, entry, stop, ltf, lSlow, i, piv));
+            out.add(new Cand(bar.time(), code, buy, entry, stop, ltf, lFast, lSlow, i, piv));
         }
     }
 
@@ -272,7 +273,20 @@ public class HtsBacktestService {
 
     // ---- exit models ----
 
-    private static Replayed replayRr(Cand c, double rr, boolean runner) {
+    /**
+     * Fixed-RR / runner exit.
+     *
+     * <p>{@code runner=false}: whole position to {@code rr × stopDist}.
+     *
+     * <p>{@code runner=true}: half takes the fixed {@code rr} target (the videos
+     * use 1:2); the other half is the runner. When {@code lockR > 0} the runner's
+     * stop, <b>once TP1 is filled</b>, ratchets up to {@code entry ± lockR×stopDist}
+     * (a locked profit — „przycina do 1% zysku") and then trails the far edge of
+     * the fast band, whichever is higher. The runner still exits for good when a
+     * candle body closes beyond the slow band. {@code lockR ≤ 0} = no lock/trail,
+     * runner just held to the slow-band body-close.
+     */
+    private static Replayed replayRr(Cand c, double rr, boolean runner, double lockR) {
         boolean buy = c.buy;
         double stopDist = Math.abs(c.entry - c.stop);
         double target = buy ? c.entry + rr * stopDist : c.entry - rr * stopDist;
@@ -294,24 +308,49 @@ public class HtsBacktestService {
             return mtm(c, c.ltf.get(end - 1), end - 1, buy, stopDist);
         }
 
+        boolean lockTrail = lockR > 0;
+        double lockLevel = buy ? c.entry + lockR * stopDist : c.entry - lockR * stopDist;
+        double runnerStop = c.stop;
         Double rA = null;
         Double rB = null;
         Instant exA = null;
         Instant exB = null;
         for (int i = c.idx + 1; i < end && (rA == null || rB == null); i++) {
             Candle b = c.ltf.get(i);
-            if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
-                if (rA == null) { rA = -1.0; exA = b.time(); }
-                if (rB == null) { rB = -1.0; exB = b.time(); }
-                break;
+
+            // half A — fixed RR target; a stop hit before it fills takes both halves
+            if (rA == null) {
+                if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
+                    rA = -1.0;
+                    exA = b.time();
+                    if (rB == null) { rB = -1.0; exB = b.time(); }
+                    break;
+                }
+                if (buy ? b.high() >= target : b.low() <= target) {
+                    rA = rr;
+                    exA = b.time();
+                }
             }
-            if (rA == null && (buy ? b.high() >= target : b.low() <= target)) {
-                rA = rr;
-                exA = b.time();
-            }
-            if (rB == null && bodyBeyondSlow(c, b, i, buy)) {
-                rB = (buy ? b.close() - c.entry : c.entry - b.close()) / stopDist;
-                exB = b.time();
+
+            // half B — runner
+            if (rB == null) {
+                boolean afterTp1 = lockTrail && rA != null && rA > 0;
+                if (afterTp1) {
+                    double edge = c.fast.ready(i)
+                            ? (buy ? c.fast.lower()[i] : c.fast.upper()[i])
+                            : (buy ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY);
+                    runnerStop = buy
+                            ? Math.max(runnerStop, Math.max(lockLevel, edge))
+                            : Math.min(runnerStop, Math.min(lockLevel, edge));
+                }
+                double effStop = afterTp1 ? runnerStop : c.stop;
+                if (buy ? b.low() <= effStop : b.high() >= effStop) {
+                    rB = (buy ? effStop - c.entry : c.entry - effStop) / stopDist;
+                    exB = b.time();
+                } else if (bodyBeyondSlow(c, b, i, buy)) {
+                    rB = (buy ? b.close() - c.entry : c.entry - b.close()) / stopDist;
+                    exB = b.time();
+                }
             }
         }
         Candle last = c.ltf.get(end - 1);
