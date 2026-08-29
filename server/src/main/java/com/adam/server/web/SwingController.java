@@ -92,6 +92,7 @@ public class SwingController {
             @RequestParam(name = "maxNames", defaultValue = "0") int maxNames,
             @RequestParam(name = "offsetDays", defaultValue = "0") int offsetDays,
             @RequestParam(name = "htfFilter", defaultValue = "false") boolean htfFilter,
+            @RequestParam(name = "runner", defaultValue = "false") boolean runner,
             @RequestParam(name = "format", defaultValue = "json") String format,
             Authentication authentication
     ) {
@@ -102,7 +103,7 @@ public class SwingController {
         }
         if ("trades".equalsIgnoreCase(format)) {
             var params = new com.adam.server.swing.SwingBacktestParams(
-                    days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, htfFilter);
+                    days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, htfFilter, runner);
             List<SwingTradeRow> rows = backtest.runTrades(params);
             StringBuilder sb = new StringBuilder("entry_time,exit_time,symbol,direction,result,r_multiple\n");
             for (SwingTradeRow r : rows) {
