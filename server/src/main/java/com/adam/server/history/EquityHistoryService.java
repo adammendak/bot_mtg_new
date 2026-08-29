@@ -10,6 +10,7 @@ import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.web.dto.AccountView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -51,6 +52,17 @@ public class EquityHistoryService {
     private final RiskPolicy risk;
     private final ObjectMapper mapper;
 
+    /**
+     * How far back to walk the broker's transaction feed. Capital.com only
+     * retains a short window of transaction history and rate-limits the
+     * per-window paging hard, so an unbounded backfill (the old fixed
+     * 2020-01-01 start = ~350 seven-day windows) reliably tripped a 429 / an
+     * expired session and failed the whole sync. 400 days covers this account's
+     * life with margin; raise it only if the broker starts keeping more.
+     */
+    @Value("${app.history-sync.max-lookback-days:400}")
+    private long maxLookbackDays;
+
     public EquityHistoryService(
             BrokerBooks books,
             BrokerSnapshotRepository snapshots,
@@ -82,11 +94,12 @@ public class EquityHistoryService {
         String currency = account.currency() == null ? "" : account.currency();
 
         LocalDate today = LocalDate.now(ZONE);
-        // Full backfill: start from 2020 so the earliest available transactions
-        // (the whole life of the account) are pulled. Capital.com rejects ranges
-        // ending exactly "now", so the range ends at yesterday and today's P/L
-        // (usually none) is handled by the daily snapshots the scanner writes.
-        Instant earliest = Instant.parse("2020-01-01T00:00:00Z");
+        // Backfill window: as far back as the broker realistically keeps
+        // transactions (app.history-sync.max-lookback-days), walked in 7-day
+        // chunks. Capital.com rejects ranges ending exactly "now", so the range
+        // ends at yesterday; today's P/L (usually none) is covered by the daily
+        // snapshots the scanner writes.
+        Instant earliest = today.minusDays(maxLookbackDays).atStartOfDay(ZONE).toInstant();
         Instant to = today.minusDays(1).atTime(23, 59, 59).atZone(ZONE).toInstant();
 
         List<BrokerTransaction> tx;

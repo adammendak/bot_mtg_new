@@ -44,7 +44,7 @@ public class AuthService {
         if (username == null || password == null) {
             return null;
         }
-        AppUserEntity entity = users.findByUsername(username.trim()).orElse(null);
+        AppUserEntity entity = users.findByUsernameIgnoreCase(username.trim()).orElse(null);
         if (entity == null || !passwordEncoder.matches(password, entity.getPasswordHash())) {
             return null;
         }

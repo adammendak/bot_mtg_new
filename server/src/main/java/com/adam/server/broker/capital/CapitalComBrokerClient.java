@@ -342,7 +342,22 @@ public class CapitalComBrokerClient implements BrokerClient {
         while (!cursor.isAfter(end) && guard < 4000) {
             java.time.ZonedDateTime next = cursor.plusDays(7);
             java.time.ZonedDateTime toDay = next.isAfter(end) ? end : next;
-            List<BrokerTransaction> window = fetchTxWindow(cursor, toDay);
+            List<BrokerTransaction> window;
+            try {
+                window = fetchTxWindow(cursor, toDay);
+            } catch (BrokerException e) {
+                // The FIRST window failing means bad creds / no session / a config
+                // problem — surface that so the sync does not silently write nothing.
+                // A LATER window failing (rate limit, session expiry mid-run, 5xx)
+                // must not discard the rows we already have: log and stop with what
+                // we've gathered.
+                if (out.isEmpty()) {
+                    throw e;
+                }
+                log.warn("Capital.com {} transactions: window {}..{} failed ({}); returning {} rows gathered so far",
+                        book, cursor.toLocalDate(), toDay.toLocalDate(), e.getMessage(), out.size());
+                break;
+            }
             out.addAll(window);
             cursor = next;
             guard++;
@@ -375,30 +390,47 @@ public class CapitalComBrokerClient implements BrokerClient {
     }
 
     private List<BrokerTransaction> fetchTxPage(String from, String to, int page) {
-        try {
-            String raw = authed()
-                    .get()
-                    .uri(uri -> uri.path("/api/v1/history/transactions")
-                            .queryParam("from", from)
-                            .queryParam("to", to)
-                            .queryParam("pageSize", TX_PAGE_SIZE)
-                            .queryParam("page", page)
-                            .build())
-                    .retrieve()
-                    .body(String.class);
-            return CapitalJson.parseTransactions(raw);
-        } catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() == 400) {
-                log.warn("Capital.com {} transactions rejected range {}..{} (no data or bad range)",
-                        book, from, to);
-                return List.of();
+        for (int attempt = 0; ; attempt++) {
+            try {
+                String raw = authed()
+                        .get()
+                        .uri(uri -> uri.path("/api/v1/history/transactions")
+                                .queryParam("from", from)
+                                .queryParam("to", to)
+                                .queryParam("pageSize", TX_PAGE_SIZE)
+                                .queryParam("page", page)
+                                .build())
+                        .retrieve()
+                        .body(String.class);
+                return CapitalJson.parseTransactions(raw);
+            } catch (RestClientResponseException e) {
+                int code = e.getStatusCode().value();
+                if (code == 400) {
+                    log.warn("Capital.com {} transactions rejected range {}..{} (no data or bad range)",
+                            book, from, to);
+                    return List.of();
+                }
+                if (code == 429 && attempt < TX_RATE_LIMIT_RETRIES) {
+                    long waitMs = TX_RATE_LIMIT_BACKOFF_MS * (attempt + 1L);
+                    log.warn("Capital.com {} transactions rate-limited (429), retry {}/{} in {}ms",
+                            book, attempt + 1, TX_RATE_LIMIT_RETRIES, waitMs);
+                    try {
+                        Thread.sleep(waitMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw wrap("transactions", e);
+                    }
+                    continue;
+                }
+                throw wrap("transactions", e);
             }
-            throw wrap("transactions", e);
         }
     }
 
     private static final int TX_PAGE_SIZE = 50;
     private static final int TX_MAX_PAGES = 20;
+    private static final int TX_RATE_LIMIT_RETRIES = 3;
+    private static final long TX_RATE_LIMIT_BACKOFF_MS = 800L;
 
     @Override
     public List<Position> openPositions() {

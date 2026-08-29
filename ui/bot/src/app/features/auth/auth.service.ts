@@ -84,9 +84,14 @@ export class AuthService {
     } catch {
       // ignore
     }
-    if (this.router.url !== '/login') {
-      this.router.navigate(['/login']);
+    if (this.router.url.split('?')[0] === '/login') {
+      return;
     }
+    // Fall back to a full document navigation if SPA routing is somehow wedged,
+    // so "Sign out" always lands on the login screen.
+    Promise.resolve(this.router.navigate(['/login'])).catch(() => {
+      window.location.assign('/login');
+    });
   }
 
   private setSession(token: string, user: PortalUser): void {

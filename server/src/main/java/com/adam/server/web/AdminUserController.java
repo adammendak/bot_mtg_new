@@ -52,7 +52,7 @@ public class AdminUserController {
             return bad("username is required");
         }
         String username = body.username().trim();
-        if (users.existsByUsername(username)) {
+        if (users.existsByUsernameIgnoreCase(username)) {
             return bad("user already exists: " + username);
         }
         if (body.password() == null || body.password().length() < 6) {
