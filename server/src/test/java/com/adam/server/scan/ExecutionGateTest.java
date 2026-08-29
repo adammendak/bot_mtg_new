@@ -11,10 +11,12 @@ import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
 import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
+import com.adam.server.persistence.SddExecutionEntity;
 import com.adam.server.persistence.SddExecutionRepository;
 import com.adam.server.sdd.RiskPolicy;
 import com.adam.server.sdd.SddScan;
 import com.adam.server.web.dto.AccountView;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -498,6 +500,38 @@ class ExecutionGateTest {
 
         assertThat(state.get("demo", "GER40")).isNotNull();
         verify(webhooks, never()).publishExecution(anyString(), anyString(), anyString(), eq("closed"), anyString());
+    }
+
+    @Test
+    void persistFailureAfterCapitalFillReportsPlacedAndKeepsRam() {
+        SddExecutionRepository repo = mock(SddExecutionRepository.class);
+        when(repo.findByBookAndSymbol(anyString(), anyString())).thenReturn(List.of());
+        when(repo.save(any(SddExecutionEntity.class)))
+                .thenThrow(new InvalidDataAccessApiUsageException("Executing an update/delete query"));
+        state = new SddExecutionState(repo);
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor);
+
+        when(demoClient.openPositions()).thenReturn(List.of());
+        when(demoClient.placeMarketOrder(any()))
+                .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
+                .thenReturn(new OrderAck("refB", null, "SUBMITTED"));
+        when(demoClient.confirm("refA"))
+                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+        when(demoClient.confirm("refB"))
+                .thenReturn(new Confirmation("refB", "dealB", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+
+        gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
+                view("demo", 0), false);
+
+        verify(webhooks).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("placed"), eq(""));
+        verify(webhooks, never()).publishExecution(eq("demo"), eq("GER40"), eq("BUY"), eq("skip"),
+                contains("InvalidDataAccessApiUsageException"));
+        SddExecutionState.Entry e = state.get("demo", "GER40");
+        assertThat(e).isNotNull();
+        assertThat(e.ticketA).isEqualTo("dealA");
+        assertThat(e.ticketB).isEqualTo("dealB");
+        assertThat(state.alreadyPlaced("demo", "GER40", Direction.BUY, bar)).isTrue();
+        verify(telegram).onFill(eq("demo"), eq("GER40"), eq("BUY"), anyDouble(), eq(100.0), eq(97.5));
     }
 
     @Test

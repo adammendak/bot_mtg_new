@@ -4,6 +4,7 @@ import com.adam.server.broker.Direction;
 import com.adam.server.persistence.SddExecutionEntity;
 import com.adam.server.persistence.SddExecutionRepository;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -114,18 +115,31 @@ public class SddExecutionState {
         return m == null ? null : m.get(symbol);
     }
 
-    /** Write-through: persist a fresh entry (replacing any previous row for the same book+symbol). */
+    /**
+     * Write-through: persist a fresh entry (upsert by book+symbol). RAM and the
+     * idempotency key are updated first so a later persist failure cannot look
+     * like "never placed" while Capital tickets are already live.
+     */
+    @Transactional
     public void put(Entry entry) {
+        remember(entry);
+        upsert(entry);
+    }
+
+    /**
+     * RAM + same-bar idempotency only. Used when the DB write fails after a
+     * successful Capital fill so the name stays tracked for this process.
+     */
+    public void remember(Entry entry) {
         entries.computeIfAbsent(entry.book, k -> new ConcurrentHashMap<>()).put(entry.symbol, entry);
         placedKeys.add(placedKey(entry.book, entry.symbol, entry.direction, entry.barTime));
-        repository.deleteByBookAndSymbol(entry.book, entry.symbol);
-        repository.save(toEntity(entry));
     }
 
     /**
      * Write-through: drop the in-progress row. The idempotency key is kept so the
      * same M15 bar cannot re-enter; a later fullStack bar uses a different key.
      */
+    @Transactional
     public void remove(String book, String symbol) {
         Map<String, Entry> m = entries.get(book);
         if (m != null) {
@@ -135,9 +149,9 @@ public class SddExecutionState {
     }
 
     /** Write-through: persist a stage change (tpFilled / trailing). */
+    @Transactional
     public void update(Entry entry) {
-        repository.deleteByBookAndSymbol(entry.book, entry.symbol);
-        repository.save(toEntity(entry));
+        upsert(entry);
     }
 
     public boolean alreadyPlaced(String book, String symbol, Direction direction, Instant barTime) {
@@ -187,8 +201,23 @@ public class SddExecutionState {
         }
     }
 
-    private static SddExecutionEntity toEntity(Entry e) {
-        SddExecutionEntity row = new SddExecutionEntity();
+    /**
+     * Merge into the existing book+symbol row (or insert). Never {@code persist()} a
+     * new entity while a row for that name already exists — that was delete-then-
+     * {@code save(new)} and the derived delete threw {@code InvalidDataAccessApiUsageException}
+     * outside a transaction. ticketB may be null (single-ticket entry).
+     */
+    private void upsert(Entry e) {
+        List<SddExecutionEntity> existing = repository.findByBookAndSymbol(e.book, e.symbol);
+        SddExecutionEntity row = existing.isEmpty() ? new SddExecutionEntity() : existing.get(0);
+        copyOnto(e, row);
+        repository.save(row);
+        for (int i = 1; i < existing.size(); i++) {
+            repository.delete(existing.get(i));
+        }
+    }
+
+    private static void copyOnto(Entry e, SddExecutionEntity row) {
         row.setBook(e.book);
         row.setSymbol(e.symbol);
         row.setEpic(e.epic);
@@ -202,7 +231,8 @@ public class SddExecutionState {
         row.setTwoTickets(e.twoTickets);
         row.setTpFilled(e.tpFilled);
         row.setTrailing(e.trailing);
-        row.setCreatedAt(Instant.now());
-        return row;
+        if (row.getCreatedAt() == null) {
+            row.setCreatedAt(Instant.now());
+        }
     }
 }
