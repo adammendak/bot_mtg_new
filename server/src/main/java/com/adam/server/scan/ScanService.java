@@ -90,7 +90,10 @@ public class ScanService {
                 throw new BrokerException("no market-data broker configured");
             }
             market.login();
-            for (SddSymbol symbol : SddSymbol.universe()) {
+            // Warsaw calendar: Sat/Sun scan BTC only so closed FX/index/gold names
+            // cannot emit junk full-stack/flip webhooks or new weekend tickets.
+            ZoneId zone = ZoneId.of(properties.getTimezone());
+            for (SddSymbol symbol : SddSymbol.universeFor(now, zone)) {
                 String epic = symbol.epic(properties);
                 SddScan result = scanSymbol(market, symbol, epic, now);
                 symbols.add(result);

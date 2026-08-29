@@ -39,6 +39,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
@@ -73,6 +75,31 @@ class ScanServiceMockBrokerTest {
         assertThat(snapshot.error()).isNull();
         assertThat(snapshot.books()).hasSize(3);
         assertThat(store.last()).isEqualTo(snapshot);
+    }
+
+    @Test
+    void warsawWeekendScanIsBtcOnly() {
+        Instant now = ZonedDateTime.of(2026, 8, 29, 12, 1, 0, 0, ZoneId.of("Europe/Warsaw")).toInstant();
+        Clock clock = Clock.fixed(now, ZoneId.of("Europe/Warsaw"));
+        AppProperties props = new AppProperties();
+        props.setBroker("paper");
+        props.setNewsCalendarUrl("");
+        when(broker.id()).thenReturn("mock");
+        when(broker.displayName()).thenReturn("Mock broker");
+        when(broker.book()).thenReturn("demo");
+        when(broker.configured()).thenReturn(true);
+        when(broker.accounts()).thenReturn(List.of(new Account("1", "paper", "PLN", 1000, 1000, 0, true)));
+        stubCandles(now, "MISSING");
+
+        ScanSnapshot snapshot = newService(props, clock, new ScanStore()).scan();
+
+        assertThat(snapshot.symbols()).hasSize(1);
+        assertThat(snapshot.symbols().stream().map(SddScan::symbol)).containsExactly("BTC");
+        assertThat(snapshot.error()).isNull();
+        verify(broker, never()).candles(eq("DE40"), any(), any(), any(), anyInt());
+        verify(broker, never()).candles(eq("GOLD"), any(), any(), any(), anyInt());
+        verify(broker, never()).candles(eq("US100"), any(), any(), any(), anyInt());
+        verify(broker, never()).candles(eq("EURUSD"), any(), any(), any(), anyInt());
     }
 
     @Test
