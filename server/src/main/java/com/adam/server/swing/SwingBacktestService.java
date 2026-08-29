@@ -145,7 +145,7 @@ public class SwingBacktestService {
                     continue; // max concurrent names
                 }
             }
-            Replayed r = replay(c.scan, c.h1, c.idx, c.atrH4, sm, ta, la);
+            Replayed r = replay(c.scan, c.h1, c.rma133, c.idx, c.atrH4, sm, ta, la, p.runner());
             out.add(new SwingTradeRow(
                     iso(entryTime), iso(r.exit()), c.scan.symbol(),
                     c.scan.direction() == Direction.BUY ? "LONG" : "SHORT",
@@ -157,7 +157,7 @@ public class SwingBacktestService {
         return out;
     }
 
-    private record Candidate(SwingScan scan, List<Candle> h1, int idx, double atrH4) {
+    private record Candidate(SwingScan scan, List<Candle> h1, double[] rma133, int idx, double atrH4) {
     }
 
     private record Replayed(Instant exit, String result, double r) {
@@ -172,6 +172,7 @@ public class SwingBacktestService {
 
         List<Candle> h1 = candlesChunked(market, epic, Resolution.H1, fromH1, to, 1000, 20);
         List<Candle> h4 = candlesChunked(market, epic, Resolution.H4, fromH4, to, 500, 60);
+        double[] rma133 = Wilder.rma(Wilder.closes(h1), SddSwingEngine.RMA_SLOW);
 
         for (int i = SddSwingEngine.RMA_SLOW + 2; i < h1.size(); i++) {
             Candle bar = h1.get(i);
@@ -182,8 +183,8 @@ public class SwingBacktestService {
             List<Candle> h4Upto = h4ClosedBy(h4, bar.time());
 
             Candidate cand = htfFilter
-                    ? mrCandidate(symbol, epic, h1, h1Upto, h4Upto, i, bar.time())
-                    : baselineCandidate(symbol, epic, h1, h1Upto, h4Upto, i, bar.time());
+                    ? mrCandidate(symbol, epic, h1, rma133, h1Upto, h4Upto, i, bar.time())
+                    : baselineCandidate(symbol, epic, h1, rma133, h1Upto, h4Upto, i, bar.time());
             if (cand != null) {
                 out.add(cand);
             }
@@ -191,8 +192,8 @@ public class SwingBacktestService {
     }
 
     /** The live SDD-SWING full stack, via {@link SddSwingEngine}. */
-    private Candidate baselineCandidate(SwingSymbol symbol, String epic, List<Candle> h1, List<Candle> h1Upto,
-                                        List<Candle> h4Upto, int i, Instant now) {
+    private Candidate baselineCandidate(SwingSymbol symbol, String epic, List<Candle> h1, double[] rma133,
+                                        List<Candle> h1Upto, List<Candle> h4Upto, int i, Instant now) {
         SwingScan scan = engine.evaluate(symbol, epic, h1Upto, h4Upto, now);
         if (scan == null) {
             return null;
@@ -201,7 +202,7 @@ public class SwingBacktestService {
         if (atrH4 <= 0 || Double.isNaN(atrH4)) {
             return null;
         }
-        return new Candidate(scan, h1, i, atrH4);
+        return new Candidate(scan, h1, rma133, i, atrH4);
     }
 
     /**
@@ -211,8 +212,8 @@ public class SwingBacktestService {
      * Supertrend flip. PP is dropped here: the pullback puts price on the "wrong"
      * side of the pivot by construction.
      */
-    private Candidate mrCandidate(SwingSymbol symbol, String epic, List<Candle> h1, List<Candle> h1Upto,
-                                  List<Candle> h4Upto, int i, Instant now) {
+    private Candidate mrCandidate(SwingSymbol symbol, String epic, List<Candle> h1, double[] rma133,
+                                  List<Candle> h1Upto, List<Candle> h4Upto, int i, Instant now) {
         List<HeikenAshi.Bar> ha = HeikenAshi.from(h1Upto);
         int m = ha.size();
         if (m < 3) {
@@ -261,7 +262,7 @@ public class SwingBacktestService {
         double placeholderTarget = buy ? close + atrH4 : close - atrH4;
         SwingScan scan = new SwingScan(now, symbol.code(), epic, dir, close,
                 placeholderStop, placeholderTarget, SddSwingEngine.h4Trend(h4Upto));
-        return new Candidate(scan, h1, i, atrH4);
+        return new Candidate(scan, h1, rma133, i, atrH4);
     }
 
     /**
@@ -326,8 +327,8 @@ public class SwingBacktestService {
         return false;
     }
 
-    private static Replayed replay(SwingScan scan, List<Candle> h1, int entryIdx,
-                                   double atrH4, double stopMult, double targetAtr, int lookAhead) {
+    private static Replayed replay(SwingScan scan, List<Candle> h1, double[] rma133, int entryIdx,
+                                   double atrH4, double stopMult, double targetAtr, int lookAhead, boolean runner) {
         boolean buy = scan.direction() == Direction.BUY;
         double entry = scan.entry();
         double stopDist = stopMult * atrH4;
@@ -337,21 +338,69 @@ public class SwingBacktestService {
         double winR = targetDist / stopDist; // = targetAtr / stopMult
 
         int end = Math.min(entryIdx + lookAhead, h1.size());
-        for (int i = entryIdx + 1; i < end; i++) {
+
+        if (!runner) {
+            for (int i = entryIdx + 1; i < end; i++) {
+                Candle c = h1.get(i);
+                if (buy ? c.low() <= stop : c.high() >= stop) {
+                    return new Replayed(c.time(), "LOSS", -1.0);
+                }
+                if (buy ? c.high() >= target : c.low() <= target) {
+                    return new Replayed(c.time(), "WIN", winR);
+                }
+            }
+            Candle lastBar = h1.get(Math.max(entryIdx + 1, end - 1));
+            double mtm = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
+            return new Replayed(lastBar.time(), "OPEN", mtm);
+        }
+
+        // Two tickets, half the position each. Ticket A: the fixed 1R target.
+        // Ticket B (runner): held until an H1 body closes on the wrong side of
+        // RMA133, or the stop is hit. r_multiple = mean of the two halves.
+        Double rA = null;
+        Double rB = null;
+        Instant exitA = null;
+        Instant exitB = null;
+        for (int i = entryIdx + 1; i < end && (rA == null || rB == null); i++) {
             Candle c = h1.get(i);
             boolean stopHit = buy ? c.low() <= stop : c.high() >= stop;
-            boolean targetHit = buy ? c.high() >= target : c.low() <= target;
             if (stopHit) {
-                return new Replayed(c.time(), "LOSS", -1.0);
+                if (rA == null) {
+                    rA = -1.0;
+                    exitA = c.time();
+                }
+                if (rB == null) {
+                    rB = -1.0;
+                    exitB = c.time();
+                }
+                break;
             }
-            if (targetHit) {
-                return new Replayed(c.time(), "WIN", winR);
+            if (rA == null && (buy ? c.high() >= target : c.low() <= target)) {
+                rA = winR;
+                exitA = c.time();
+            }
+            if (rB == null) {
+                double band = i < rma133.length ? rma133[i] : Double.NaN;
+                boolean bodyLost = !Double.isNaN(band) && (buy ? c.close() < band : c.close() > band);
+                if (bodyLost) {
+                    rB = (buy ? c.close() - entry : entry - c.close()) / stopDist;
+                    exitB = c.time();
+                }
             }
         }
-        // Unresolved after the look-ahead window: mark to market at its last bar.
         Candle lastBar = h1.get(Math.max(entryIdx + 1, end - 1));
-        double mtm = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
-        return new Replayed(lastBar.time(), "OPEN", mtm);
+        if (rA == null) {
+            rA = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
+            exitA = lastBar.time();
+        }
+        if (rB == null) {
+            rB = (buy ? lastBar.close() - entry : entry - lastBar.close()) / stopDist;
+            exitB = lastBar.time();
+        }
+        double r = 0.5 * rA + 0.5 * rB;
+        Instant exit = exitA.isAfter(exitB) ? exitA : exitB;
+        String result = r > 1e-9 ? "WIN" : r < -1e-9 ? "LOSS" : "OPEN";
+        return new Replayed(exit, result, r);
     }
 
     private static final java.time.format.DateTimeFormatter ISO_UTC =

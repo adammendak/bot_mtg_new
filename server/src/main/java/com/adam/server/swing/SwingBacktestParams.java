@@ -16,6 +16,10 @@ package com.adam.server.swing;
  *                   model: H1 HA flip + price reclaiming RMA33 (pullback, not
  *                   trend-follow stack) + H4 WaveTrend leaving an extreme + a
  *                   fresh H1 Supertrend flip
+ * @param runner     two-ticket exit: half the position takes the fixed 1R
+ *                   target, the other half (runner) is held until an H1 candle
+ *                   <b>body</b> closes on the wrong side of H1 RMA133 (or the
+ *                   stop is hit). Off = single ticket, fixed target only.
  */
 public record SwingBacktestParams(
         int days,
@@ -24,17 +28,22 @@ public record SwingBacktestParams(
         double targetAtr,
         int lookAhead,
         int maxNames,
-        boolean htfFilter
+        boolean htfFilter,
+        boolean runner
 ) {
     public static SwingBacktestParams of(int days, double stopMult, double targetAtr, int lookAhead, int maxNames) {
-        return new SwingBacktestParams(days, 0, stopMult, targetAtr, lookAhead, maxNames, false);
+        return new SwingBacktestParams(days, 0, stopMult, targetAtr, lookAhead, maxNames, false, false);
     }
 
     public SwingBacktestParams withHtfFilter(boolean on) {
-        return new SwingBacktestParams(days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, on);
+        return new SwingBacktestParams(days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, on, runner);
+    }
+
+    public SwingBacktestParams withRunner(boolean on) {
+        return new SwingBacktestParams(days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, htfFilter, on);
     }
 
     public SwingBacktestParams withWindow(int days, int offsetDays) {
-        return new SwingBacktestParams(days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, htfFilter);
+        return new SwingBacktestParams(days, offsetDays, stopMult, targetAtr, lookAhead, maxNames, htfFilter, runner);
     }
 }

@@ -106,6 +106,16 @@ public class BacktestService {
      */
     public List<SwingTradeRow> runTrades(int days, double stopMult, double targetAtr, int lookAhead,
                                          int maxNames, boolean htfFilter, int offsetDays) {
+        return runTrades(days, stopMult, targetAtr, lookAhead, maxNames, htfFilter, offsetDays, false);
+    }
+
+    /**
+     * @param runner two-ticket exit: half takes the fixed target, the other half
+     *               (runner) is held until an M15 <b>body</b> closes on the wrong
+     *               side of M15 RMA133, or the stop is hit.
+     */
+    public List<SwingTradeRow> runTrades(int days, double stopMult, double targetAtr, int lookAhead,
+                                         int maxNames, boolean htfFilter, int offsetDays, boolean runner) {
         BrokerClient market = books.marketData();
         if (!market.configured()) {
             return List.of();
@@ -142,32 +152,72 @@ public class BacktestService {
             boolean buy = c.dir == Direction.BUY;
             double stop = buy ? c.entry - stopDist : c.entry + stopDist;
             double target = buy ? c.entry + targetDist : c.entry - targetDist;
-
             int endIdx = Math.min(c.idx + la, c.m15.size());
-            String result = "OPEN";
-            double r = 0;
-            Instant exit = c.m15.get(Math.max(c.idx + 1, endIdx - 1)).time();
-            for (int i = c.idx + 1; i < endIdx; i++) {
-                Candle bar = c.m15.get(i);
-                boolean stopHit = buy ? bar.low() <= stop : bar.high() >= stop;
-                boolean targetHit = buy ? bar.high() >= target : bar.low() <= target;
-                if (stopHit) {
-                    result = "LOSS";
-                    r = -1.0;
-                    exit = bar.time();
-                    break;
+
+            String result;
+            double r;
+            Instant exit;
+            if (!runner) {
+                result = "OPEN";
+                r = 0;
+                exit = c.m15.get(Math.max(c.idx + 1, endIdx - 1)).time();
+                for (int i = c.idx + 1; i < endIdx; i++) {
+                    Candle bar = c.m15.get(i);
+                    if (buy ? bar.low() <= stop : bar.high() >= stop) {
+                        result = "LOSS";
+                        r = -1.0;
+                        exit = bar.time();
+                        break;
+                    }
+                    if (buy ? bar.high() >= target : bar.low() <= target) {
+                        result = "WIN";
+                        r = winR;
+                        exit = bar.time();
+                        break;
+                    }
                 }
-                if (targetHit) {
-                    result = "WIN";
-                    r = winR;
-                    exit = bar.time();
-                    break;
+                if ("OPEN".equals(result)) {
+                    Candle lastBar = c.m15.get(Math.max(c.idx + 1, endIdx - 1));
+                    r = (buy ? lastBar.close() - c.entry : c.entry - lastBar.close()) / stopDist;
                 }
-            }
-            if ("OPEN".equals(result)) {
+            } else {
+                Double rA = null;
+                Double rB = null;
+                Instant exitA = null;
+                Instant exitB = null;
+                for (int i = c.idx + 1; i < endIdx && (rA == null || rB == null); i++) {
+                    Candle bar = c.m15.get(i);
+                    if (buy ? bar.low() <= stop : bar.high() >= stop) {
+                        if (rA == null) { rA = -1.0; exitA = bar.time(); }
+                        if (rB == null) { rB = -1.0; exitB = bar.time(); }
+                        break;
+                    }
+                    if (rA == null && (buy ? bar.high() >= target : bar.low() <= target)) {
+                        rA = winR;
+                        exitA = bar.time();
+                    }
+                    if (rB == null) {
+                        double band = i < c.rma133.length ? c.rma133[i] : Double.NaN;
+                        if (!Double.isNaN(band) && (buy ? bar.close() < band : bar.close() > band)) {
+                            rB = (buy ? bar.close() - c.entry : c.entry - bar.close()) / stopDist;
+                            exitB = bar.time();
+                        }
+                    }
+                }
                 Candle lastBar = c.m15.get(Math.max(c.idx + 1, endIdx - 1));
-                r = (buy ? lastBar.close() - c.entry : c.entry - lastBar.close()) / stopDist;
+                if (rA == null) {
+                    rA = (buy ? lastBar.close() - c.entry : c.entry - lastBar.close()) / stopDist;
+                    exitA = lastBar.time();
+                }
+                if (rB == null) {
+                    rB = (buy ? lastBar.close() - c.entry : c.entry - lastBar.close()) / stopDist;
+                    exitB = lastBar.time();
+                }
+                r = 0.5 * rA + 0.5 * rB;
+                exit = exitA.isAfter(exitB) ? exitA : exitB;
+                result = r > 1e-9 ? "WIN" : r < -1e-9 ? "LOSS" : "OPEN";
             }
+
             out.add(new SwingTradeRow(iso(c.time), iso(exit), c.symbol,
                     buy ? "LONG" : "SHORT", result, Math.round(r * 10000.0) / 10000.0));
             if (maxNames > 0) {
@@ -178,7 +228,7 @@ public class BacktestService {
     }
 
     private record Cand(Instant time, String symbol, String epic, Direction dir,
-                        double entry, double oneR, List<Candle> m15, int idx) {
+                        double entry, double oneR, List<Candle> m15, double[] rma133, int idx) {
     }
 
     private void collect(List<Cand> out, BrokerClient market, SddEngine engine, SddSymbol symbol, String epic,
@@ -188,6 +238,7 @@ public class BacktestService {
         List<Candle> m15 = candlesChunked(market, epic, Resolution.M15, from, to, 1000, 10);
         List<Candle> h1 = candlesChunked(market, epic, Resolution.H1, from.minusSeconds(30 * 86400L), to, 500, 30);
         List<Candle> h4 = candlesChunked(market, epic, Resolution.H4, from.minusSeconds(60 * 86400L), to, 300, 60);
+        double[] rma133 = Wilder.rma(Wilder.closes(m15), SddEngine.RMA_SLOW);
 
         for (int i = 60; i < m15.size(); i++) {
             Candle bar = m15.get(i);
@@ -195,7 +246,7 @@ public class BacktestService {
             List<Candle> h1Upto = closedByTime(h1, bar.time(), 3600L);
 
             if (htfFilter) {
-                Cand c = mrCandidate(symbol, epic, m15, m15Upto, h1Upto, i, bar.time());
+                Cand c = mrCandidate(symbol, epic, m15, rma133, m15Upto, h1Upto, i, bar.time());
                 if (c != null) {
                     out.add(c);
                 }
@@ -209,12 +260,12 @@ public class BacktestService {
             if (oneR <= 0 || Double.isNaN(oneR)) {
                 continue;
             }
-            out.add(new Cand(bar.time(), symbol.code(), epic, scan.direction(), scan.entry(), oneR, m15, i));
+            out.add(new Cand(bar.time(), symbol.code(), epic, scan.direction(), scan.entry(), oneR, m15, rma133, i));
         }
     }
 
     /** HTF mean-reversion entry on M15 (HTF = H1). */
-    private Cand mrCandidate(SddSymbol symbol, String epic, List<Candle> m15, List<Candle> m15Upto,
+    private Cand mrCandidate(SddSymbol symbol, String epic, List<Candle> m15, double[] rma133, List<Candle> m15Upto,
                              List<Candle> h1Upto, int i, Instant now) {
         List<HeikenAshi.Bar> ha = HeikenAshi.from(m15Upto);
         int m = ha.size();
@@ -253,7 +304,7 @@ public class BacktestService {
         if (Double.isNaN(oneR) || oneR <= 0) {
             return null;
         }
-        return new Cand(now, symbol.code(), epic, buy ? Direction.BUY : Direction.SELL, close, oneR, m15, i);
+        return new Cand(now, symbol.code(), epic, buy ? Direction.BUY : Direction.SELL, close, oneR, m15, rma133, i);
     }
 
     private static boolean htfExtremeResuming(List<Candle> h1Upto, boolean buy) {
