@@ -128,10 +128,12 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
   Wczesne, przed‑crossowe wejścia **przechodzą**.
 - Backtest: 3 stany ADX {off, hard T3, permit T3'} × bufor stopu {0.0, 0.25}.
 
-### T4 — Multi‑target na pivotach + BE
-- Dzienne PP → R1/R2/R3 / S1/S2/S3 jako TP1/TP2/TP3.
-- Częściowa realizacja (33/33/33 lub 50/50/0), **stop → BE po TP1**.
-- Zastępuje pojedynczy stały RR z T1 dla stylu swing.
+### T4 — Multi‑target na pivotach + BE  ← zrobione, backtest: gorsze od runner‑lock
+- Dzienne PP → R1/R2/R3 / S1/S2/S3 jako TP1/TP2/TP3, 1/3 każdy, **stop → BE po TP1**, ostatnia
+  1/3 jak runner. Tryb `pivotTargets`.
+- Wynik: D1/H1 recent +0.23 (22) vs +0.58 runner‑lock; **H4/M15 −0.62/−0.33** — tryb pivotów
+  na M15 nie działa. **Runner‑lock (TP1 1:2 + trail) zostaje modelem domyślnym.** Pivoty jako
+  opcja tylko dla D1/H1.
 
 ### T5 — Model ryzyka / sizing wg filmów
 - Sizing przez dystans stopu → strata stała % (0.25–1%). Wzór:
@@ -204,35 +206,38 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
 
 ---
 
-## Wyniki (backtest, RR=2, runner on, limit 4, skip‑konsolidacji zawsze on)
+## Wyniki (backtest, RR=2, model wyjścia = TP1 1:2 + runner z lock 1.0R + trail wstęgi, limit 4, skip‑konsolidacji on)
 
-### Bufor stopu + tryb ADX — model H4/M15 (core), ALL avgR w R (stop = −1.0), n w nawiasie
+### Model D1/H1 (główny swing) — ALL avgR w R (stop = −1.0), n w nawiasie — **przebieg zaufany**
 
 | okno | ADX off, buf 0 | ADX off, buf .25 | ADX hard, buf 0 | ADX hard, buf .25 | ADX permit, buf 0 | ADX permit, buf .25 |
 |---|---|---|---|---|---|---|
-| m2back | −0.460 (49) | −0.437 (41) | −0.554 (28) | −0.534 (27) | −0.489 (43) | −0.457 (37) |
-| recent | +0.253 (37) | **+0.283 (34)** | −0.000 (30) | +0.050 (28) | +0.216 (34) | +0.174 (32) |
+| m2back | −0.079 (6) | −0.113 (6) | −0.646 (5) | −0.657 (5) | −0.079 (6) | −0.113 (6) |
+| recent | +0.194 (16) | +0.402 (12) | +0.188 (9) | +0.002 (8) | +0.430 (15) | **+0.584 (9)** |
+
+Pivoty (tryb `pivotTargets`): D1/H1 recent **+0.230 (22)**, m2back −0.152 (6). H4/M15 pivoty
+**−0.62 (121) / −0.33 (122)** — dużo tradów, mocno ujemne, tryb pivotów na M15 nie działa.
 
 **Wnioski:**
-1. **Bufor stopu „delikatnie dalej" (0.25 × szer. wstęgi) pomaga** — lekko, ale konsekwentnie
-   w prawie każdej celi (recent ADX‑off +0.253 → +0.283; m2back −0.460 → −0.437). Knot do
-   krawędzi nie wybija już na samej linii struktury. **Zostaje jako domyślne.**
-2. **ADX‑permit (T3') >> ADX‑hard (T3).** Twarda bramka kasuje edge (recent +0.25 → −0.00,
-   n 37 → 30). Permit trzyma liczbę tradów i avgR blisko wariantu bez ADX (recent +0.216 vs
-   +0.253). ADX najlepiej **jako veto tylko „niebieskiej" strefy**, nie filtr siły. Sam ADX i tak
-   nic nie dodaje ponad filtr konsolidacji — trzymamy go wyłączonego domyślnie, permit jako opcja.
-3. **Flip między oknami trwa** — m2back wszystko ujemne (−0.4…−0.5), recent dodatnie (0…+0.28).
-   To reżim, nie edge. Trend‑rider.
-4. **D1/H1 i H1/M5 — brak danych w tym przebiegu:** przy jednym długim gridzie Capital.com
-   ucina historię / throttluje zanim pętla dojdzie do 3. pary (M5 nie ma tak głęboko, D1
-   potrzebuje 144 świec = ~7 mies. wstecz). Osobny, krótszy przebieg: `HtsExportTest#d1h1AndPivots`.
-5. **T4 (pivoty)** — czeka na ten sam osobny przebieg (w gridzie wpadło w martwą sesję).
+1. **Bufor stopu 0.25 pomaga** na oknie recent (D1/H1: +0.194→+0.402 bez ADX; +0.430→+0.584 permit).
+   Na m2back marginalnie gorzej (próbka 6). **Zostaje jako domyślne.**
+2. **Model wyjścia z lockiem ścina straty runnera** — D1/H1 m2back bez ADX z −0.245 (stary runner)
+   na **−0.079**. Druga połowa nie oddaje już zysku po TP1.
+3. **ADX‑permit ≥ ADX‑off** na D1/H1 (recent +0.430 vs +0.194 buf0; +0.584 vs +0.402 buf25) —
+   tu **pomaga**. **ADX‑hard dalej szkodzi** (recent buf25 +0.002). Na D1/H1 rozważyć permit jako
+   domyślny.
+4. **Runner‑lock >> pivoty** na obu modelach; pivoty na H4/M15 wręcz szkodzą.
+5. **Flip reżimu trwa** — m2back ≈ −0.08…−0.66, recent +0.0…+0.58. Trend‑rider.
+6. **H4/M15 (core) — brak zaufanego przebiegu:** Capital.com throttluje przy dłuższych gridach
+   (druga tura pod rząd = same n=0). Trzeba puszczać **jeden model / świeża sesja**, nie łańcuchem.
+   Pierwsza (częściowo zdegradowana) tura H4/M15 dawała ten sam kierunek: buf pomaga, permit≫hard.
 
 **Wniosek zbiorczy (SDD‑M15 + swing + HTS):** żadna nie ma udowodnionego stabilnego edge na tych
-danych. Wszystkie to trend‑followery — oczekiwana wartość zależy od tego czy okno testowe trendowało.
-Miesiąc forward na 3 kontach demo jest właściwym ruchem bo backtest tego nie rozstrzygnie.
+danych. Wszystkie to trend‑followery — EV zależy od tego czy okno testowe trendowało.
+Miesiąc forward na 3 kontach demo rozstrzygnie to lepiej niż backtest.
 
-**Następne:** osobny przebieg D1/H1 + pivoty (T4), potem T6/T7 (split‑entry, piramida) na CSV.
+**Następne:** czysty przebieg H4/M15 (świeża sesja); potem T6/T7 (split‑entry, piramida) na CSV,
+potem T9 (żywy book `hts` + konto „Account m5").
 
 ## Stan „co jest w kodzie" (backtest, nie live)
 
