@@ -75,6 +75,20 @@ class RiskPolicyTest {
     }
 
     @Test
+    void swingPickerTargetsAccountH1NotTheDemoAccount() {
+        // default swing-account-name is "Account H1"
+        Account demo = new Account("1", "Account", "PLN", 1000, 1000, 0, true);
+        Account swing = new Account("2", "Account H1", "PLN", 1000, 1000, 0, false);
+        assertThat(risk.pickSwingAccount(List.of(demo, swing))).isEqualTo(swing);
+    }
+
+    @Test
+    void swingPickerFallsBackWhenNamedAccountAbsent() {
+        Account demo = new Account("1", "Account", "PLN", 1000, 1000, 0, true);
+        assertThat(risk.pickSwingAccount(List.of(demo))).isEqualTo(demo);
+    }
+
+    @Test
     void dayHaltThresholds() {
         assertThat(risk.dayHalt(-10)).isNull();
         assertThat(risk.dayHalt(-30)).contains("halt");

@@ -175,9 +175,11 @@ public class AccountQueryService {
                 trySelect(client, a.id());
                 return connected(client, a);
             }
-            // "glowne" (main) targets its own account; demo picks preferred/first.
+            // glowne / swing target their own named accounts; demo picks preferred/first.
             Account picked = Books.GLOWNE.equals(client.book())
                     ? risk.pickGlowneAccount(accounts)
+                    : Books.SWING.equals(client.book())
+                    ? risk.pickSwingAccount(accounts)
                     : risk.pickDemoAccount(accounts);
             if (picked == null) {
                 return disconnected(client, "no account available");

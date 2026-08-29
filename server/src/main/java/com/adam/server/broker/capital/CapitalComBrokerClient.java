@@ -156,6 +156,14 @@ public class CapitalComBrokerClient implements BrokerClient {
                 this.securityToken = newToken;
             }
         } catch (RestClientResponseException e) {
+            // "error.not-different.accountId" = the account is already the active
+            // one. That is success, not a failure — Capital just rejects the no-op
+            // PUT. Don't log-spam / throw for it (it fired every 30s from the SSE
+            // overview refresh).
+            if (e.getStatusCode().value() == 400
+                    && CapitalJson.errorCode(e.getResponseBodyAsString()).contains("not-different.accountId")) {
+                return;
+            }
             throw wrap("selectAccount", e);
         } catch (BrokerException e) {
             throw e;
