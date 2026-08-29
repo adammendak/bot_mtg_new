@@ -21,16 +21,21 @@ describe('SddDashboardComponent', () => {
     });
   });
 
-  it('renders Demo and Live Bootstrap tables', async () => {
+  it('renders the accounts / positions / scan tables', async () => {
     const fixture = TestBed.createComponent(SddDashboardComponent);
     await fixture.whenStable();
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelectorAll('.card-header')[0]?.textContent).toContain('Demo');
-    expect(el.querySelectorAll('.card-header')[1]?.textContent).toContain('Live');
+    const headers = Array.from(el.querySelectorAll('.card-header')).map((h) => h.textContent || '');
+    expect(headers[0]).toContain('Accounts');
+    expect(headers[1]).toContain('Open positions');
+    expect(headers.some((h) => h.includes('SDD stack'))).toBe(true);
+    expect(headers.some((h) => h.includes('SDD-SWING scan'))).toBe(true);
     expect(el.querySelector('table.table-striped')).toBeTruthy();
+    // Every visible book shows as a row badge in the accounts table.
+    expect(el.textContent).toContain('Demo');
+    expect(el.textContent).toContain('Live');
     expect(el.textContent).toContain('brak pozycji');
-    expect(el.textContent).toContain('SDD stack');
     expect(el.textContent).toContain('EXECUTION');
   });
 
@@ -54,6 +59,7 @@ describe('SddDashboardComponent', () => {
     http.expectOne('/api/scan/last').flush('nope', { status: 503, statusText: 'Service Unavailable' });
     http.expectOne('/api/signals').flush('nope', { status: 500, statusText: 'Server Error' });
     http.expectOne('/api/positions/risk').flush('nope', { status: 502, statusText: 'Bad Gateway' });
+    http.expectOne('/api/swing/last').flush('nope', { status: 500, statusText: 'Server Error' });
     await fixture.whenStable();
     fixture.detectChanges();
 
@@ -63,11 +69,9 @@ describe('SddDashboardComponent', () => {
     expect(el.textContent).toContain('/api/accounts');
     expect(el.textContent).toContain('HTTP 503');
     expect(el.textContent).toContain('/api/scan/last');
-    expect(el.textContent).toContain('/api/signals');
     expect(el.textContent).toContain('HTTP 502');
     expect(el.textContent).not.toContain('brak pozycji');
     expect(el.textContent).not.toContain('No scan yet');
-    expect(el.textContent).not.toContain('No HA flips or full stacks yet');
     http.verify();
   });
 });

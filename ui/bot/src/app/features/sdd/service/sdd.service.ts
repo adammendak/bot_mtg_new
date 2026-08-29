@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { AuthService } from '../../auth/auth.service';
 import {
   AccountView,
   AuditEvent,
@@ -12,6 +13,7 @@ import {
   PositionsByBook,
   ScanSnapshot,
   SddScan,
+  SwingLastResponse,
   SymbolStats,
 } from '../model/sdd.model';
 
@@ -30,9 +32,12 @@ export function formatHttpError(path: string, err: unknown): string {
 @Injectable({ providedIn: 'root' })
 export class SddService {
   private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
 
   readonly lastScan = signal<ScanSnapshot | null>(null);
   readonly signals = signal<SddScan[]>([]);
+  readonly swingLast = signal<SwingLastResponse | null>(null);
+  readonly swingError = signal<string | null>(null);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
   readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [] });
@@ -179,6 +184,18 @@ export class SddService {
     });
   }
 
+  /** SDD-SWING (H1) latest scan — only for books the user may see. */
+  loadSwingLast(): void {
+    if (!this.auth.canSeeBook('swing')) {
+      return;
+    }
+    this.swingError.set(null);
+    this.http.get<SwingLastResponse>('/api/swing/last').subscribe({
+      next: (s) => this.swingLast.set(s),
+      error: (e) => this.swingError.set(formatHttpError('/api/swing/last', e)),
+    });
+  }
+
   /** #14: per-symbol performance (win rate, expectancy, profit factor). */
   loadSymbolStats(book: BookId, days = 0): void {
     this.symbolStatsError.set(null);
@@ -242,7 +259,11 @@ export class SddService {
 
   /** #11: live overview via SSE — emits each incoming payload as an OverviewView[]. */
   liveOverview(onData: (rows: OverviewView[]) => void): () => void {
-    const source = new EventSource('/api/live');
+    // EventSource cannot set an Authorization header, so the bearer token rides
+    // in the query string for this one GET-only stream endpoint.
+    const token = this.auth.bearerToken();
+    const url = token ? `/api/live?access_token=${encodeURIComponent(token)}` : '/api/live';
+    const source = new EventSource(url);
     source.addEventListener('overview', (ev: MessageEvent) => {
       try {
         onData(JSON.parse(ev.data));

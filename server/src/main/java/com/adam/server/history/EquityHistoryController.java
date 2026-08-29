@@ -35,7 +35,7 @@ public class EquityHistoryController {
         if (user != null && !user.canSeeBook(book)) {
             return EquityHistoryService.SyncResult.failed("no access to book " + book);
         }
-        return service.sync(book, replace);
+        return safeSync(book, replace);
     }
 
     @PostMapping(value = "/sync-all", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -47,6 +47,19 @@ public class EquityHistoryController {
         List<String> allowed = com.adam.server.broker.Books.ALL.stream()
                 .filter(book -> user == null || user.canSeeBook(book))
                 .toList();
-        return allowed.stream().map(book -> service.sync(book, replace)).toList();
+        return allowed.stream().map(book -> safeSync(book, replace)).toList();
+    }
+
+    /**
+     * One book's sync failing (broker down, rate-limited, session expiry) must
+     * not 500 the whole request — it becomes a {@code failed} result the UI can
+     * show per book.
+     */
+    private EquityHistoryService.SyncResult safeSync(String book, boolean replace) {
+        try {
+            return service.sync(book, replace);
+        } catch (Exception e) {
+            return EquityHistoryService.SyncResult.failed("sync " + book + " failed: " + e.getClass().getSimpleName());
+        }
     }
 }

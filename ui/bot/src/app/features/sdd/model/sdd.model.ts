@@ -180,6 +180,24 @@ export interface BacktestResult {
   profitFactor: number;
 }
 
+/** One SDD-SWING (H1) scan row — HA flip on H1 in the direction of the H4 context. */
+export interface SwingScan {
+  timestamp: string;
+  symbol: string;
+  epic: string;
+  direction: 'BUY' | 'SELL';
+  entry: number;
+  stopLevel: number;
+  targetLevel: number;
+  h4Trend: 'UP' | 'DOWN' | 'FLAT';
+}
+
+export interface SwingLastResponse {
+  scannedAt: string | null;
+  error: string;
+  signals: SwingScan[];
+}
+
 export interface AuditEvent {
   at: string;
   book: string;
