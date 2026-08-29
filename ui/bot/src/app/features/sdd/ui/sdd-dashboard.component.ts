@@ -1,7 +1,8 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { SddService } from '../service/sdd.service';
-import { AccountView, Position, SddScan } from '../model/sdd.model';
+import { AuthService } from '../../auth/auth.service';
+import { AccountView, BookId, Position, SddScan } from '../model/sdd.model';
 
 @Component({
   selector: 'app-sdd-dashboard',
@@ -306,28 +307,32 @@ import { AccountView, Position, SddScan } from '../model/sdd.model';
 })
 export class SddDashboardComponent implements OnInit {
   readonly sdd = inject(SddService);
-  readonly books = [
-    { id: 'demo' as const, title: 'Demo', headerClass: 'bg-primary text-white' },
-    { id: 'live' as const, title: 'Live', headerClass: 'bg-dark text-white' },
-  ];
+  private readonly auth = inject(AuthService);
+  readonly books = (
+    [
+      { id: 'demo', title: 'Demo', headerClass: 'bg-primary text-white' },
+      { id: 'live', title: 'Live', headerClass: 'bg-dark text-white' },
+      { id: 'swing', title: 'Swing', headerClass: 'bg-info text-dark' },
+    ] as { id: BookId; title: string; headerClass: string }[]
+  ).filter((b) => this.auth.canSeeBook(b.id));
 
   ngOnInit(): void {
     this.sdd.refresh();
   }
 
-  account(id: 'demo' | 'live'): AccountView | undefined {
+  account(id: BookId): AccountView | undefined {
     return this.sdd.account(id);
   }
 
-  positions(id: 'demo' | 'live'): Position[] {
+  positions(id: BookId): Position[] {
     return this.sdd.positions()[id] ?? [];
   }
 
-  positionsWithoutStop(id: 'demo' | 'live'): number {
+  positionsWithoutStop(id: BookId): number {
     return this.positions(id).filter((p) => p.stopLevel == null).length;
   }
 
-  haltOrError(id: 'demo' | 'live'): string | null {
+  haltOrError(id: BookId): string | null {
     const book = this.sdd.lastScan()?.books?.find((b) => b.id === id);
     return book?.halt || book?.error || this.account(id)?.error || this.sdd.accountsError() || null;
   }
