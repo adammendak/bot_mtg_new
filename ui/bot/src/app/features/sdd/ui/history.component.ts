@@ -1,6 +1,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { SddService } from '../service/sdd.service';
-import { BookId, DailyEquityPoint } from '../model/sdd.model';
+import { AuthService } from '../../auth/auth.service';
+import { BookId, BOOK_TABS, DailyEquityPoint } from '../model/sdd.model';
 
 interface ChartPoint {
   x: number;
@@ -34,42 +35,17 @@ interface Bar {
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
       <h2 class="h4 mb-0">History — daily equity &amp; P/L</h2>
       <div class="btn-group btn-group-sm" role="group" aria-label="Book">
-        <button
-          type="button"
-          class="btn"
-          [class.btn-primary]="sdd.historyBook() === 'demo'"
-          [class.btn-outline-secondary]="sdd.historyBook() !== 'demo'"
-          (click)="select('demo')"
-        >
-          Demo
-        </button>
-        <button
-          type="button"
-          class="btn"
-          [class.btn-primary]="sdd.historyBook() === 'live'"
-          [class.btn-outline-secondary]="sdd.historyBook() !== 'live'"
-          (click)="select('live')"
-        >
-          Live
-        </button>
-        <button
-          type="button"
-          class="btn"
-          [class.btn-primary]="sdd.historyBook() === 'glowne'"
-          [class.btn-outline-secondary]="sdd.historyBook() !== 'glowne'"
-          (click)="select('glowne')"
-        >
-          Główne
-        </button>
-        <button
-          type="button"
-          class="btn"
-          [class.btn-primary]="sdd.historyBook() === 'swing'"
-          [class.btn-outline-secondary]="sdd.historyBook() !== 'swing'"
-          (click)="select('swing')"
-        >
-          Swing
-        </button>
+        @for (b of visibleBooks; track b.id) {
+          <button
+            type="button"
+            class="btn"
+            [class.btn-primary]="sdd.historyBook() === b.id"
+            [class.btn-outline-secondary]="sdd.historyBook() !== b.id"
+            (click)="select(b.id)"
+          >
+            {{ b.label }}
+          </button>
+        }
       </div>
       <button
         type="button"
@@ -369,6 +345,8 @@ interface Bar {
 })
 export class HistoryComponent implements OnInit {
   readonly sdd = inject(SddService);
+  private readonly auth = inject(AuthService);
+  readonly visibleBooks = BOOK_TABS.filter((b) => this.auth.canSeeBook(b.id));
   readonly hover = signal<number | null>(null);
 
   // Custom date-range filter (empty = show all)
@@ -386,10 +364,14 @@ export class HistoryComponent implements OnInit {
   readonly pnlBottom = 358;
 
   ngOnInit(): void {
-    this.select(this.sdd.historyBook());
+    const current = this.sdd.historyBook();
+    this.select(this.auth.canSeeBook(current) ? current : (this.visibleBooks[0]?.id ?? current));
   }
 
   select(book: BookId): void {
+    if (!this.auth.canSeeBook(book)) {
+      return;
+    }
     this.hover.set(null);
     this.sdd.loadHistory(book);
   }

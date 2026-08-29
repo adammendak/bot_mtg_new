@@ -5,8 +5,10 @@ import com.adam.server.auth.CurrentUser;
 import com.adam.server.broker.Books;
 import com.adam.server.persistence.SwingSignalEntity;
 import com.adam.server.persistence.SwingSignalRepository;
+import com.adam.server.swing.SwingBacktestService;
 import com.adam.server.swing.SwingScan;
 import com.adam.server.swing.SwingScanService;
+import com.adam.server.web.dto.BacktestResult;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -27,10 +29,12 @@ public class SwingController {
 
     private final SwingScanService scan;
     private final SwingSignalRepository signals;
+    private final SwingBacktestService backtest;
 
-    public SwingController(SwingScanService scan, SwingSignalRepository signals) {
+    public SwingController(SwingScanService scan, SwingSignalRepository signals, SwingBacktestService backtest) {
         this.scan = scan;
         this.signals = signals;
+        this.backtest = backtest;
     }
 
     /** The most recent scan's signals (in memory), plus scan status. */
@@ -57,6 +61,23 @@ public class SwingController {
         }
         int capped = Math.min(Math.max(limit, 1), 500);
         return signals.findAllByOrderByIdDesc(PageRequest.of(0, capped));
+    }
+
+    /**
+     * Replay the SDD-SWING (H1) engine over the last {@code days} (default 30,
+     * max 180) and report win rate / avg R / profit factor per symbol.
+     * Runs against Capital.com market data, so it only works on a deployed
+     * instance with credentials.
+     */
+    @GetMapping(value = "/api/swing/backtest", produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<BacktestResult> backtest(
+            @RequestParam(name = "days", defaultValue = "30") int days,
+            Authentication authentication
+    ) {
+        if (denied(authentication)) {
+            return List.of();
+        }
+        return backtest.run(days);
     }
 
     /** Manual scan trigger (also a Scheduler backup). */

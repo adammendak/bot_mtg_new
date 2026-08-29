@@ -43,6 +43,7 @@ public class ScanService {
     private final DurableScanWriter durable;
     private final SddEngine engine;
     private final TelegramNotifier telegram;
+    private final Mailer mailer;
 
     public ScanService(
             BrokerBooks books,
@@ -55,7 +56,8 @@ public class ScanService {
             AccountQueryService accounts,
             Clock clock,
             ObjectProvider<DurableScanWriter> durable,
-            TelegramNotifier telegram
+            TelegramNotifier telegram,
+            Mailer mailer
     ) {
         this.books = books;
         this.properties = properties;
@@ -69,6 +71,7 @@ public class ScanService {
         this.durable = durable == null ? null : durable.getIfAvailable();
         this.engine = new SddEngine(ZoneId.of(properties.getTimezone()));
         this.telegram = telegram;
+        this.mailer = mailer;
     }
 
     public ScanSnapshot last() {
@@ -126,8 +129,13 @@ public class ScanService {
         notifyHalts(glowneView, glowneHalt, "glowne");
         if (error != null) {
             telegram.onScanError(error);
+            mailer.sendThrottled("scan-m15",
+                    "SDD-M15 scan failed",
+                    "The 15-minute scan failed on " + Instant.now(clock) + ":\n\n" + error
+                            + "\n\n(further failures within 30 min are suppressed)");
         } else {
             telegram.onScanRecovered();
+            mailer.clearThrottle("scan-m15");
         }
 
         if (properties.isExecutionEnabled() && !symbols.isEmpty()) {

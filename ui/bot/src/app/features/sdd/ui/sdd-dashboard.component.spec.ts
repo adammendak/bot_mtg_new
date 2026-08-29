@@ -1,14 +1,24 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { SddDashboardComponent } from './sdd-dashboard.component';
+import { AuthService } from '../../auth/auth.service';
 
 describe('SddDashboardComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [SddDashboardComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
+    // Book columns are filtered by AuthService.canSeeBook(); an ADMIN sees all.
+    TestBed.inject(AuthService).user.set({
+      id: 1,
+      username: 'adam',
+      displayName: 'Adam',
+      role: 'ADMIN',
+      books: [],
+    });
   });
 
   it('renders Demo and Live Bootstrap tables', async () => {
