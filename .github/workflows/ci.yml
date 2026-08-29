@@ -8,7 +8,7 @@ on:
 # Heroku GitHub integration deploys bot-reinvented from main.
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,3 +19,27 @@ jobs:
           cache: maven
       - name: Unit tests
         run: mvn -B test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui/bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/bot/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npm test -- --watch=false
+      - name: Production build
+        run: npm run build
+      - name: Dependency audit (high+)
+        # Advisory: surfaces vulnerable npm deps on every PR without hard-blocking
+        # merges on a single transitive advisory. Drop continue-on-error to enforce.
+        continue-on-error: true
+        run: npm audit --audit-level=high

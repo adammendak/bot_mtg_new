@@ -68,11 +68,6 @@ public class SddExecutionState {
             this.tpFilled = tpFilled;
             this.trailing = trailing;
         }
-
-        /** A name is open until BOTH tickets are gone — never allows pyramid/re-entry. */
-        public boolean isNameOpen() {
-            return true;
-        }
     }
 
     private final SddExecutionRepository repository;

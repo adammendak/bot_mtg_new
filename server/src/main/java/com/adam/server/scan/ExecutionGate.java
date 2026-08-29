@@ -277,16 +277,57 @@ public class ExecutionGate {
         SddExecutionState.Entry recorded = new SddExecutionState.Entry(
                 book, scan.symbol(), scan.epic(), scan.direction(), scan.timestamp(),
                 scan.entry(), scan.atrH1(), scan.stop(), idA, idB, placed == 2);
-        try {
-            state.put(recorded);
-        } catch (RuntimeException e) {
-            // Capital already accepted at least one ticket. Do not report skip — keep
-            // the name in RAM so the next bar cannot pyramid, and let the scan continue.
-            log.error("SDD persist failed after Capital fill {} {} — keeping RAM entry: {}",
-                    book, scan.symbol(), e.toString());
-            state.remember(recorded);
-        }
+        persistWithRetry(book, scan, recorded);
         return null;
+    }
+
+    /** Backoff in ms between {@code state.put} attempts; index 0 is the first try (no wait). */
+    private static final long[] PERSIST_BACKOFF_MS = {0L, 250L, 750L};
+
+    /**
+     * Persist the fresh entry through to Postgres, retrying a transient DB failure
+     * a couple of times before falling back to a RAM-only record. Capital already
+     * accepted at least one ticket by the time we get here, so a persist failure
+     * must never surface as a skip: the name stays tracked in this process (no
+     * pyramid), the scan continues, and — because a dyno restart before a later
+     * successful write would orphan the position — the last-resort path alerts on
+     * Telegram and the execution webhook instead of only logging.
+     */
+    private void persistWithRetry(String book, SddScan scan, SddExecutionState.Entry recorded) {
+        RuntimeException last = null;
+        for (int attempt = 0; attempt < PERSIST_BACKOFF_MS.length; attempt++) {
+            if (PERSIST_BACKOFF_MS[attempt] > 0L) {
+                try {
+                    Thread.sleep(PERSIST_BACKOFF_MS[attempt]);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            try {
+                state.put(recorded);
+                if (attempt > 0) {
+                    log.warn("SDD persist for {} {} recovered on attempt {}", book, scan.symbol(), attempt + 1);
+                }
+                return;
+            } catch (RuntimeException e) {
+                last = e;
+                log.warn("SDD persist attempt {}/{} failed for {} {}: {}",
+                        attempt + 1, PERSIST_BACKOFF_MS.length, book, scan.symbol(), e.toString());
+            }
+        }
+        state.remember(recorded);
+        String dir = scan.direction() == null ? null : scan.direction().name();
+        log.error("SDD persist FAILED after Capital fill {} {} — RAM-only; a restart before the next "
+                + "write orphans this position: {}", book, scan.symbol(), last == null ? "?" : last.toString());
+        try {
+            webhooks.publishExecution(book, scan.symbol(), dir, "persist_failed",
+                    "Capital fill not saved to DB after retries — manual check needed");
+            telegram.onExecutionPersistFailure(book, scan.symbol(), dir);
+        } catch (Exception alertEx) {
+            log.warn("SDD persist-failure alert failed for {} {}: {}",
+                    book, scan.symbol(), alertEx.getClass().getSimpleName());
+        }
     }
 
     private String[] resolveFreshDealIds(BrokerClient client, SddScan scan, int placed,
