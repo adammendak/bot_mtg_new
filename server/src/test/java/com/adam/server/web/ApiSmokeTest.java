@@ -190,6 +190,16 @@ class ApiSmokeTest {
     }
 
     @Test
+    void swingLastIsOkBeforeAnyScan() throws Exception {
+        // Regression: SwingController.last() used Map.of, which NPEs on the null
+        // scannedAt before the first scan -> 500.
+        mvc.perform(get("/api/swing/last").header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.signals").isArray());
+        mvc.perform(get("/api/swing/last")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void lastScanAndSignalsRequireAuth() throws Exception {
         mvc.perform(get("/api/scan/last").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk());
