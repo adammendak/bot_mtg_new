@@ -34,10 +34,43 @@ class HtsExportTest {
 
     private HtsBacktestService.Params params(Resolution htf, Resolution ltf, int days, int off,
                                              Adx adx, double stopBuf, boolean pivots) {
+        return params(htf, ltf, days, off, adx, stopBuf, pivots, 1);
+    }
+
+    private HtsBacktestService.Params params(Resolution htf, Resolution ltf, int days, int off,
+                                             Adx adx, double stopBuf, boolean pivots, int split) {
         return new HtsBacktestService.Params(htf, ltf, days, off, RR, /*runner*/ true,
                 /*adxFilter*/ adx != Adx.OFF, /*adxThreshold*/ 20.0, /*skipConsolidation*/ true,
                 /*pivotTargets*/ pivots, /*maxNames*/ 4,
-                /*stopBufferFrac*/ stopBuf, /*adxPermit*/ adx == Adx.PERMIT, /*runnerLockR*/ 1.0);
+                /*stopBufferFrac*/ stopBuf, /*adxPermit*/ adx == Adx.PERMIT, /*runnerLockR*/ 1.0,
+                /*splitEntries*/ split);
+    }
+
+    /**
+     * T6 focused: split‑entry {1,2,3} on the best config so far (ADX‑permit, buf 0.25),
+     * both swing models, both windows. Own fresh session.
+     */
+    @Test
+    void splitEntry() throws Exception {
+        Files.createDirectories(OUT);
+        Resolution[][] pairs = {{Resolution.D1, Resolution.H1}, {Resolution.H4, Resolution.M15}};
+        String[] pairName = {"d1h1", "h4m15"};
+        int[][] windows = {{30, 30}, {30, 0}};
+        String[] wn = {"m2back", "recent"};
+        for (int pi = 0; pi < pairs.length; pi++) {
+            for (int w = 0; w < windows.length; w++) {
+                for (int split : new int[]{1, 2, 3}) {
+                    var p = params(pairs[pi][0], pairs[pi][1], windows[w][0], windows[w][1],
+                            Adx.PERMIT, 0.25, false, split);
+                    List<SwingTradeRow> rows = backtest.run(p);
+                    String label = pairName[pi] + "_" + wn[w] + "_split" + split;
+                    write(OUT.resolve("hts_" + label + ".csv"), rows);
+                    System.out.println("== " + label + " ==");
+                    perTicker(rows);
+                }
+            }
+        }
+        System.out.println("CSV dir: " + OUT);
     }
 
     @Test

@@ -143,12 +143,19 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
   (kolumny `skipped_daystop`, `skipped_ddstop`, `ddstop_hit` w `summary.csv`).
 - Do zrobienia: sizing‑formula w żywym `RiskPolicy` (T9). **Bez** okien handlu / filtra sesji — to scalp.
 
-### T6 — Split‑entry (skalowanie w zakres, nie martingale)
-- Sygnał → 2–3 częściowe wejścia rozstawione w zakresie, ten sam stop.
-- Wpływ na avgR / DD w backteście.
+### T6 — Split‑entry (skalowanie w zakres, nie martingale)  ← zrobione w backteście
+- `splitEntries=n` (`?split=`): `n` równych rung od ceny sygnału w stronę stopu (górna połowa
+  zakresu entry→stop), fill przez `PULLBACK_BARS` świec. Pozycja ma **wejście uśrednione** i
+  frakcję wielkości = filled/n. Ryzyko liczone od **oryginalnego** dystansu entry→stop →
+  częściowo wypełniona drabinka + stop = strata **< 1R**. Wyjście = model runner‑lock.
+- `replaySplit` w `HtsBacktestService`. Backtest T6: `HtsExportTest#splitEntry` (split {1,2,3}).
+- Wyniki: **(uzupełnić po przebiegu)**.
 
-### T7 — Piramidowanie
+### T7 — Piramidowanie  ← wymaga rozpisania (odłożone)
 - Dokładanie na kolejnych cofnięciach do wstęgi w tym samym trendzie; pełne wyjście przy złamaniu wolnej.
+- **Problem:** księgowanie ryzyka dla dokładek jest niejednoznaczne (równe loty + własne stopy →
+  ryzyko rośnie; „w zysku" → dokładki finansowane otwartym zyskiem). Potrzebny osobny projekt
+  modelu (stop dokładki na entry poprzedniej jednostki? wspólny stop pod wstęgą?).
 - Konflikt z obecnym `ExecutionGate` („NO pyramid") — najpierw backtest, potem decyzja o żywej egzekucji.
 
 ### T8 — Supertrend / WaveTrend jako opcje

@@ -48,6 +48,7 @@ public class HtsController {
             @RequestParam(name = "stopBuf", defaultValue = "0.25") double stopBuf,
             @RequestParam(name = "adxPermit", defaultValue = "false") boolean adxPermit,
             @RequestParam(name = "runnerLock", defaultValue = "1.0") double runnerLock,
+            @RequestParam(name = "split", defaultValue = "1") int split,
             @RequestParam(name = "format", defaultValue = "csv") String format,
             Authentication authentication
     ) {
@@ -59,7 +60,8 @@ public class HtsController {
                 Resolution.valueOf(htf.toUpperCase()), Resolution.valueOf(ltf.toUpperCase()),
                 days, offsetDays, rr, runner, adx,
                 adxThreshold <= 0 ? Adx.TREND_THRESHOLD : adxThreshold,
-                skipConsolidation, pivotTargets, maxNames, stopBuf, adxPermit, runnerLock);
+                skipConsolidation, pivotTargets, maxNames, stopBuf, adxPermit, runnerLock,
+                Math.max(1, split));
         List<SwingTradeRow> rows = backtest.run(p);
         StringBuilder sb = new StringBuilder("entry_time,exit_time,symbol,direction,result,r_multiple\n");
         for (SwingTradeRow r : rows) {
