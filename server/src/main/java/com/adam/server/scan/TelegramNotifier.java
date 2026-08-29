@@ -95,6 +95,17 @@ public class TelegramNotifier {
         errorActive.set(false);
     }
 
+    /**
+     * One-off alert: a Capital fill was accepted but could not be written to the
+     * DB after retries. Not edge-triggered — this is rare and serious, and a dyno
+     * restart before a later successful write would orphan the position.
+     */
+    public void onExecutionPersistFailure(String book, String symbol, String direction) {
+        send(text("🚨 PERSIST FAILED after fill " + label(book) + " " + symbol
+                + " " + (direction == null ? "?" : direction)
+                + "\nTickets are live on Capital but NOT in the DB — check manually."));
+    }
+
     private static String label(String book) {
         return book == null ? "?" : "[" + book.toUpperCase() + "]";
     }

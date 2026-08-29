@@ -1,0 +1,48 @@
+version: 2
+updates:
+  # Backend — Maven (root reactor pom + server module)
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 5
+    groups:
+      spring:
+        patterns:
+          - "org.springframework*"
+          - "org.springframework.boot*"
+    labels:
+      - dependencies
+      - backend
+
+  # Frontend — npm (Angular app)
+  - package-ecosystem: npm
+    directory: "/ui/bot"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 5
+    groups:
+      angular:
+        patterns:
+          - "@angular*"
+    labels:
+      - dependencies
+      - frontend
+
+  # GitHub Actions used by the CI workflow
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Warsaw
+    labels:
+      - dependencies
+      - ci

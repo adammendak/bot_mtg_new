@@ -35,6 +35,15 @@ public class BacktestService {
 
     private static final Logger log = LoggerFactory.getLogger(BacktestService.class);
     private static final int LOOK_AHEAD_BARS = 32; // ~8h on M15
+    private static final int DEFAULT_DAYS = 90;
+    /**
+     * Upper bound on the requested window. {@code candlesChunked} pages the range
+     * in ~10-day slices per symbol, so an unbounded {@code days} (e.g. a caller
+     * passing {@code ?days=3650}) would fan out into hundreds of sequential
+     * broker HTTP calls on the request thread. 180 days keeps a full run under
+     * ~90 broker calls and matches the longest window the dashboard offers.
+     */
+    private static final int MAX_DAYS = 180;
 
     private final BrokerBooks books;
     private final AppProperties properties;
@@ -49,11 +58,12 @@ public class BacktestService {
         if (!market.configured()) {
             return List.of();
         }
+        int window = days <= 0 ? DEFAULT_DAYS : Math.min(days, MAX_DAYS);
         SddEngine engine = new SddEngine(ZoneId.of(properties.getTimezone()));
         List<BacktestResult> out = new ArrayList<>();
         for (SddSymbol symbol : SddSymbol.universe()) {
             try {
-                out.add(backtestOne(market, engine, symbol, symbol.epic(properties), days));
+                out.add(backtestOne(market, engine, symbol, symbol.epic(properties), window));
             } catch (Exception e) {
                 log.warn("Backtest failed for {}: {}", symbol.code(), e.getClass().getSimpleName());
             }

@@ -36,7 +36,10 @@ public class SecurityConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
-                .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::disable))
+                // SAMEORIGIN, not disabled: the H2 console (dev only) frames itself
+                // same-origin and still works, while the dashboard can no longer be
+                // embedded in a third-party page (clickjacking).
+                .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
