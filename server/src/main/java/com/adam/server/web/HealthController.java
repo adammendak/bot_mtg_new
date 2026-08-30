@@ -2,6 +2,7 @@ package com.adam.server.web;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.config.AppProperties;
+import com.adam.server.ops.SchedulerHeartbeat;
 import com.adam.server.scan.SignalWebhookPublisher;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,17 +20,20 @@ public class HealthController {
     private final BrokerBooks books;
     private final AppProperties properties;
     private final SignalWebhookPublisher webhooks;
+    private final SchedulerHeartbeat heartbeat;
 
     public HealthController(
             Clock clock,
             BrokerBooks books,
             AppProperties properties,
-            SignalWebhookPublisher webhooks
+            SignalWebhookPublisher webhooks,
+            SchedulerHeartbeat heartbeat
     ) {
         this.clock = clock;
         this.books = books;
         this.properties = properties;
         this.webhooks = webhooks;
+        this.heartbeat = heartbeat;
     }
 
     @GetMapping(value = "/health", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -47,6 +51,9 @@ public class HealthController {
         body.put("lastWebhook", webhooks.lastWebhook());
         Instant at = webhooks.lastWebhookAt();
         body.put("lastWebhookAt", at == null ? null : at.toString());
+        var probes = heartbeat.snapshot(Instant.now(clock));
+        body.put("schedulersStale", probes.stream().filter(SchedulerHeartbeat.HeartbeatView::stale).count());
+        body.put("schedulers", probes);
         return body;
     }
 }

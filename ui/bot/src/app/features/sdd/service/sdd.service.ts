@@ -18,6 +18,8 @@ import {
   HtsTrade,
   HtsScorecardRow,
   SymbolStats,
+  OpsHealth,
+  ErrorEvent,
 } from '../model/sdd.model';
 
 export function formatHttpError(path: string, err: unknown): string {
@@ -71,6 +73,9 @@ export class SddService {
   readonly audit = signal<AuditEvent[]>([]);
   readonly monitor = signal<PositionMonitorView[]>([]);
   readonly monitorError = signal<string | null>(null);
+  readonly opsHealth = signal<OpsHealth | null>(null);
+  readonly opsErrors = signal<ErrorEvent[]>([]);
+  readonly opsError = signal<string | null>(null);
   readonly actionMessage = signal<string | null>(null);
 
   account(id: BookId): AccountView | undefined {
@@ -325,6 +330,19 @@ export class SddService {
     this.http.get<AuditEvent[]>(`/api/monitor/audit${q}`).subscribe({
       next: (a) => this.audit.set(Array.isArray(a) ? a : []),
       error: () => this.audit.set([]),
+    });
+  }
+
+  /** E-5: scheduler heartbeats + the durable failure log. */
+  loadOps(errorLimit = 50): void {
+    this.opsError.set(null);
+    this.http.get<OpsHealth>('/api/ops/health').subscribe({
+      next: (h) => this.opsHealth.set(h),
+      error: (e) => this.opsError.set(formatHttpError('/api/ops/health', e)),
+    });
+    this.http.get<ErrorEvent[]>(`/api/ops/errors?limit=${errorLimit}`).subscribe({
+      next: (r) => this.opsErrors.set(Array.isArray(r) ? r : []),
+      error: (e) => this.opsError.set(formatHttpError('/api/ops/errors', e)),
     });
   }
 

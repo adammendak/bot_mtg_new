@@ -281,6 +281,32 @@ export interface AuditEvent {
   detail: string;
 }
 
+/** One scheduler liveness probe (E-5). `stale` = no successful cycle within its window. */
+export interface SchedulerHeartbeatView {
+  name: string;
+  lastOkAt: string | null;
+  ageSeconds: number;
+  maxSilenceSeconds: number;
+  stale: boolean;
+}
+
+export interface OpsHealth {
+  time: string;
+  staleCount: number;
+  schedulers: SchedulerHeartbeatView[];
+}
+
+/** One durable failure row (E-5) from /api/ops/errors. */
+export interface ErrorEvent {
+  id: number;
+  at: string;
+  source: string;
+  scope: string | null;
+  detail: string | null;
+  exception: string | null;
+  message: string | null;
+}
+
 export interface PositionMonitorView {
   dealId: string;
   epic: string;

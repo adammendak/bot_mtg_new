@@ -1,10 +1,15 @@
 package com.adam.server.hts;
 
+import com.adam.server.ops.ErrorLog;
+import com.adam.server.ops.SchedulerHeartbeat;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
 
 /**
  * Drives the HTS runner exit on its own cron — 30 s into every 5-minute slot,
@@ -24,14 +29,26 @@ import org.springframework.stereotype.Component;
 public class HtsPositionMonitor {
 
     private static final Logger log = LoggerFactory.getLogger(HtsPositionMonitor.class);
+    private static final String PROBE = "hts-monitor";
 
     private final HtsTradeService trades;
+    private final SchedulerHeartbeat heartbeat;
+    private final ErrorLog errorLog;
 
     @Value("${app.hts.monitor-enabled:true}")
     private boolean enabled = true;
 
-    public HtsPositionMonitor(HtsTradeService trades) {
+    public HtsPositionMonitor(HtsTradeService trades, SchedulerHeartbeat heartbeat, ErrorLog errorLog) {
         this.trades = trades;
+        this.heartbeat = heartbeat;
+        this.errorLog = errorLog;
+    }
+
+    @PostConstruct
+    void registerProbe() {
+        if (enabled) {
+            heartbeat.register(PROBE, Duration.ofMinutes(13));
+        }
     }
 
     @Scheduled(cron = "${app.hts.monitor-cron:30 */5 * * * *}", zone = "${app.scan.zone:Europe/Warsaw}")
@@ -41,11 +58,13 @@ public class HtsPositionMonitor {
         }
         try {
             int touched = trades.manage();
+            heartbeat.ok(PROBE);
             if (touched > 0) {
                 log.info("HTS position monitor: touched {} trade(s)", touched);
             }
         } catch (Exception e) {
             log.warn("HTS position monitor failed: {}", e.getClass().getSimpleName());
+            errorLog.record(PROBE, null, null, e);
         }
     }
 }

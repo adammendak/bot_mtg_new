@@ -53,6 +53,7 @@ public class HtsExecutionGate {
     private final boolean enabled;
     private final boolean liveEnabled;
     private final com.adam.server.scan.Mailer mailer;
+    private final com.adam.server.ops.ErrorLog errorLog;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
 
     public HtsExecutionGate(
@@ -61,6 +62,7 @@ public class HtsExecutionGate {
             AppProperties properties,
             HtsTradeService trades,
             com.adam.server.scan.Mailer mailer,
+            com.adam.server.ops.ErrorLog errorLog,
             @Value("${app.hts.execution-enabled:false}") boolean enabled,
             @Value("${app.hts.live-execution-enabled:false}") boolean liveEnabled
     ) {
@@ -69,6 +71,7 @@ public class HtsExecutionGate {
         this.properties = properties;
         this.trades = trades;
         this.mailer = mailer;
+        this.errorLog = errorLog;
         this.enabled = enabled;
         this.liveEnabled = liveEnabled;
     }
@@ -176,6 +179,7 @@ public class HtsExecutionGate {
             log.warn("HTS [{}] execution failed for {}: {}", s.variant().name(), s.symbol(),
                     e.getClass().getSimpleName());
             placed.remove(key);
+            errorLog.record("hts-exec", s.variant().name(), s.symbol(), e);
             mailer.sendThrottled("exec-hts", "HTS execution failed",
                     "Placing an HTS entry failed for " + s.variant().name() + " " + s.symbol()
                             + " " + s.direction() + ":\n\n" + e.getClass().getSimpleName()
