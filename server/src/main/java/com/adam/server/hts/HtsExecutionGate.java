@@ -2,10 +2,14 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.broker.Direction;
 import com.adam.server.config.AppProperties;
 import com.adam.server.broker.model.Account;
+import com.adam.server.broker.model.Confirmation;
+import com.adam.server.broker.model.MarketRules;
 import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
+import com.adam.server.broker.model.Position;
 import com.adam.server.sdd.RiskPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,6 +98,14 @@ public class HtsExecutionGate {
         if (trades.alreadyExecuted(s)) {
             return; // persisted across a restart within the same signal bar
         }
+        if (trades.hasOpenPosition(s.variant(), s.symbol())) {
+            // One position per signal, actively managed — never stack a new entry
+            // every bar while the previous one is still open.
+            log.info("HTS [{}] execution skipped {} {} — a position for this model/symbol is already open",
+                    s.variant().name(), s.symbol(), s.direction());
+            placed.remove(key);
+            return;
+        }
         try {
             BrokerClient broker = books.forBook(book);
             if (broker == null || !broker.configured()) {
@@ -156,24 +168,85 @@ public class HtsExecutionGate {
                 return;
             }
 
+            // Shape the order so the broker actually accepts it: snap the size to
+            // the instrument step, round the stop to instrument precision, and
+            // widen a too-tight M5 band stop out to the broker minimum. Without
+            // this Capital returns a dealReference and then REJECTS the deal on
+            // confirm, so no position ever opens.
+            MarketRules rules = broker.marketRules(s.epic());
+            boolean buy = s.direction() == Direction.BUY;
+            double adjEntry = rules.roundPrice(s.entry());
+            double adjStop = rules.roundPrice(s.stopLevel());
+            if (rules.minStopDistancePoints() > 0
+                    && Math.abs(adjEntry - adjStop) < rules.minStopDistancePoints()) {
+                adjStop = rules.roundPrice(buy
+                        ? adjEntry - rules.minStopDistancePoints()
+                        : adjEntry + rules.minStopDistancePoints());
+                log.info("HTS [{}] {} stop widened to broker minimum {} pts ({} -> {})",
+                        s.variant().name(), s.symbol(), rules.minStopDistancePoints(),
+                        s.stopLevel(), adjStop);
+            }
+            double adjSize = rules.roundSize(size);
+            if (adjSize <= 0) {
+                log.warn("HTS [{}] execution {}: size rounds to zero (raw {}, minDeal {})",
+                        s.variant().name(), s.symbol(), size, rules.minDealSize());
+                placed.remove(key);
+                return;
+            }
+            if (Math.abs(adjEntry - adjStop) <= 0) {
+                log.warn("HTS [{}] execution {}: stop equals entry after rounding ({})",
+                        s.variant().name(), s.symbol(), adjEntry);
+                placed.remove(key);
+                return;
+            }
+            double adjDist = Math.abs(adjEntry - adjStop);
+            double adjTarget = buy ? adjEntry + HtsEngine.RR * adjDist : adjEntry - HtsEngine.RR * adjDist;
+            if (adjEntry != s.entry() || adjStop != s.stopLevel() || adjSize != size) {
+                log.info("HTS [{}] {} order shaped for broker: entry {}->{} stop {}->{} size {}->{}",
+                        s.variant().name(), s.symbol(), s.entry(), adjEntry,
+                        s.stopLevel(), adjStop, size, adjSize);
+            }
+            size = adjSize;
+            s = new HtsScan(s.variant(), s.timestamp(), s.symbol(), s.epic(), s.direction(),
+                    adjEntry, adjStop, adjTarget, s.htfUp());
+
             // Stop only — the position monitor runs the TP1 partial + trailing runner.
             OrderRequest req = new OrderRequest(
                     s.epic(), s.direction(), size, null, "MARKET",
                     s.stopLevel(), null, null, false);
             OrderAck ack = broker.placeMarketOrder(req);
-            if (ack != null && (ack.dealReference() != null || ack.dealId() != null)) {
-                log.info("HTS [{}] entry placed on {} {} {} size {} @ {} stop {} (TP1 target {} managed)",
-                        s.variant().name(), book, s.symbol(), s.direction(), size,
-                        s.entry(), s.stopLevel(), s.targetLevel());
-                try {
-                    trades.recordOpen(s, s.variant(), book, account.name(), size, ack);
-                } catch (Exception e) {
-                    log.warn("HTS [{}] entry {} placed but not recorded: {}",
-                            s.variant().name(), s.symbol(), e.getClass().getSimpleName());
-                }
-            } else {
+            if (ack == null || ack.dealReference() == null) {
                 log.warn("HTS [{}] entry {} returned no deal reference", s.variant().name(), s.symbol());
                 placed.remove(key);
+                return;
+            }
+
+            // Capital's POST /positions only hands back a dealReference; the real
+            // dealId (and whether the deal was actually accepted) comes from the
+            // confirm. Without this the position monitor can never reconcile the
+            // trade — same pattern the SDD gate uses.
+            String dealId = resolveDealId(broker, ack.dealReference(), s);
+            if (dealId == null) {
+                log.warn("HTS [{}] entry {} {} submitted (ref {}) but NOT confirmed open — not recording",
+                        s.variant().name(), s.symbol(), s.direction(), ack.dealReference());
+                placed.remove(key);
+                mailer.sendThrottled("exec-hts-reject", "HTS entry not confirmed open",
+                        "An HTS entry for " + s.variant().name() + " " + s.symbol() + " " + s.direction()
+                                + " was submitted (ref " + ack.dealReference() + ") but the broker did not "
+                                + "confirm an open position. See the confirm reason in the logs.\n\n"
+                                + "(further failures within 30 min are suppressed)");
+                return;
+            }
+
+            OrderAck confirmed = new OrderAck(ack.dealReference(), dealId, "ACCEPTED");
+            log.info("HTS [{}] entry placed on {} {} {} size {} @ {} stop {} dealId {} (TP1 target {} managed)",
+                    s.variant().name(), book, s.symbol(), s.direction(), size,
+                    s.entry(), s.stopLevel(), dealId, s.targetLevel());
+            try {
+                trades.recordOpen(s, s.variant(), book, account.name(), size, confirmed);
+            } catch (Exception e) {
+                log.warn("HTS [{}] entry {} placed but not recorded: {}",
+                        s.variant().name(), s.symbol(), e.getClass().getSimpleName());
             }
         } catch (Exception e) {
             log.warn("HTS [{}] execution failed for {}: {}", s.variant().name(), s.symbol(),
@@ -185,5 +258,43 @@ public class HtsExecutionGate {
                             + " " + s.direction() + ":\n\n" + e.getClass().getSimpleName()
                             + "\n\n(further failures within 30 min are suppressed)");
         }
+    }
+
+    /**
+     * Resolve the broker dealId for a fresh entry from the deal confirmation, with
+     * a fallback to matching the newest open position on the same epic + direction
+     * (same approach as {@code ExecutionGate.resolveFreshDealIds}). Returns
+     * {@code null} when the deal was rejected or cannot be confirmed as open — the
+     * caller then does NOT record a phantom OPEN trade.
+     */
+    private String resolveDealId(BrokerClient broker, String dealReference, HtsScan s) {
+        try {
+            Confirmation c = broker.confirm(dealReference);
+            if (c != null) {
+                if (c.dealId() != null && c.accepted()) {
+                    return c.dealId();
+                }
+                log.warn("HTS [{}] {} {} confirm: status={} dealStatus={} reason={}",
+                        s.variant().name(), s.symbol(), s.direction(),
+                        c.status(), c.dealStatus(), c.reason());
+                if ("REJECTED".equalsIgnoreCase(c.dealStatus())) {
+                    return null; // definitively rejected — no point matching positions
+                }
+            }
+        } catch (Exception e) {
+            log.warn("HTS [{}] {} confirm failed ({}) — trying position match",
+                    s.variant().name(), s.symbol(), e.getClass().getSimpleName());
+        }
+        try {
+            for (Position p : broker.openPositions()) {
+                if (p.direction() == s.direction()
+                        && p.epic() != null && p.epic().equalsIgnoreCase(s.epic())) {
+                    return p.dealId();
+                }
+            }
+        } catch (Exception ignored) {
+            // no position match available
+        }
+        return null;
     }
 }

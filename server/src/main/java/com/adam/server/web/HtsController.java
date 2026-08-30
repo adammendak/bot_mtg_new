@@ -3,11 +3,13 @@ package com.adam.server.web;
 import com.adam.server.auth.AppUser;
 import com.adam.server.auth.CurrentUser;
 import com.adam.server.broker.Books;
+import com.adam.server.broker.Direction;
 import com.adam.server.broker.Resolution;
 import com.adam.server.hts.HtsBacktestService;
 import com.adam.server.hts.HtsScan;
 import com.adam.server.hts.HtsScanService;
 import com.adam.server.hts.HtsTradeService;
+import com.adam.server.hts.HtsVariant;
 import com.adam.server.persistence.HtsSignalEntity;
 import com.adam.server.persistence.HtsSignalRepository;
 import com.adam.server.persistence.HtsTradeEntity;
@@ -278,6 +280,35 @@ public class HtsController {
         }
         List<HtsScan> out = scan.scan();
         return Map.of("count", out.size(), "signals", out);
+    }
+
+    /**
+     * Live end-to-end execution check. {@code POST /api/hts/test-entry?variant=FAST&symbol=BTC&direction=BUY}
+     * fires ONE synthetic entry through the real gate (place → confirm → recordOpen)
+     * on the variant's demo book, at the current market mid with a 0.4% stop.
+     * Honours the {@code hts.execution} flag. Reports whether an {@code hts_trades}
+     * row was written and the resolved dealId.
+     */
+    @PostMapping(value = "/api/hts/test-entry", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Object testEntry(
+            @RequestParam(name = "variant", defaultValue = "FAST") String variant,
+            @RequestParam(name = "symbol", defaultValue = "BTC") String symbol,
+            @RequestParam(name = "direction", defaultValue = "BUY") String direction,
+            Authentication authentication
+    ) {
+        if (denied(authentication)) {
+            return Map.of("error", "forbidden");
+        }
+        HtsVariant v;
+        Direction dir;
+        try {
+            v = HtsVariant.valueOf(variant.trim().toUpperCase());
+            dir = Direction.valueOf(direction.trim().toUpperCase());
+        } catch (RuntimeException e) {
+            return Map.of("ok", false, "error",
+                    "variant must be CORE/SWING/FAST/CORE_LIVE and direction BUY/SELL");
+        }
+        return scan.testEntry(v, symbol, dir);
     }
 
     private static boolean denied(Authentication authentication) {

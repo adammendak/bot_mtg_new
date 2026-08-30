@@ -7,6 +7,7 @@ public record Confirmation(
         String dealId,
         String status,
         String dealStatus,
+        String reason,
         String epic,
         Direction direction,
         Double level,

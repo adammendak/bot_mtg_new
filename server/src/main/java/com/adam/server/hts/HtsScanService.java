@@ -3,9 +3,11 @@ package com.adam.server.hts;
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
+import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.persistence.HtsSignalEntity;
 import com.adam.server.persistence.HtsSignalRepository;
+import com.adam.server.persistence.HtsTradeEntity;
 import com.adam.server.sdd.SddSymbol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +18,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * HTS ("wstęgi") scan — runs the <b>three timeframe models</b> ({@link HtsVariant})
@@ -45,6 +49,7 @@ public class HtsScanService {
     private final Clock clock;
     private final List<HtsNotifier> notifiers;
     private final HtsExecutionGate execution;
+    private final HtsTradeService trades;
     private final com.adam.server.scan.Mailer mailer;
 
     private volatile List<HtsScan> lastSignals = List.of();
@@ -59,6 +64,7 @@ public class HtsScanService {
             Clock clock,
             List<HtsNotifier> notifiers,
             HtsExecutionGate execution,
+            HtsTradeService trades,
             com.adam.server.scan.Mailer mailer
     ) {
         this.books = books;
@@ -68,6 +74,7 @@ public class HtsScanService {
         this.clock = clock;
         this.notifiers = notifiers;
         this.execution = execution;
+        this.trades = trades;
         this.mailer = mailer;
     }
 
@@ -119,6 +126,93 @@ public class HtsScanService {
         lastSignals = List.copyOf(found);
         lastScanAt = now;
         return lastSignals;
+    }
+
+    /**
+     * Fire ONE synthetic HTS entry straight through the real execution gate — an
+     * end-to-end live check of place → confirm → {@code recordOpen} against the
+     * broker (demo book). The entry is the current market mid, the stop is
+     * {@code 0.4%} away and the target 2R; the bar timestamp is "now" so it never
+     * collides with a real signal's idempotency key. Honours the
+     * {@code hts.execution} feature flag. Returns a small status map for the API.
+     */
+    @Transactional
+    public Map<String, Object> testEntry(HtsVariant variant, String symbolCode, Direction direction) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        SddSymbol symbol = null;
+        for (SddSymbol s : SddSymbol.values()) {
+            if (s.code().equalsIgnoreCase(symbolCode)) {
+                symbol = s;
+                break;
+            }
+        }
+        if (symbol == null) {
+            out.put("ok", false);
+            out.put("error", "unknown symbol '" + symbolCode + "' (try one of GER40/XAU/US100/EURUSD/BTC)");
+            return out;
+        }
+        if (trades.hasOpenPosition(variant, symbol.code())) {
+            out.put("ok", false);
+            out.put("error", variant.name() + " already has an OPEN position for " + symbol.code()
+                    + " — close it first, the gate will not stack.");
+            return out;
+        }
+        String epic = symbol.epic(properties);
+        BrokerClient market = books.marketData();
+        double mid;
+        try {
+            market.login();
+            mid = market.marketPrice(epic).mid();
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("error", "market price unavailable for " + epic + ": " + e.getClass().getSimpleName());
+            return out;
+        }
+        if (mid <= 0) {
+            out.put("ok", false);
+            out.put("error", "market price for " + epic + " is zero");
+            return out;
+        }
+        boolean buy = direction == Direction.BUY;
+        double stopDist = mid * 0.004;
+        double stop = buy ? mid - stopDist : mid + stopDist;
+        double target = buy ? mid + 2 * stopDist : mid - 2 * stopDist;
+        Instant now = clock.instant();
+        HtsScan signal = new HtsScan(variant, now, symbol.code(), epic, direction, mid, stop, target, buy);
+
+        log.info("HTS TEST entry: {} {} {} @ {} stop {} target {}", variant.name(), symbol.code(),
+                direction, mid, stop, target);
+        execution.executeSignal(signal);
+
+        out.put("signal", Map.of(
+                "variant", variant.name(), "symbol", symbol.code(), "epic", epic,
+                "direction", direction.name(), "entry", mid, "stop", stop, "target", target));
+
+        HtsTradeEntity saved = null;
+        for (HtsTradeEntity t : trades.recent(null, 20)) {
+            if (variant.name().equals(t.getVariant())
+                    && symbol.code().equalsIgnoreCase(t.getSymbol())
+                    && t.getOpenedAt() != null
+                    && t.getOpenedAt().isAfter(now.minusSeconds(180))) {
+                saved = t;
+                break;
+            }
+        }
+        if (saved != null) {
+            out.put("ok", true);
+            out.put("saved", true);
+            out.put("tradeId", saved.getId());
+            out.put("dealId", saved.getDealId());
+            out.put("dealReference", saved.getDealReference());
+            out.put("status", saved.getStatus());
+        } else {
+            out.put("ok", false);
+            out.put("saved", false);
+            out.put("hint", "no hts_trades row was written — check the server logs for the "
+                    + "confirm reason (dealStatus/reason), the 'execution SKIPPED' flag line, "
+                    + "or 'not confirmed open'.");
+        }
+        return out;
     }
 
     private void scanVariant(HtsVariant v, List<SddSymbol> universe, BrokerClient market,

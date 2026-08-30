@@ -268,7 +268,7 @@ final class CapitalJson {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record MarketResponse(SnapshotJson snapshot, InstrumentJson instrument) {
+    record MarketResponse(SnapshotJson snapshot, InstrumentJson instrument, DealingRulesJson dealingRules) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -276,10 +276,26 @@ final class CapitalJson {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record SnapshotJson(Double bid, Double offer, Double ask, String updateTimeUTC) {
+    record SnapshotJson(Double bid, Double offer, Double ask, String updateTimeUTC,
+                        Integer decimalPlacesFactor, Double scalingFactor) {
         Double askOrOffer() {
             return ask != null ? ask : offer;
         }
+    }
+
+    /** {@code /markets/{epic}} dealing rules — size and stop-distance limits. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DealingRulesJson(
+            RuleValue minDealSize,
+            RuleValue minStepDistance,
+            RuleValue minNormalStopOrLimitDistance,
+            RuleValue minControlledRiskStopDistance,
+            RuleValue maxStopOrLimitDistance
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RuleValue(String unit, Double value) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -318,6 +334,7 @@ final class CapitalJson {
             String date,
             String status,
             String dealStatus,
+            String reason,
             String epic,
             String dealReference,
             String dealId,
