@@ -9,6 +9,8 @@ import com.adam.server.sdd.Adx;
 import com.adam.server.sdd.Band;
 import com.adam.server.sdd.PivotPoints;
 import com.adam.server.sdd.SddSymbol;
+import com.adam.server.sdd.Supertrend;
+import com.adam.server.sdd.WaveTrend;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,14 +87,23 @@ public class HtsBacktestService {
             double stopBufferFrac,
             boolean adxPermit,
             double runnerLockR,
-            int splitEntries
+            int splitEntries,
+            // T7 — pyramiding
+            int pyramidMax,
+            int pyramidGapBars,
+            double pyramidMinBufferR,
+            // T8 — indicator options
+            boolean supertrendTrail,
+            boolean waveTrendFilter
     ) {
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
                     /*runner*/ false, /*adxFilter*/ false, /*adxThreshold*/ Adx.TREND_THRESHOLD,
                     /*skipConsolidation*/ false, /*pivotTargets*/ false, /*maxNames*/ 4,
                     /*stopBufferFrac*/ 0.25, /*adxPermit*/ false, /*runnerLockR*/ 1.0,
-                    /*splitEntries*/ 1);
+                    /*splitEntries*/ 1,
+                    /*pyramidMax*/ 0, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
+                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false);
         }
     }
 
@@ -133,10 +144,13 @@ public class HtsBacktestService {
             Replayed r;
             if (p.pivotTargets()) {
                 r = replayPivots(c);
+            } else if (p.pyramidMax() > 0) {
+                r = replayPyramid(c, p.rr(), p.runnerLockR(), p.supertrendTrail(),
+                        p.pyramidMax(), p.pyramidGapBars(), p.pyramidMinBufferR());
             } else if (p.splitEntries() > 1) {
-                r = replaySplit(c, p.rr(), p.runnerLockR(), p.splitEntries());
+                r = replaySplit(c, p.rr(), p.runnerLockR(), p.supertrendTrail(), p.splitEntries());
             } else {
-                r = replayRr(c, p.rr(), p.runner(), p.runnerLockR());
+                r = replayRr(c, p.rr(), p.runner(), p.runnerLockR(), p.supertrendTrail());
             }
             out.add(new SwingTradeRow(iso(c.time), iso(r.exit), c.symbol, c.buy ? "LONG" : "SHORT",
                     r.result, Math.round(r.r * 10000.0) / 10000.0));
@@ -148,7 +162,8 @@ public class HtsBacktestService {
     }
 
     private record Cand(Instant time, String symbol, boolean buy, double entry, double stop,
-                        List<Candle> ltf, Band.Series fast, Band.Series slow, int idx, PivotPoints.Levels pivots) {
+                        List<Candle> ltf, Band.Series fast, Band.Series slow, int idx, PivotPoints.Levels pivots,
+                        double[] stLine) {
     }
 
     private record Replayed(Instant exit, String result, double r) {
@@ -171,6 +186,18 @@ public class HtsBacktestService {
         Band.Series hFast = Band.rma(h, FAST_LEN);
         Band.Series hSlow = Band.rma(h, SLOW_LEN);
         List<Adx.Point> adx = p.adxFilter() ? Adx.compute(ltf) : null;
+        // T8: Supertrend line for the runner trail (aligned 1:1 with ltf), and
+        // WaveTrend for the entry veto (don't join a move already stretched our way).
+        double[] stLine = null;
+        if (p.supertrendTrail()) {
+            List<Supertrend.Point> st = Supertrend.compute(ltf);
+            stLine = new double[ltf.size()];
+            java.util.Arrays.fill(stLine, Double.NaN);
+            for (int k = 0; k < st.size() && k < stLine.length; k++) {
+                stLine[k] = st.get(k).line();
+            }
+        }
+        List<WaveTrend.Point> wt = p.waveTrendFilter() ? WaveTrend.compute(ltf) : null;
 
         int hIdx = 0;
         int start = SLOW_LEN + PULLBACK_BARS + SLOPE_BARS;
@@ -193,11 +220,11 @@ public class HtsBacktestService {
             Integer dir = null;
             if (ltfUp && htfUp && !consolidating(lFast, lSlow, i, true, p.skipConsolidation())
                     && pulledBack(ltf, lFast, i, true) && bar.close() > lFast.upper()[i]
-                    && adxOk(adx, i, true, p)) {
+                    && adxOk(adx, i, true, p) && waveTrendOk(wt, i, true)) {
                 dir = 1;
             } else if (ltfDn && htfDn && !consolidating(lFast, lSlow, i, false, p.skipConsolidation())
                     && pulledBack(ltf, lFast, i, false) && bar.close() < lFast.lower()[i]
-                    && adxOk(adx, i, false, p)) {
+                    && adxOk(adx, i, false, p) && waveTrendOk(wt, i, false)) {
                 dir = -1;
             }
             if (dir == null) {
@@ -219,7 +246,7 @@ public class HtsBacktestService {
             if (p.pivotTargets() && piv == null) {
                 continue;
             }
-            out.add(new Cand(bar.time(), code, buy, entry, stop, ltf, lFast, lSlow, i, piv));
+            out.add(new Cand(bar.time(), code, buy, entry, stop, ltf, lFast, lSlow, i, piv, stLine));
         }
     }
 
@@ -280,7 +307,39 @@ public class HtsBacktestService {
         return aligned >= against;
     }
 
+    /**
+     * T8 WaveTrend entry veto: don't join when momentum is already stretched the
+     * way we'd be trading (long into overbought / short into oversold) — wait for
+     * it to come back. Oversold on a long (or overbought on a short) is fine —
+     * that's the pullback we want. Null series = filter off.
+     */
+    private static boolean waveTrendOk(List<WaveTrend.Point> wt, int i, boolean buy) {
+        if (wt == null || i >= wt.size()) {
+            return true;
+        }
+        double wt1 = wt.get(i).wt1();
+        if (Double.isNaN(wt1)) {
+            return true;
+        }
+        return buy ? wt1 < WaveTrend.OVERBOUGHT : wt1 > WaveTrend.OVERSOLD;
+    }
+
     // ---- exit models ----
+
+    /**
+     * The level the runner's stop trails: the Supertrend line (T8
+     * {@code supertrendTrail}) if available, otherwise the far edge of the fast
+     * band. Both sit on the protective side of price in a trend.
+     */
+    private static double trailEdge(Cand c, int i, boolean buy, boolean stTrail) {
+        if (stTrail && c.stLine != null && i < c.stLine.length && !Double.isNaN(c.stLine[i])) {
+            return c.stLine[i];
+        }
+        if (c.fast.ready(i)) {
+            return buy ? c.fast.lower()[i] : c.fast.upper()[i];
+        }
+        return buy ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
+    }
 
     /**
      * Fixed-RR / runner exit.
@@ -295,7 +354,7 @@ public class HtsBacktestService {
      * candle body closes beyond the slow band. {@code lockR ≤ 0} = no lock/trail,
      * runner just held to the slow-band body-close.
      */
-    private static Replayed replayRr(Cand c, double rr, boolean runner, double lockR) {
+    private static Replayed replayRr(Cand c, double rr, boolean runner, double lockR, boolean stTrail) {
         boolean buy = c.buy;
         double stopDist = Math.abs(c.entry - c.stop);
         double target = buy ? c.entry + rr * stopDist : c.entry - rr * stopDist;
@@ -345,9 +404,7 @@ public class HtsBacktestService {
             if (rB == null) {
                 boolean afterTp1 = lockTrail && rA != null && rA > 0;
                 if (afterTp1) {
-                    double edge = c.fast.ready(i)
-                            ? (buy ? c.fast.lower()[i] : c.fast.upper()[i])
-                            : (buy ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY);
+                    double edge = trailEdge(c, i, buy, stTrail);
                     runnerStop = buy
                             ? Math.max(runnerStop, Math.max(lockLevel, edge))
                             : Math.min(runnerStop, Math.min(lockLevel, edge));
@@ -370,6 +427,117 @@ public class HtsBacktestService {
     }
 
     /**
+     * T7 — pyramiding. The base unit runs the {@link #replayRr} runner-lock model
+     * (TP1 at {@code rr} on half, then a stop locked at {@code lockR} that trails
+     * {@link #trailEdge}). <b>After TP1</b>, on every later bar that re-prints the
+     * entry setup (fresh pullback into the fast band + a body reclaim, still
+     * trending, not consolidating), an extra unit is added — but only while there
+     * is banked profit to fund it: the add is sized so its risk to the shared
+     * trailing stop equals the current profit cushion, capped at 1R of the base
+     * unit. All units share one trailing stop; a stop hit or a slow-band body
+     * close flattens the whole stack.
+     *
+     * <p>{@code bankedR} = the R that would remain if everything were stopped at
+     * the shared stop right now (TP1 proceeds + every open unit marked to that
+     * stop). The stack's account risk therefore stays ≈ house money; nominal size
+     * grows with the trend. {@code r_multiple} is still in base-1R units so the
+     * numbers compare with the other exit models.
+     */
+    private static Replayed replayPyramid(Cand c, double rr, double lockR, boolean stTrail,
+                                          int pyrMax, int gapBars, double minBufferR) {
+        boolean buy = c.buy;
+        double stopDist = Math.abs(c.entry - c.stop);
+        double target = buy ? c.entry + rr * stopDist : c.entry - rr * stopDist;
+        double lockLevel = buy ? c.entry + Math.max(0, lockR) * stopDist : c.entry - Math.max(0, lockR) * stopDist;
+        int end = Math.min(c.idx + LOOK_AHEAD_BARS, c.ltf.size());
+
+        boolean tp1 = false;
+        double runnerStop = c.stop;
+        List<double[]> units = new ArrayList<>();   // each: {entryPrice, sizeR}
+        int lastAddBar = Integer.MIN_VALUE / 2;
+
+        for (int i = c.idx + 1; i < end; i++) {
+            Candle b = c.ltf.get(i);
+
+            if (!tp1) {
+                if (buy ? b.low() <= c.stop : b.high() >= c.stop) {
+                    return new Replayed(b.time(), "LOSS", -1.0);   // stopped before TP1
+                }
+                if (buy ? b.high() >= target : b.low() <= target) {
+                    tp1 = true;
+                    runnerStop = buy ? Math.max(runnerStop, lockLevel) : Math.min(runnerStop, lockLevel);
+                }
+                continue;
+            }
+
+            // ---- after TP1 ----
+            double edge = trailEdge(c, i, buy, stTrail);
+            runnerStop = buy ? Math.max(runnerStop, Math.max(lockLevel, edge))
+                             : Math.min(runnerStop, Math.min(lockLevel, edge));
+
+            if (units.size() < pyrMax && i - lastAddBar >= Math.max(1, gapBars) && addSignal(c, i, buy)) {
+                double cushion = bankedR(c, rr, units, runnerStop, stopDist);
+                double addDist = Math.abs(b.close() - runnerStop);
+                if (cushion >= minBufferR && addDist > 0) {
+                    double riskR = Math.min(cushion, 1.0);          // R risked to the shared stop
+                    double sizeR = riskR * stopDist / addDist;      // base-1R-equivalent size
+                    units.add(new double[]{b.close(), sizeR});
+                    lastAddBar = i;
+                }
+            }
+
+            if (buy ? b.low() <= runnerStop : b.high() >= runnerStop) {
+                return closeStack(c, rr, units, runnerStop, stopDist, buy, b.time());
+            }
+            if (bodyBeyondSlow(c, b, i, buy)) {
+                return closeStack(c, rr, units, b.close(), stopDist, buy, b.time());
+            }
+        }
+        Candle last = c.ltf.get(end - 1);
+        if (!tp1) {
+            return mtm(c, last, end - 1, buy, stopDist);           // never reached TP1
+        }
+        return closeStack(c, rr, units, last.close(), stopDist, buy, last.time());
+    }
+
+    /** Profit that survives a stop-out at {@code stopPrice} right now, in base-1R units. */
+    private static double bankedR(Cand c, double rr, List<double[]> units, double stopPrice, double stopDist) {
+        boolean buy = c.buy;
+        double r = 0.5 * rr;                                        // TP1 already banked on half the base
+        r += 0.5 * (buy ? stopPrice - c.entry : c.entry - stopPrice) / stopDist;   // base runner half
+        for (double[] u : units) {
+            r += u[1] * (buy ? stopPrice - u[0] : u[0] - stopPrice) / stopDist;
+        }
+        return r;
+    }
+
+    /** Flatten the whole stack at {@code exitPrice}; R in base-1R units. */
+    private static Replayed closeStack(Cand c, double rr, List<double[]> units, double exitPrice,
+                                       double stopDist, boolean buy, Instant at) {
+        double r = 0.5 * rr;
+        r += 0.5 * (buy ? exitPrice - c.entry : c.entry - exitPrice) / stopDist;
+        for (double[] u : units) {
+            r += u[1] * (buy ? exitPrice - u[0] : u[0] - exitPrice) / stopDist;
+        }
+        return new Replayed(at, r > 1e-9 ? "WIN" : r < -1e-9 ? "LOSS" : "OPEN", r);
+    }
+
+    /** A later bar that re-prints the entry setup: still trending, not consolidating, pullback + body reclaim. */
+    private static boolean addSignal(Cand c, int i, boolean buy) {
+        if (!c.fast.ready(i) || !c.slow.ready(i)) {
+            return false;
+        }
+        boolean trend = buy ? c.fast.lower()[i] > c.slow.upper()[i]
+                            : c.fast.upper()[i] < c.slow.lower()[i];
+        if (!trend || consolidating(c.fast, c.slow, i, buy, true)) {
+            return false;
+        }
+        double close = c.ltf.get(i).close();
+        boolean reclaim = buy ? close > c.fast.upper()[i] : close < c.fast.lower()[i];
+        return reclaim && pulledBack(c.ltf, c.fast, i, buy);
+    }
+
+    /**
      * T6 — split entry. Ladder {@code n} equal‑notional rungs from the signal
      * close down toward the structural stop (top half of the entry→stop range),
      * filled over the next {@link #PULLBACK_BARS} bars. The position that forms
@@ -380,7 +548,7 @@ public class HtsBacktestService {
      * {@link #replayRr} (TP1 at {@code rr}, then locked profit + fast‑band trail,
      * final exit on a slow‑band body close).
      */
-    private static Replayed replaySplit(Cand c, double rr, double lockR, int n) {
+    private static Replayed replaySplit(Cand c, double rr, double lockR, boolean stTrail, int n) {
         boolean buy = c.buy;
         double origDist = Math.abs(c.entry - c.stop);
         double step = origDist / (2.0 * n);
@@ -438,9 +606,7 @@ public class HtsBacktestService {
             if (rB == null) {
                 boolean afterTp1 = lockR > 0 && rA != null && rA > 0;
                 if (afterTp1) {
-                    double edge = c.fast.ready(i)
-                            ? (buy ? c.fast.lower()[i] : c.fast.upper()[i])
-                            : (buy ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY);
+                    double edge = trailEdge(c, i, buy, stTrail);
                     runnerStop = buy
                             ? Math.max(runnerStop, Math.max(lockLevel, edge))
                             : Math.min(runnerStop, Math.min(lockLevel, edge));
