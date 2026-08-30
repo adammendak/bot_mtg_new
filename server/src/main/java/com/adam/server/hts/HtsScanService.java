@@ -106,7 +106,7 @@ public class HtsScanService {
                     if (signal != null) {
                         found.add(signal);
                         persist(signal);
-                        notify(signal);
+                        notify(signal, context(h1, d1, signal));
                         execution.executeSignal(signal);
                         log.info("HTS signal {} {} entry {} stop {} target {} (HTF {})",
                                 signal.symbol(), signal.direction(), signal.entry(),
@@ -153,10 +153,19 @@ public class HtsScanService {
         }
     }
 
-    private void notify(HtsScan s) {
+    private HtsSignalContext context(List<Candle> h1, List<Candle> d1, HtsScan s) {
+        try {
+            return HtsSignalContext.from(h1, d1, s, java.time.ZoneId.of(properties.getTimezone()));
+        } catch (RuntimeException e) {
+            log.warn("HTS signal context build failed for {}: {}", s.symbol(), e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private void notify(HtsScan s, HtsSignalContext ctx) {
         for (HtsNotifier n : notifiers) {
             try {
-                n.onHtsSignal(s);
+                n.onHtsSignal(s, ctx);
             } catch (Exception e) {
                 log.warn("HTS notifier {} failed: {}", n.getClass().getSimpleName(), e.getClass().getSimpleName());
             }
