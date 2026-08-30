@@ -31,6 +31,77 @@ import { BookId, BOOK_TABS } from '../model/sdd.model';
       <div class="alert alert-danger py-2">{{ e }}</div>
     }
 
+    <div class="row g-3 mb-1">
+      <div class="col-lg-5">
+        <div class="card shadow-sm">
+          <div class="card-header text-white d-flex justify-content-between align-items-center"
+               [class.bg-dark]="(sdd.opsHealth()?.staleCount ?? 0) === 0"
+               [class.bg-danger]="(sdd.opsHealth()?.staleCount ?? 0) > 0">
+            <span>Zdrowie schedulerów (E-5)</span>
+            <button type="button" class="btn btn-outline-light btn-sm" (click)="sdd.loadOps()">Odśwież</button>
+          </div>
+          <div class="card-body p-0">
+            <table class="table table-sm table-striped mb-0">
+              <thead class="table-dark">
+                <tr><th>Probe</th><th>Ostatni OK</th><th class="text-end">Wiek</th><th>Stan</th></tr>
+              </thead>
+              <tbody>
+                @if (!sdd.opsHealth() || sdd.opsHealth()!.schedulers.length === 0) {
+                  <tr><td colspan="4" class="text-muted text-center">Brak zarejestrowanych probe'ów.</td></tr>
+                } @else {
+                  @for (p of sdd.opsHealth()!.schedulers; track p.name) {
+                    <tr [class.table-danger]="p.stale">
+                      <td>{{ p.name }}</td>
+                      <td class="small">{{ tstamp(p.lastOkAt) }}</td>
+                      <td class="text-end small">{{ p.ageSeconds < 0 ? '—' : age(p.ageSeconds) }}</td>
+                      <td>
+                        <span class="badge" [class.text-bg-success]="!p.stale" [class.text-bg-danger]="p.stale">
+                          {{ p.stale ? 'STALE' : 'ok' }}
+                        </span>
+                      </td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-7">
+        <div class="card shadow-sm">
+          <div class="card-header bg-dark text-white">Ostatnie błędy (trwały log)</div>
+          <div class="card-body p-0 table-scroll">
+            @if (sdd.opsError(); as e) {
+              <div class="alert alert-danger py-2 m-2">{{ e }}</div>
+            }
+            <table class="table table-sm table-striped mb-0">
+              <thead class="table-dark">
+                <tr><th>Czas</th><th>Źródło</th><th>Zakres</th><th>Co</th></tr>
+              </thead>
+              <tbody>
+                @if (sdd.opsErrors().length === 0) {
+                  <tr><td colspan="4" class="text-muted text-center">Brak zapisanych błędów.</td></tr>
+                } @else {
+                  @for (e of sdd.opsErrors(); track e.id) {
+                    <tr>
+                      <td class="small text-nowrap">{{ tstamp(e.at) }}</td>
+                      <td><span class="badge text-bg-secondary">{{ e.source }}</span></td>
+                      <td class="small">{{ e.scope || '' }}{{ e.detail ? ' · ' + e.detail : '' }}</td>
+                      <td class="small">
+                        <span class="text-danger">{{ shortEx(e.exception) }}</span>
+                        {{ e.message ? ' — ' + e.message : '' }}
+                      </td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="row g-3">
       <div class="col-lg-7">
         <div class="card shadow-sm">
@@ -161,6 +232,36 @@ export class MonitorComponent implements OnInit {
     const book = this.current as BookId;
     this.sdd.loadMonitor(book);
     this.sdd.loadAudit(book);
+    this.sdd.loadOps();
+  }
+
+  tstamp(iso: string | null | undefined): string {
+    if (!iso) {
+      return '—';
+    }
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? String(iso)
+      : d.toLocaleString('pl-PL', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  age(seconds: number): string {
+    if (seconds < 60) {
+      return `${seconds}s`;
+    }
+    const m = Math.floor(seconds / 60);
+    if (m < 60) {
+      return `${m}m`;
+    }
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
+  shortEx(fqcn: string | null): string {
+    if (!fqcn) {
+      return '';
+    }
+    const i = fqcn.lastIndexOf('.');
+    return i >= 0 ? fqcn.slice(i + 1) : fqcn;
   }
 
   canAct(): boolean {

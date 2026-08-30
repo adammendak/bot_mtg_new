@@ -371,7 +371,7 @@ Audyt z drugiej sesji (czytany kod, HEAD `ab5691c`). Poniżej tylko to, co ma se
 dla obecnej fazy — **forward-test wrzesień na 3 kontach demo + 1 realne**. Odrzucone
 / tylko-notatka na końcu. Kolejność = priorytet.
 
-### E-5 — Obserwowalność: dead-man switch + heartbeat + trwały log błędów  ← TIER 1
+### E-5 — Obserwowalność: dead-man switch + heartbeat + trwały log błędów  ← zrobione (PR #73)
 **Po co:** dziś jedyny sygnał „bot żyje" to `/health` + mail/Telegram per-trade.
 Scheduler może po cichu paść (restart dyno, wyjątek w cronie, 429 Capital — **już
 widziane**) i nikt się nie dowie, bo brak sygnałów nie generuje alertu. W trakcie
@@ -385,10 +385,19 @@ forward-testu = stracony miesiąc danych.
 - Opcjonalny ping zewnętrzny: `HEALTHCHECK_URL` (healthchecks.io / UptimeRobot)
   trafiany na końcu każdego udanego cyklu skanu — domyka lukę „całe dyno padło".
 - `/health` rozszerzone o `lastScanAt` / `lastHtsScanAt` / `lastMonitorAt`.
-- **Trwały log błędów:** tabela `error_events` (czas, źródło, klasa wyjątku, msg,
-  book/wariant), pisana z `catch` w schedulerach + gate; podgląd w adminie
-  (E-6 / osobna karta). Zastępuje efemeryczny log Heroku dla „co się ostatnio wysypało".
-**Rozmiar:** M (2–3 dni).
+- **Trwały log błędów:** tabela `error_events` (changeset 015; czas, źródło,
+  scope=book/wariant, detail=symbol, klasa wyjątku, msg), pisana z `catch` w
+  schedulerach + `HtsExecutionGate` + watchdogu. `ErrorLog.record` w osobnej
+  transakcji (`REQUIRES_NEW`) — wiersz przeżyje rollback callera; nocny purge po
+  `OPS_ERROR_RETENTION_DAYS` (30). Zastępuje efemeryczny log Heroku.
+- **Widok:** strona Monitoring — karty „Zdrowie schedulerów" (nagłówek czerwony
+  gdy `staleCount>0`) + „Ostatnie błędy". API: `GET /api/ops/health`,
+  `GET /api/ops/errors?limit=`. `/health` dostał `schedulersStale` + listę probe'ów.
+- **Probe'y:** `sdd-scan` (33 min), `swing-scan` (125 min), `hts-scan` (13 min,
+  ten pinguje `HEALTHCHECK_URL`), `hts-monitor` (13 min). Wyłączony scheduler nie
+  rejestruje probe'a → nie jest pilnowany (SDD/SWING zarchiwizowane = cisza).
+- Flagi: `OPS_WATCHDOG_ENABLED`, `OPS_WATCHDOG_MS` (300000), `HEALTHCHECK_URL`,
+  `OPS_ERROR_RETENTION_DAYS`.
 
 ### E-6 — Feature flagi w DB + przełączniki w adminie (bez redeployu)  ← TIER 1
 **Po co:** `EXECUTION_ENABLED`, `HTS_EXECUTION_ENABLED`, `HTS_LIVE_EXECUTION_ENABLED`,

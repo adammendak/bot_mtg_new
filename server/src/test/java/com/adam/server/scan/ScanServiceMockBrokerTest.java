@@ -289,7 +289,11 @@ class ScanServiceMockBrokerTest {
         when(scanService.scan()).thenThrow(new IllegalStateException("scheduler blew up"));
         org.mockito.Mockito.doThrow(new RuntimeException("hook down"))
                 .when(webhooks).publishFailover(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-        ScanScheduler scheduler = new ScanScheduler(scanService, webhooks);
+        com.adam.server.ops.SchedulerHeartbeat heartbeat =
+                new com.adam.server.ops.SchedulerHeartbeat(java.time.Clock.systemUTC(), "");
+        com.adam.server.ops.ErrorLog errorLog =
+                org.mockito.Mockito.mock(com.adam.server.ops.ErrorLog.class);
+        ScanScheduler scheduler = new ScanScheduler(scanService, webhooks, heartbeat, errorLog);
         assertThatCode(scheduler::onM15Close).doesNotThrowAnyException();
     }
 
