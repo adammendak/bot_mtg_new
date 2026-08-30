@@ -253,6 +253,57 @@ export interface HtsTrade {
   barTime: string | null;
 }
 
+/** HTS trade journal (E-8). */
+export interface HtsJournal {
+  trades: number;
+  wins: number;
+  winRate: number;
+  avgR: number;
+  sumR: number;
+  byDay: { date: string; r: number; pnl: number | null; trades: number }[];
+  rHistogram: { label: string; count: number }[];
+  byReason: HtsJournalGroup[];
+  bySymbol: HtsJournalGroup[];
+}
+
+export interface HtsJournalGroup {
+  key: string;
+  trades: number;
+  wins: number;
+  winRate: number;
+  avgR: number;
+  sumR: number;
+}
+
+/** One cell of the E-9 parameter sweep. */
+export interface HtsSweepRow {
+  rr: number;
+  stopBuf: number;
+  runnerLock: number;
+  adxPermit: boolean;
+  n: number;
+  winRate: number;
+  avgR: number;
+  sumR: number;
+  maxDdR: number;
+}
+
+/** E-10 walk-forward split result. */
+export interface HtsOosResult {
+  splitPct: number;
+  splitAt: string | null;
+  inSample: HtsOosHalf;
+  outOfSample: HtsOosHalf;
+}
+
+export interface HtsOosHalf {
+  n: number;
+  winRate: number;
+  avgR: number;
+  sumR: number;
+  maxDdR: number;
+}
+
 /** One row of the HTS forward-test scorecard (E-4) — per timeframe model. */
 export interface HtsScorecardRow {
   variant: string;

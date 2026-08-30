@@ -17,6 +17,9 @@ import {
   HtsSignal,
   HtsTrade,
   HtsScorecardRow,
+  HtsJournal,
+  HtsSweepRow,
+  HtsOosResult,
   SymbolStats,
   OpsHealth,
   ErrorEvent,
@@ -49,6 +52,11 @@ export class SddService {
   readonly htsTradesError = signal<string | null>(null);
   readonly htsScorecard = signal<HtsScorecardRow[]>([]);
   readonly htsScorecardError = signal<string | null>(null);
+  readonly htsJournal = signal<HtsJournal | null>(null);
+  readonly htsSweep = signal<HtsSweepRow[]>([]);
+  readonly htsOos = signal<HtsOosResult | null>(null);
+  readonly htsLabError = signal<string | null>(null);
+  readonly htsLabBusy = signal(false);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
   readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [], hts: [] });
@@ -239,6 +247,62 @@ export class SddService {
     this.http.get<HtsTrade[]>(`/api/hts/trades${q}`).subscribe({
       next: (t) => this.htsTrades.set(Array.isArray(t) ? t : []),
       error: (e) => this.htsTradesError.set(formatHttpError('/api/hts/trades', e)),
+    });
+  }
+
+  /** HTS trade journal (E-8) — day series, R histogram, per-reason / per-symbol groups. */
+  loadHtsJournal(f: { variant?: string; symbol?: string; from?: string; to?: string } = {}): void {
+    if (!this.auth.canSeeBook('hts')) {
+      return;
+    }
+    const q = new URLSearchParams();
+    if (f.variant) q.set('variant', f.variant);
+    if (f.symbol) q.set('symbol', f.symbol);
+    if (f.from) q.set('from', f.from);
+    if (f.to) q.set('to', f.to);
+    this.htsLabError.set(null);
+    this.http.get<HtsJournal>(`/api/hts/journal?${q.toString()}`).subscribe({
+      next: (j) => this.htsJournal.set(j),
+      error: (e) => this.htsLabError.set(formatHttpError('/api/hts/journal', e)),
+    });
+  }
+
+  /** E-9 parameter sweep over rr × stopBuf × runnerLock × adxPermit. */
+  runHtsSweep(tf: { htf: string; ltf: string }, days: number, axes: {
+    rr: string; stopBuf: string; runnerLock: string; adxPermit: string;
+  }): void {
+    this.htsLabBusy.set(true);
+    this.htsLabError.set(null);
+    const q = new URLSearchParams({
+      htf: tf.htf, ltf: tf.ltf, days: String(days),
+      rr: axes.rr, stopBuf: axes.stopBuf, runnerLock: axes.runnerLock, adxPermit: axes.adxPermit,
+    });
+    this.http.get<HtsSweepRow[]>(`/api/hts/backtest/sweep?${q.toString()}`).subscribe({
+      next: (r) => {
+        this.htsSweep.set(Array.isArray(r) ? r : []);
+        this.htsLabBusy.set(false);
+      },
+      error: (e) => {
+        this.htsLabBusy.set(false);
+        this.htsLabError.set(formatHttpError('/api/hts/backtest/sweep', e));
+      },
+    });
+  }
+
+  /** E-10 walk-forward split. */
+  runHtsOos(tf: { htf: string; ltf: string }, days: number, split: number): void {
+    this.htsLabBusy.set(true);
+    this.htsLabError.set(null);
+    const q = new URLSearchParams({ htf: tf.htf, ltf: tf.ltf, days: String(days), split: String(split) });
+    this.http.get<HtsOosResult>(`/api/hts/backtest/oos?${q.toString()}`).subscribe({
+      next: (r) => {
+        this.htsOos.set(r);
+        this.htsLabBusy.set(false);
+      },
+      error: (e) => {
+        this.htsLabBusy.set(false);
+        this.htsLabError.set(formatHttpError('/api/hts/backtest/oos', e));
+      },
     });
   }
 
