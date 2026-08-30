@@ -61,25 +61,28 @@ class HtsExportTest {
      */
     @Test
     void pyramidAndIndicators() throws Exception {
+        pyrGrid(Resolution.D1, Resolution.H1, "d1h1");
+    }
+
+    /** Same grid, H4/M15 only — its own fresh session (the combined run throttles before it). */
+    @Test
+    void pyramidAndIndicatorsH4M15() throws Exception {
+        pyrGrid(Resolution.H4, Resolution.M15, "h4m15");
+    }
+
+    private void pyrGrid(Resolution htf, Resolution ltf, String pairName) throws Exception {
         Files.createDirectories(OUT);
-        Resolution[][] pairs = {{Resolution.D1, Resolution.H1}, {Resolution.H4, Resolution.M15}};
-        String[] pairName = {"d1h1", "h4m15"};
         int[][] windows = {{30, 30}, {30, 0}};
         String[] wn = {"m2back", "recent"};
-        for (int pi = 0; pi < pairs.length; pi++) {
-            for (int w = 0; w < windows.length; w++) {
-                for (int pyr : new int[]{0, 1, 2, 3}) {
-                    run(pairName[pi] + "_" + wn[w] + "_pyr" + pyr,
-                            params(pairs[pi][0], pairs[pi][1], windows[w][0], windows[w][1],
-                                    Adx.PERMIT, 0.25, false, 1, pyr, false, false));
-                }
-                run(pairName[pi] + "_" + wn[w] + "_sttrail",
-                        params(pairs[pi][0], pairs[pi][1], windows[w][0], windows[w][1],
-                                Adx.PERMIT, 0.25, false, 1, 0, true, false));
-                run(pairName[pi] + "_" + wn[w] + "_wtfilter",
-                        params(pairs[pi][0], pairs[pi][1], windows[w][0], windows[w][1],
-                                Adx.PERMIT, 0.25, false, 1, 0, false, true));
+        for (int w = 0; w < windows.length; w++) {
+            for (int pyr : new int[]{0, 1, 2, 3}) {
+                run(pairName + "_" + wn[w] + "_pyr" + pyr,
+                        params(htf, ltf, windows[w][0], windows[w][1], Adx.PERMIT, 0.25, false, 1, pyr, false, false));
             }
+            run(pairName + "_" + wn[w] + "_sttrail",
+                    params(htf, ltf, windows[w][0], windows[w][1], Adx.PERMIT, 0.25, false, 1, 0, true, false));
+            run(pairName + "_" + wn[w] + "_wtfilter",
+                    params(htf, ltf, windows[w][0], windows[w][1], Adx.PERMIT, 0.25, false, 1, 0, false, true));
         }
         System.out.println("CSV dir: " + OUT);
     }

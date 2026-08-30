@@ -230,7 +230,33 @@ Niezmiennik: **łączne ryzyko otwartego stosu ≤ 1R bazowego** w każdym momen
   w naszą stronę (long przy `wt1 ≥ OVERBOUGHT`, short przy `wt1 ≤ OVERSOLD`). Oversold na longu =
   OK (to nasz pullback).
 - Wskaźniki: `com.adam.server.sdd.Supertrend`, `WaveTrend` (wyliczane per‑symbol w `collect`).
-- Grid: `HtsExportTest#pyramidAndIndicators` — st‑trail on/off, wt‑filter on/off. Wyniki niżej.
+
+### Wyniki T7 + T8 (backtest, ADX‑permit, buf 0.25, RR 2, runner‑lock 1.0)
+
+**D1/H1 (przebieg zaufany)** — ALL avgR, n w nawiasie:
+
+| config | m2back | recent |
+|---|---|---|
+| baza (pyr 0) | +0.111 (5) | **+0.396 (10)** |
+| pyramidMax 1 | +0.153 (5) | +0.153 (10) |
+| pyramidMax 2 | +0.153 (5) | +0.136 (10) |
+| pyramidMax 3 | +0.153 (5) | +0.173 (10) |
+| supertrendTrail | +0.111 (5) | **+0.461 (11)** |
+| waveTrendFilter | +0.111 (5) | +0.396 (10) |
+
+**H4/M15** — osobny przebieg `pyramidAndIndicatorsH4M15` (grid łańcuchowy throttluje przed 3. parą).
+Wyniki: _(uzupełnić)_.
+
+**Wnioski:**
+1. **T7 piramidowanie NIE pomaga** — D1/H1 recent +0.40 → +0.14…+0.17. Dokładki po TP1 są
+   ścinane na wspólnym trailu zanim przyjdzie noga trendu. Ten sam wzór co split‑entry (T6).
+   **Domyślnie `pyramidMax=0`.**
+2. **T8 `supertrendTrail` — lekki plus** (D1/H1 recent +0.40 → +0.46, n 10→11). Linia Supertrend
+   to nieco luźniejszy trail niż krawędź szybkiej wstęgi — zostaje jako opcja, kandydat na default
+   po potwierdzeniu na H4/M15.
+3. **T8 `waveTrendFilter` — brak efektu na D1/H1** (nie wyciął żadnego z 10 wejść). Werdykt zależy
+   od H4/M15 (więcej sygnałów).
+4. Próbki D1/H1 nadal cienkie (5–11 tradów) — flip między dniami przesuwa avgR.
 
 ### T9 — Live: 3. book `hts` + 3. konto Capital  ← zrobione (egzekucja domyślnie OFF)
 - **Plumbing:** `Books.HTS` + `BrokerBooks.hts()` + bean `htsBroker` (`CAPITAL_HTS_*`),
