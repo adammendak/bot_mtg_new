@@ -542,6 +542,21 @@ krótka notka bez wywołania API. Opt-in: `AI_REVIEW_ENABLED=true` + `ANTHROPIC_
 `manifest.webmanifest` + `sw.js` (PWA) już są. Web Push API → alerty bez maila/
 Telegrama. Tanie bo SW jest, ale mail/Telegram już pokrywają potrzebę. Odłożone.
 
+### Własna domena (zakupiona 2026-08-30)  ← DO ZROBIENIA w poniedziałek
+Ładny URL zamiast `bot-reinvented-9c8abd9ce4a5.herokuapp.com`. Sama konfiguracja
+Heroku + DNS — **bez zmian w kodzie** (SPA używa relatywnych URL-i, SSE `/api/live`
+też).
+1. `heroku domains:add <domena>` + `heroku domains:add www.<domena>` — Heroku zwraca
+   cel DNS (`*.herokudns.com`).
+2. U rejestratora: `www` → CNAME na cel Heroku; apex (`<domena>`) → ALIAS/ANAME
+   (albo przekierowanie na `www` jeśli rejestrator nie wspiera ALIAS).
+3. `heroku certs:auto:enable` — ACM sam wystawi TLS (kilka–kilkanaście min po
+   propagacji DNS).
+4. Zaktualizować `HEALTH_URL` w parked `prod-watch.yml` / repo var, oraz notatkę
+   `bot-mtg-new-deployment` w pamięci.
+5. Sanity: `curl https://<domena>/health`, logowanie, SSE overview, mail-linki.
+Opcjonalnie: `AUTH_TOTP_ISSUER` można zostawić („BOT-reinvented").
+
 ### Tylko notatka (nie epik)
 - `actuator` `show-details=never` — jeśli kiedyś potrzebny głębszy health (DB pool,
   disk) → osobny endpoint za auth, nie rozluźniać actuatora.
