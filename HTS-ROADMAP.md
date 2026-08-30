@@ -164,7 +164,10 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
   sizowanych własnym (ciaśniejszym) stopem tak, że pełne wypełnienie = pełne 1R — to model z T7‑style
   księgowaniem, odłożony.
 
-### T7 — Piramidowanie (rozpisane)
+### T7 — Piramidowanie  ← kod w backteście zrobiony (PR #64), grid w toku
+
+`replayPyramid` w `HtsBacktestService` implementuje poniższy model. `HtsExportTest#pyramidAndIndicators`
+puszcza `pyramidMax ∈ {0,1,2,3}` na D1/H1 i H4/M15, oba okna. Wyniki niżej.
 
 **Idea (z filmów):** po TP1, gdy trend trwa, dokładasz kolejne jednostki na każdym powrocie
 ceny do szybkiej wstęgi (ten sam setup pullback+reclaim co wejście bazowe). Równe loty, nie
@@ -220,10 +223,54 @@ Niezmiennik: **łączne ryzyko otwartego stosu ≤ 1R bazowego** w każdym momen
 - Konflikt z `ExecutionGate` SDD-M15 („NO pyramid") nie dotyczy — to osobny gate/book.
 - **Wejdzie za flagą** `HTS_PYRAMID_ENABLED` (domyślnie false), niezależną od `HTS_EXECUTION_ENABLED`.
 
-### T8 — Supertrend / WaveTrend jako opcje
-- Runner‑trail: Supertrend vs linia RMA133 vs „close pod wolną wstęgą" — A/B.
-- WaveTrend: timing OB/OS jako dodatkowy filtr wejścia (extreme → czekaj na reclaim).
-- Wskaźniki już w kodzie (`com.adam.server.sdd.Supertrend`, `WaveTrend`).
+### T8 — Supertrend / WaveTrend jako opcje  ← zrobione w backteście (PR #64)
+- **`supertrendTrail`** (`?supertrendTrail=`): trailing stop runnera podąża za linią Supertrend
+  zamiast za krawędzią szybkiej wstęgi (funkcja `trailEdge`). A/B vs domyślny band‑trail.
+- **`waveTrendFilter`** (`?waveTrendFilter=`): weto wejścia gdy WaveTrend LTF jest już rozciągnięty
+  w naszą stronę (long przy `wt1 ≥ OVERBOUGHT`, short przy `wt1 ≤ OVERSOLD`). Oversold na longu =
+  OK (to nasz pullback).
+- Wskaźniki: `com.adam.server.sdd.Supertrend`, `WaveTrend` (wyliczane per‑symbol w `collect`).
+
+### Wyniki T7 + T8 (backtest, ADX‑permit, buf 0.25, RR 2, runner‑lock 1.0)
+
+**D1/H1 (przebieg zaufany)** — ALL avgR, n w nawiasie:
+
+| config | m2back | recent |
+|---|---|---|
+| baza (pyr 0) | +0.111 (5) | **+0.396 (10)** |
+| pyramidMax 1 | +0.153 (5) | +0.153 (10) |
+| pyramidMax 2 | +0.153 (5) | +0.136 (10) |
+| pyramidMax 3 | +0.153 (5) | +0.173 (10) |
+| supertrendTrail | +0.111 (5) | **+0.461 (11)** |
+| waveTrendFilter | +0.111 (5) | +0.396 (10) |
+
+**H4/M15** (osobny przebieg `pyramidAndIndicatorsH4M15`, próbka 54–72 tradów = wiarygodna):
+
+| config | m2back | recent |
+|---|---|---|
+| baza (pyr 0) | −0.361 (54) | +0.213 (64) |
+| pyramidMax 1 | −0.440 (55) | +0.177 (63) |
+| pyramidMax 2 | −0.461 (55) | +0.209 (63) |
+| pyramidMax 3 | −0.495 (55) | +0.289 (63) |
+| supertrendTrail | **−0.331 (55)** | +0.196 (72) |
+| waveTrendFilter | −0.363 (54) | +0.230 (65) |
+
+**Wnioski:**
+1. **T7 piramidowanie NIE pomaga.** D1/H1 recent +0.40 → +0.14…+0.17. H4/M15 m2back
+   **wyraźnie gorzej** (−0.36 → −0.44 → −0.46 → −0.50 — dokładki kompletują straty w chop),
+   recent szum (+0.18…+0.29). Dokładki po TP1 są ścinane na wspólnym trailu zanim przyjdzie
+   noga trendu. Ten sam wzór co split‑entry (T6). **Domyślnie `pyramidMax=0`.**
+2. **T8 `supertrendTrail` — mały spójny plus.** D1/H1 recent +0.40 → +0.46 (n 10→11);
+   H4/M15 m2back −0.36 → **−0.33**, recent ≈ flat ale trzyma więcej runnerów (n 64→72).
+   Luźniejszy trail = mniej przedwczesnych stop‑outów. **Zostaje jako opcja, kandydat na default.**
+3. **T8 `waveTrendFilter` — praktycznie no‑op.** D1/H1: 0 wejść wyciętych. H4/M15 recent
+   +0.213 → +0.230 (marginalnie). Wejście = pullback+reclaim (czyli „kup dołek"), więc WT prawie
+   nigdy nie jest wykupiony w naszą stronę w momencie sygnału. **Zostawiamy wyłączony.**
+4. Próbki D1/H1 nadal cienkie (5–11 tradów) — flip między dniami przesuwa avgR; H4/M15 wiarygodne.
+
+**Konfiguracja domyślna po T1–T8:** RR 2, runner‑lock 1.0, bufor 0.25, skip‑konsolidacji on,
+ADX off (permit opcjonalnie, na D1/H1 pomaga), pivotTargets off, splitEntries 1, **pyramidMax 0**,
+**supertrendTrail = opcja do rozważenia jako default**, waveTrendFilter off.
 
 ### T9 — Live: 3. book `hts` + 3. konto Capital  ← zrobione (egzekucja domyślnie OFF)
 - **Plumbing:** `Books.HTS` + `BrokerBooks.hts()` + bean `htsBroker` (`CAPITAL_HTS_*`),
@@ -328,9 +375,9 @@ spójne z D1/H1 i z SDD/swing. Sample 55–65 tradów = wiarygodny.
 `skipConsolidation=true`, ADX off (permit jako opcja, na D1/H1 pomaga), `pivotTargets=false`,
 `splitEntries=1`.
 
-**Następne:** T7 (piramida — model rozpisany, do zakodowania w backteście `replayPyramid` + grid),
-potem T8 (Supertrend/WaveTrend opcje), T11 (drugi model swingowy + H1/M5).
-Zrobione: T1–T6, T9 (żywy `hts`), T10 (mail), fix `/api/history/sync` 503.
+**Następne:** T11 (drugi model swingowy + H1/M5 jako osobne żywe konfiguracje).
+Zrobione: T1–T10, fix `/api/history/sync` 503. T7 (piramida — nie pomaga, `pyramidMax=0`),
+T8 (`supertrendTrail` mały plus / `waveTrendFilter` no‑op) — w backteście, PR #64.
 
 ## Stan „co jest w kodzie" (backtest, nie live)
 
@@ -338,8 +385,10 @@ Zrobione: T1–T6, T9 (żywy `hts`), T10 (mail), fix `/api/history/sync` 503.
 - `Supertrend`, `WaveTrend`, `Ema`, `Sma` — jest (niewpięte w silnik).
 - Band‑entry + runner „close pod wstęgą" — jest w `SwingBacktestService` (H4/H1) i `BacktestService` (H1/M15)
   jako tryby backtestu.
-- `HtsBacktestService` — **jest** (T1‑T6): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
-  `adxPermit` (T3'), `pivotTargets` (T4), `splitEntries` (T6), runner‑lock. `GET /api/hts/backtest`.
+- `HtsBacktestService` — **jest** (T1‑T8): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
+  `adxPermit` (T3'), `pivotTargets` (T4), `splitEntries` (T6), `pyramidMax`/`pyramidGapBars`/
+  `pyramidMinBufferR` (T7 `replayPyramid`), `supertrendTrail`/`waveTrendFilter` (T8), runner‑lock.
+  `GET /api/hts/backtest` z pełnym zestawem `?param=`.
 - `equity_simulator.py` — **jest** `--day-stop` / `--max-dd` (T5, strona backtestu).
 - **Live (T9)** — **jest**: `HtsEngine`, `HtsScanService`, `HtsScanScheduler`, `HtsExecutionGate`
   (`HTS_EXECUTION_ENABLED=false`), book `hts` na „Account m5", `hts_signals`, `/api/hts/last|signals|scan`.

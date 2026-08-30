@@ -61,6 +61,11 @@ public class HtsController {
             @RequestParam(name = "adxPermit", defaultValue = "false") boolean adxPermit,
             @RequestParam(name = "runnerLock", defaultValue = "1.0") double runnerLock,
             @RequestParam(name = "split", defaultValue = "1") int split,
+            @RequestParam(name = "pyramidMax", defaultValue = "0") int pyramidMax,
+            @RequestParam(name = "pyramidGap", defaultValue = "5") int pyramidGap,
+            @RequestParam(name = "pyramidMinBuf", defaultValue = "0.5") double pyramidMinBuf,
+            @RequestParam(name = "supertrendTrail", defaultValue = "false") boolean supertrendTrail,
+            @RequestParam(name = "waveTrendFilter", defaultValue = "false") boolean waveTrendFilter,
             @RequestParam(name = "format", defaultValue = "csv") String format,
             Authentication authentication
     ) {
@@ -73,7 +78,9 @@ public class HtsController {
                 days, offsetDays, rr, runner, adx,
                 adxThreshold <= 0 ? Adx.TREND_THRESHOLD : adxThreshold,
                 skipConsolidation, pivotTargets, maxNames, stopBuf, adxPermit, runnerLock,
-                Math.max(1, split));
+                Math.max(1, split),
+                Math.max(0, pyramidMax), Math.max(1, pyramidGap), pyramidMinBuf,
+                supertrendTrail, waveTrendFilter);
         List<SwingTradeRow> rows = backtest.run(p);
         StringBuilder sb = new StringBuilder("entry_time,exit_time,symbol,direction,result,r_multiple\n");
         for (SwingTradeRow r : rows) {

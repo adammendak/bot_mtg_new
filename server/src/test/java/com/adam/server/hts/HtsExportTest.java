@@ -39,11 +39,59 @@ class HtsExportTest {
 
     private HtsBacktestService.Params params(Resolution htf, Resolution ltf, int days, int off,
                                              Adx adx, double stopBuf, boolean pivots, int split) {
+        return params(htf, ltf, days, off, adx, stopBuf, pivots, split, 0, false, false);
+    }
+
+    private HtsBacktestService.Params params(Resolution htf, Resolution ltf, int days, int off,
+                                             Adx adx, double stopBuf, boolean pivots, int split,
+                                             int pyramidMax, boolean stTrail, boolean wtFilter) {
         return new HtsBacktestService.Params(htf, ltf, days, off, RR, /*runner*/ true,
                 /*adxFilter*/ adx != Adx.OFF, /*adxThreshold*/ 20.0, /*skipConsolidation*/ true,
                 /*pivotTargets*/ pivots, /*maxNames*/ 4,
                 /*stopBufferFrac*/ stopBuf, /*adxPermit*/ adx == Adx.PERMIT, /*runnerLockR*/ 1.0,
-                /*splitEntries*/ split);
+                /*splitEntries*/ split,
+                /*pyramidMax*/ pyramidMax, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
+                /*supertrendTrail*/ stTrail, /*waveTrendFilter*/ wtFilter);
+    }
+
+    /**
+     * T7 + T8 focused: pyramid {0,1,2,3}, Supertrend-trail on/off, WaveTrend-filter
+     * on/off — on the best config so far (ADX-permit, buf 0.25), both swing models,
+     * both windows. Own fresh session.
+     */
+    @Test
+    void pyramidAndIndicators() throws Exception {
+        pyrGrid(Resolution.D1, Resolution.H1, "d1h1");
+    }
+
+    /** Same grid, H4/M15 only — its own fresh session (the combined run throttles before it). */
+    @Test
+    void pyramidAndIndicatorsH4M15() throws Exception {
+        pyrGrid(Resolution.H4, Resolution.M15, "h4m15");
+    }
+
+    private void pyrGrid(Resolution htf, Resolution ltf, String pairName) throws Exception {
+        Files.createDirectories(OUT);
+        int[][] windows = {{30, 30}, {30, 0}};
+        String[] wn = {"m2back", "recent"};
+        for (int w = 0; w < windows.length; w++) {
+            for (int pyr : new int[]{0, 1, 2, 3}) {
+                run(pairName + "_" + wn[w] + "_pyr" + pyr,
+                        params(htf, ltf, windows[w][0], windows[w][1], Adx.PERMIT, 0.25, false, 1, pyr, false, false));
+            }
+            run(pairName + "_" + wn[w] + "_sttrail",
+                    params(htf, ltf, windows[w][0], windows[w][1], Adx.PERMIT, 0.25, false, 1, 0, true, false));
+            run(pairName + "_" + wn[w] + "_wtfilter",
+                    params(htf, ltf, windows[w][0], windows[w][1], Adx.PERMIT, 0.25, false, 1, 0, false, true));
+        }
+        System.out.println("CSV dir: " + OUT);
+    }
+
+    private void run(String label, HtsBacktestService.Params p) throws Exception {
+        List<SwingTradeRow> rows = backtest.run(p);
+        write(OUT.resolve("hts_" + label + ".csv"), rows);
+        System.out.println("== " + label + " ==");
+        perTicker(rows);
     }
 
     /**
