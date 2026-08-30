@@ -91,11 +91,11 @@ export type BookId = 'demo' | 'live' | 'glowne' | 'swing' | 'hts';
 
 /** All book tabs in dashboard order — filter by AuthService.canSeeBook() before rendering. */
 export const BOOK_TABS: { id: BookId; label: string }[] = [
-  { id: 'demo', label: 'Demo' },
-  { id: 'live', label: 'Live' },
-  { id: 'glowne', label: 'Główne' },
-  { id: 'swing', label: 'Swing' },
-  { id: 'hts', label: 'HTS' },
+  { id: 'glowne', label: 'Główne (live)' },
+  { id: 'live', label: 'Live · bot konto' },
+  { id: 'demo', label: 'Demo · m15 / CORE' },
+  { id: 'swing', label: 'Demo · H1 / SWING' },
+  { id: 'hts', label: 'Demo · m5 / FAST' },
 ];
 
 export interface PositionsByBook {

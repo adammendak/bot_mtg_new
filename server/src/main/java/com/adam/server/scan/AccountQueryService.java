@@ -28,11 +28,29 @@ public class AccountQueryService {
     private final BrokerBooks books;
     private final RiskPolicy risk;
     private final AppProperties properties;
+    private final boolean htsExecutionEnabled;
+    private final boolean htsLiveExecutionEnabled;
 
-    public AccountQueryService(BrokerBooks books, RiskPolicy risk, AppProperties properties) {
+    public AccountQueryService(
+            BrokerBooks books,
+            RiskPolicy risk,
+            AppProperties properties,
+            @org.springframework.beans.factory.annotation.Value("${app.hts.execution-enabled:false}") boolean htsExecutionEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.hts.live-execution-enabled:false}") boolean htsLiveExecutionEnabled
+    ) {
         this.books = books;
         this.risk = risk;
         this.properties = properties;
+        this.htsExecutionEnabled = htsExecutionEnabled;
+        this.htsLiveExecutionEnabled = htsLiveExecutionEnabled;
+    }
+
+    /** Whether the HTS engine will place entries on this book. */
+    private boolean executionOn(String book) {
+        if (Books.GLOWNE.equals(book)) {
+            return false;
+        }
+        return Books.LIVE.equals(book) ? htsLiveExecutionEnabled : htsExecutionEnabled;
     }
 
     public List<AccountView> list() {
@@ -98,7 +116,7 @@ public class AccountQueryService {
                 displayNameOf(client),
                 v.accountName(),
                 strategyOf(v.id()),
-                properties.isExecutionEnabled(),
+                executionOn(v.id()),
                 v.equity(),
                 v.available(),
                 v.dayPnl(),
@@ -138,15 +156,16 @@ public class AccountQueryService {
         return base;
     }
 
-    /** The strategy attached to a book. */
+    /** The strategy attached to a book. HTS runs one timeframe model per book. */
     static String strategyOf(String book) {
-        if (Books.SWING.equals(book)) {
-            return "SDD-SWING";
-        }
-        if (Books.HTS.equals(book)) {
-            return "HTS";
-        }
-        return "SDD-M15";
+        return switch (book) {
+            case "demo" -> "HTS CORE (H4/M15)";
+            case "live" -> "HTS CORE_LIVE (H4/M15)";
+            case "swing" -> "HTS SWING (D1/H1)";
+            case "hts" -> "HTS FAST (H1/M5)";
+            case "glowne" -> "—";
+            default -> "HTS";
+        };
     }
 
     public AccountView view(BrokerClient client) {

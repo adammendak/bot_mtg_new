@@ -1,6 +1,6 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
-    <a class="navbar-brand" routerLink="/">SDD-M15</a>
+    <a class="navbar-brand" routerLink="/overview">BOT-reinvented</a>
     <button
       class="navbar-toggler"
       type="button"
@@ -15,16 +15,12 @@
     <div class="collapse navbar-collapse" id="sddNav">
       @if (auth.isAuthenticated()) {
         <div class="navbar-nav">
-          <a class="nav-link" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
-            Dashboard
-          </a>
-          <a class="nav-link" routerLink="/overview" routerLinkActive="active">Overview</a>
-          <a class="nav-link" routerLink="/analytics" routerLinkActive="active">Analytics</a>
+          <a class="nav-link" routerLink="/overview" routerLinkActive="active">Konta</a>
           <a class="nav-link" routerLink="/monitor" routerLinkActive="active">Monitoring</a>
           <a class="nav-link" routerLink="/strategies" routerLinkActive="active">Strategie</a>
+          <a class="nav-link" routerLink="/analytics" routerLinkActive="active">Analytics</a>
           <a class="nav-link" routerLink="/signals" routerLinkActive="active">Signals</a>
           <a class="nav-link" routerLink="/history" routerLinkActive="active">History</a>
-          <a class="nav-link" routerLink="/payments" routerLinkActive="active">Payments</a>
           @if (auth.isAdmin()) {
             <a class="nav-link" routerLink="/admin" routerLinkActive="active">Admin</a>
           }
@@ -41,13 +37,8 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
               <li>
-                <a class="dropdown-item" routerLink="/" routerLinkActive="active">Dashboard</a>
+                <a class="dropdown-item" routerLink="/overview" routerLinkActive="active">Konta</a>
               </li>
-              @if (auth.isAdmin()) {
-                <li>
-                  <a class="dropdown-item" routerLink="/glowne" routerLinkActive="active">Główne konto</a>
-                </li>
-              }
               <li><hr class="dropdown-divider" /></li>
               <li>
                 <a class="dropdown-item text-danger" href="javascript:void(0)" (click)="signOut()">Sign out</a>

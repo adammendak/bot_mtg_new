@@ -30,9 +30,4 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/sdd/ui/history.component').then((m) => m.HistoryComponent),
   },
-  {
-    path: 'payments',
-    canActivate: [authGuard],
-    loadChildren: () => import('./features/payments/payment.routes').then((m) => m.PAYMENTS_ROUTES),
-  },
 ];
