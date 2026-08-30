@@ -2,6 +2,7 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.config.AppProperties;
 import com.adam.server.broker.model.Account;
 import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
@@ -16,18 +17,24 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Places HTS ("wstęgi") entries on the demo book that belongs to the signal's
- * {@link HtsVariant} — CORE → {@code demo} ("Account m15"), SWING → {@code swing}
- * ("Account H1"), FAST → {@code hts} ("Account m5"). All three are Capital.com
- * DEMO accounts; this never touches real money.
+ * Places HTS ("wstęgi") entries on the book that belongs to the signal's
+ * {@link HtsVariant}:
+ * <ul>
+ *   <li>demo variants — CORE → {@code demo} ("Account m15"), SWING → {@code swing}
+ *       ("Account H1"), FAST → {@code hts} ("Account m5"); gated by
+ *       {@code HTS_EXECUTION_ENABLED}.</li>
+ *   <li>{@code CORE_LIVE} — {@code live} book ("bot trading konto"), <b>real
+ *       money</b>: 1 % of account risk, honours {@link RiskPolicy#pickLiveAccount}
+ *       (equity-refuse / Fintokei), skips when open P/L is past
+ *       {@code LIVE_HALT_PLN} or the size is below {@code MIN_DEAL_SIZE};
+ *       gated by its own {@code HTS_LIVE_EXECUTION_ENABLED}.</li>
+ * </ul>
  *
  * <p>One market ticket per signal: structural stop + fixed R:R take-profit PUT
- * together (Capital quirk: a profit level set alone wipes the stop). Off by
- * default — set {@code HTS_EXECUTION_ENABLED=true}.
+ * together (Capital quirk: a profit level set alone wipes the stop).
  *
  * <p>v1 idempotency is in memory (keyed {@code variant|symbol|direction|barTime});
- * a restart inside the same bar could re-enter. Persisting it is a follow-up,
- * exactly as for {@link com.adam.server.swing.SwingExecutionGate}.
+ * a restart inside the same bar could re-enter. Persisting it is a follow-up.
  */
 @Component
 public class HtsExecutionGate {
@@ -36,25 +43,35 @@ public class HtsExecutionGate {
 
     private final BrokerBooks books;
     private final RiskPolicy risk;
+    private final AppProperties properties;
     private final boolean enabled;
+    private final boolean liveEnabled;
     private final com.adam.server.scan.Mailer mailer;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
 
     public HtsExecutionGate(
             BrokerBooks books,
             RiskPolicy risk,
+            AppProperties properties,
             com.adam.server.scan.Mailer mailer,
-            @Value("${app.hts.execution-enabled:false}") boolean enabled
+            @Value("${app.hts.execution-enabled:false}") boolean enabled,
+            @Value("${app.hts.live-execution-enabled:false}") boolean liveEnabled
     ) {
         this.books = books;
         this.risk = risk;
+        this.properties = properties;
         this.mailer = mailer;
         this.enabled = enabled;
+        this.liveEnabled = liveEnabled;
     }
 
     /** Best-effort: never throws to the scan. */
     public void executeSignal(HtsScan s) {
-        if (!enabled || s == null || s.direction() == null || s.variant() == null) {
+        if (s == null || s.direction() == null || s.variant() == null) {
+            return;
+        }
+        boolean live = s.variant().live();
+        if (live ? !liveEnabled : !enabled) {
             return;
         }
         String book = s.variant().book();
@@ -75,7 +92,26 @@ public class HtsExecutionGate {
                 broker.login();
             }
             List<Account> accounts = broker.accounts();
-            Account account = risk.pickForBook(book, accounts);
+
+            Account account;
+            if (live) {
+                RiskPolicy.LivePick pick = risk.pickLiveAccount(accounts);
+                if (pick.hideReason() != null) {
+                    log.warn("HTS [{}] LIVE execution skipped {} — {}",
+                            s.variant().name(), s.symbol(), pick.hideReason());
+                    placed.remove(key);
+                    return;
+                }
+                account = pick.account();
+                if (account != null && account.profitLoss() <= properties.getLiveHaltPln()) {
+                    log.warn("HTS [{}] LIVE execution skipped {} — open P/L {} past halt {}",
+                            s.variant().name(), s.symbol(), account.profitLoss(), properties.getLiveHaltPln());
+                    placed.remove(key);
+                    return;
+                }
+            } else {
+                account = risk.pickForBook(book, accounts);
+            }
             if (account == null) {
                 log.warn("HTS [{}] execution {}: no account on book {}", s.variant().name(), s.symbol(), book);
                 placed.remove(key);
@@ -88,11 +124,17 @@ public class HtsExecutionGate {
             }
 
             double stopDist = Math.abs(s.entry() - s.stopLevel());
-            double cash = risk.riskAmount(account, false);
+            double cash = risk.riskAmount(account, live);
             double size = risk.sizeFor(cash, stopDist, 1.0);
             if (size <= 0 || stopDist <= 0) {
                 log.warn("HTS [{}] execution {}: size/stop is zero (cash {}, stopDist {})",
                         s.variant().name(), s.symbol(), cash, stopDist);
+                placed.remove(key);
+                return;
+            }
+            if (live && size < properties.getMinDealSize()) {
+                log.warn("HTS [{}] LIVE execution skipped {} — size {} below min deal {} (1R would risk too little)",
+                        s.variant().name(), s.symbol(), size, properties.getMinDealSize());
                 placed.remove(key);
                 return;
             }

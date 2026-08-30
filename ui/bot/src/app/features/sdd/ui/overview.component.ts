@@ -127,6 +127,56 @@ import { BookId, OverviewView } from '../model/sdd.model';
         </div>
       </div>
     </div>
+
+    <div class="card shadow-sm mt-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Sygnały HTS (wstęgi) — ostatnie</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reloadHts()">Odśwież</button>
+      </div>
+      <div class="card-body p-0">
+        @if (sdd.htsError()) {
+          <div class="alert alert-danger m-2 py-2 mb-0">{{ sdd.htsError() }}</div>
+        }
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead>
+              <tr>
+                <th>Czas</th>
+                <th>Model</th>
+                <th>Symbol</th>
+                <th>Kier.</th>
+                <th class="text-end">Entry</th>
+                <th class="text-end">Stop</th>
+                <th class="text-end">TP1</th>
+                <th>HTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (s of sdd.htsSignals(); track s.id) {
+                <tr>
+                  <td class="text-nowrap small">{{ htsTime(s.scannedAt) }}</td>
+                  <td><span class="badge" [class]="variantClass(s.variant)">{{ s.variant || '—' }}</span></td>
+                  <td>{{ s.symbol }}</td>
+                  <td>
+                    <span class="badge" [class]="s.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
+                      {{ s.direction || '—' }}
+                    </span>
+                  </td>
+                  <td class="text-end">{{ fmt(s.entry) }}</td>
+                  <td class="text-end">{{ fmt(s.stopLevel) }}</td>
+                  <td class="text-end">{{ fmt(s.targetLevel) }}</td>
+                  <td class="small text-muted">{{ s.htfUp == null ? '—' : (s.htfUp ? 'up' : 'down') }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="8" class="text-muted text-center py-3">Brak sygnałów HTS.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   `,
 })
 export class OverviewComponent implements OnInit {
@@ -136,11 +186,41 @@ export class OverviewComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.sdd.loadHtsSignals();
     this.closeSse = this.sdd.liveOverview((rows) => {
       if (Array.isArray(rows) && rows.length > 0) {
         this.sdd.overview.set(rows);
       }
     });
+  }
+
+  reloadHts(): void {
+    this.sdd.loadHtsSignals();
+  }
+
+  htsTime(iso: string | null | undefined): string {
+    if (!iso) {
+      return '—';
+    }
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? String(iso)
+      : d.toLocaleString('pl-PL', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  variantClass(v: string | null | undefined): string {
+    switch (v) {
+      case 'CORE':
+        return 'text-bg-primary';
+      case 'SWING':
+        return 'text-bg-info';
+      case 'FAST':
+        return 'text-bg-warning';
+      case 'CORE_LIVE':
+        return 'text-bg-danger';
+      default:
+        return 'text-bg-secondary';
+    }
   }
 
   live(): boolean {

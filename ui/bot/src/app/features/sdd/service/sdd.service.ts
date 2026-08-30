@@ -14,6 +14,7 @@ import {
   ScanSnapshot,
   SddScan,
   SwingLastResponse,
+  HtsSignal,
   SymbolStats,
 } from '../model/sdd.model';
 
@@ -38,6 +39,8 @@ export class SddService {
   readonly signals = signal<SddScan[]>([]);
   readonly swingLast = signal<SwingLastResponse | null>(null);
   readonly swingError = signal<string | null>(null);
+  readonly htsSignals = signal<HtsSignal[]>([]);
+  readonly htsError = signal<string | null>(null);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
   readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [], hts: [] });
@@ -200,6 +203,18 @@ export class SddService {
     this.http.get<SwingLastResponse>('/api/swing/last').subscribe({
       next: (s) => this.swingLast.set(s),
       error: (e) => this.swingError.set(formatHttpError('/api/swing/last', e)),
+    });
+  }
+
+  /** Recent persisted HTS signals (newest first), tagged with the timeframe model. */
+  loadHtsSignals(limit = 25): void {
+    if (!this.auth.canSeeBook('hts')) {
+      return;
+    }
+    this.htsError.set(null);
+    this.http.get<HtsSignal[]>(`/api/hts/signals?limit=${limit}`).subscribe({
+      next: (s) => this.htsSignals.set(Array.isArray(s) ? s : []),
+      error: (e) => this.htsError.set(formatHttpError('/api/hts/signals', e)),
     });
   }
 

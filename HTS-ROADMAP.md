@@ -4,11 +4,12 @@
 > SDD-M15 i SDD-SWING **zarchiwizowane** (kod zostaje, `SCAN_ENABLED=false` / `SWING_ENABLED=false`
 > + egzekucja off). HTS przejmuje wszystkie 3 konta demo — **jeden model TF na konto**:
 >
-> | wariant | model | konto | book |
-> |---|---|---|---|
-> | `CORE` | H4 / M15 | **Account m15** | `demo` |
-> | `SWING` | D1 / H1 | **Account H1** | `swing` |
-> | `FAST` | H1 / M5 | **Account m5** | `hts` |
+> | wariant | model | konto | book | pieniądze |
+> |---|---|---|---|---|
+> | `CORE` | H4 / M15 | Account m15 | `demo` | demo |
+> | `SWING` | D1 / H1 | Account H1 | `swing` | demo |
+> | `FAST` | H1 / M5 | Account m5 | `hts` | demo |
+> | `CORE_LIVE` | H4 / M15 | **bot trading konto** (~450 PLN) | `live` | **REALNE** — ryzyko 1 % konta, flaga `HTS_LIVE_EXECUTION_ENABLED` (osobna), guardy `pickLiveAccount` + halt `LIVE_HALT_PLN` + min deal size |
 >
 > `HtsScanService` puszcza wszystkie 3 co **5 min** (`HTS_CRON=0 */5 * * * *`) — FAST działa na
 > close M5, CORE/SWING re-sprawdzają ostatnią zamkniętą świecę, gate dedupuje per świeca.

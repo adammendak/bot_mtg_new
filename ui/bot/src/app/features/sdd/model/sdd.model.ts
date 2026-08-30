@@ -205,6 +205,20 @@ export interface SwingLastResponse {
   signals: SwingScan[];
 }
 
+/** One persisted HTS ("wstęgi") signal — `variant` is the timeframe model. */
+export interface HtsSignal {
+  id: number;
+  scannedAt: string;
+  variant: 'CORE' | 'SWING' | 'FAST' | 'CORE_LIVE' | string | null;
+  symbol: string;
+  epic: string | null;
+  direction: 'BUY' | 'SELL' | null;
+  entry: number | null;
+  stopLevel: number | null;
+  targetLevel: number | null;
+  htfUp: boolean | null;
+}
+
 export interface AuditEvent {
   at: string;
   book: string;

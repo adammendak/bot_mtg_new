@@ -10,19 +10,23 @@ import java.time.Duration;
  * forward test, each on its own Capital.com demo sub-account:
  *
  * <ul>
- *   <li>{@link #CORE} — H4 context / M15 entry → {@code demo} book ("Account m15")</li>
- *   <li>{@link #SWING} — D1 context / H1 entry → {@code swing} book ("Account H1")</li>
- *   <li>{@link #FAST} — H1 context / M5 entry → {@code hts} book ("Account m5")</li>
+ *   <li>{@link #CORE} — H4 / M15 → {@code demo} book ("Account m15"), demo</li>
+ *   <li>{@link #SWING} — D1 / H1 → {@code swing} book ("Account H1"), demo</li>
+ *   <li>{@link #FAST} — H1 / M5 → {@code hts} book ("Account m5"), demo</li>
+ *   <li>{@link #CORE_LIVE} — H4 / M15 → {@code live} book ("bot trading konto"),
+ *       <b>real money</b>, 1 % of account risk; gated by
+ *       {@code HTS_LIVE_EXECUTION_ENABLED} (separate from the demo flag)</li>
  * </ul>
  *
- * Same {@link HtsEngine} for all three (it is timeframe-generic); only the pair
- * of resolutions and the target book differ.
+ * Same {@link HtsEngine} for all (it is timeframe-generic); only the pair of
+ * resolutions, the target book, and demo-vs-live differ.
  */
 public enum HtsVariant {
 
-    CORE(Resolution.H4, Resolution.M15, Books.DEMO, Duration.ofDays(140), Duration.ofDays(12), 15),
-    SWING(Resolution.D1, Resolution.H1, Books.SWING, Duration.ofDays(260), Duration.ofDays(30), 60),
-    FAST(Resolution.H1, Resolution.M5, Books.HTS, Duration.ofDays(30), Duration.ofDays(4), 5);
+    CORE(Resolution.H4, Resolution.M15, Books.DEMO, Duration.ofDays(140), Duration.ofDays(12), 15, false),
+    SWING(Resolution.D1, Resolution.H1, Books.SWING, Duration.ofDays(260), Duration.ofDays(30), 60, false),
+    FAST(Resolution.H1, Resolution.M5, Books.HTS, Duration.ofDays(30), Duration.ofDays(4), 5, false),
+    CORE_LIVE(Resolution.H4, Resolution.M15, Books.LIVE, Duration.ofDays(140), Duration.ofDays(12), 15, true);
 
     private final Resolution htf;
     private final Resolution ltf;
@@ -30,15 +34,22 @@ public enum HtsVariant {
     private final Duration htfLookback;
     private final Duration ltfLookback;
     private final int ltfMinutes;
+    private final boolean live;
 
     HtsVariant(Resolution htf, Resolution ltf, String book, Duration htfLookback, Duration ltfLookback,
-               int ltfMinutes) {
+               int ltfMinutes, boolean live) {
         this.htf = htf;
         this.ltf = ltf;
         this.book = book;
         this.htfLookback = htfLookback;
         this.ltfLookback = ltfLookback;
         this.ltfMinutes = ltfMinutes;
+        this.live = live;
+    }
+
+    /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
+    public boolean live() {
+        return live;
     }
 
     /**
