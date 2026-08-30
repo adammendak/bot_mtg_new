@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -46,6 +47,8 @@ public class CapitalComBrokerClient implements BrokerClient {
     private volatile String cst;
     private volatile String securityToken;
     private volatile Instant sessionAt = Instant.EPOCH;
+    private volatile RestClient authedClient;
+    private volatile Instant authedAt = Instant.EPOCH;
 
     public CapitalComBrokerClient(
             RestClient.Builder builder,
@@ -56,8 +59,15 @@ public class CapitalComBrokerClient implements BrokerClient {
         this.book = book;
         this.endpoint = endpoint;
         this.missingCredsMessage = missingCredsMessage;
+        // ONE request factory (one java.net.http.HttpClient) for this book's whole
+        // lifetime. Without an explicit factory every authed().mutate().build()
+        // spins up a fresh HttpClient — its SelectorManager + executor threads are
+        // never reclaimed, so a frequent scan leaks threads until the dyno dies
+        // with "unable to create native thread". mutate().build() reuses a factory
+        // set here, so only the lightweight RestClient wrapper is re-created.
         this.restClient = builder.clone()
                 .baseUrl(endpoint.getHost())
+                .requestFactory(new JdkClientHttpRequestFactory())
                 .build();
     }
 
@@ -154,6 +164,9 @@ public class CapitalComBrokerClient implements BrokerClient {
             }
             if (newToken != null) {
                 this.securityToken = newToken;
+            }
+            if (newCst != null || newToken != null) {
+                this.sessionAt = Instant.now(); // rotate the cached authed() client onto the fresh tokens
             }
         } catch (RestClientResponseException e) {
             // "error.not-different.accountId" = the account is already the active
@@ -532,12 +545,22 @@ public class CapitalComBrokerClient implements BrokerClient {
 
     private RestClient authed() {
         ensureSession();
-        return restClient.mutate()
-                .defaultHeader("CST", cst)
-                .defaultHeader("X-SECURITY-TOKEN", securityToken)
-                .defaultHeader("X-CAP-API-KEY", endpoint.getApiKey() == null ? "" : endpoint.getApiKey())
-                .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
-                .build();
+        RestClient c = authedClient;
+        if (c == null || authedAt.isBefore(sessionAt)) {
+            synchronized (this) {
+                if (authedClient == null || authedAt.isBefore(sessionAt)) {
+                    authedClient = restClient.mutate()
+                            .defaultHeader("CST", cst)
+                            .defaultHeader("X-SECURITY-TOKEN", securityToken)
+                            .defaultHeader("X-CAP-API-KEY", endpoint.getApiKey() == null ? "" : endpoint.getApiKey())
+                            .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
+                            .build();
+                    authedAt = sessionAt;
+                }
+                c = authedClient;
+            }
+        }
+        return c;
     }
 
     private BrokerException wrap(String action, RestClientResponseException e) {
