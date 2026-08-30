@@ -524,6 +524,39 @@ krótka notka bez wywołania API. Opt-in: `AI_REVIEW_ENABLED=true` + `ANTHROPIC_
 `manifest.webmanifest` + `sw.js` (PWA) już są. Web Push API → alerty bez maila/
 Telegrama. Tanie bo SW jest, ale mail/Telegram już pokrywają potrzebę. Odłożone.
 
+### BUG — `FeatureFlags` override nie przeżywa restartu dyna  ← DO NAPRAWY
+**Objaw (2026-08-30, v120/v121):** zarchiwizowane skany SDD-M15 i SWING znów chodzą
+mimo `SCAN_ENABLED=false` / `SWING_ENABLED=false` w Heroku **i** ręcznego przełączenia
+`sdd.scan` / `swing.scan` na `off` w panelu. Probe'y `sdd-scan` / `swing-scan`
+rejestrują się co restart (16:01, 16:16).
+**Diagnoza (do potwierdzenia):** #76 miał naprawić env-default przez `@Value`, ale
+`defaults["sdd.scan"]` dalej wychodzi `true` (panel pokazuje „Env default: ON" mimo
+`SCAN_ENABLED=false`), a override z bazy (`false`) nie ładuje się po restarcie
+(`refresh()` nie rzuca wyjątku w logach). Możliwe: `@Value` na parametrze konstruktora
+przy dwóch konstruktorach nie rozwiązuje placeholderów tak jak na polu; albo wiersz
+w `feature_flags` nie jest czytany/zapisany jak sądzę.
+**Skutek:** dodatkowy ruch skanów na Capital (współwinny 429). **Zleceń nie stawia**
+(`sdd.execution` / `swing.execution` = off), więc nie groźne — brudne.
+**Workaround:** przełączyć `sdd.scan` / `swing.scan` na off w panelu po każdym deployu.
+**Fix:** zweryfikować w bazie stan `feature_flags`; jeśli `@Value` jest winne — wrócić
+do jawnego wstrzyknięcia `Environment` + `env.getProperty(key, String.class)` z ręcznym
+parsowaniem `Boolean.parseBoolean`, albo `@ConfigurationProperties`. Dodać log
+`Feature flag env defaults` + `overrides after refresh` i sprawdzić na prodzie.
+
+### E-15 — Cloud supervisor (nadzór prod niezależny od laptopa)  ← ZAPARKOWANE (koszt)
+**Po co:** cron/Monitor w sesji Claude giną po zamknięciu terminala. Żeby „Claude
+czyta prod co 2h i alarmuje" działało niezależnie — trzeba zewnętrznego hosta.
+**Zakres (gotowy, niezcommitowany — `tools/prod_watch.sh` + `.github/workflows/prod-watch.yml`):**
+GitHub Actions `schedule: '13 */2 * * *'` → skrypt: `/health` + logi Heroku (przez
+`HEROKU_API_KEY`) → deterministyczne checki (status UP, `schedulersStale`, scan-aborty,
+watchdog, fatal, sygnał-bez-egzekucji) → werdykt przez Anthropic API → na WARN/ALERT
+Slack + GitHub Issue `prod-alert`. Sekrety: `HEROKU_API_KEY`, `ANTHROPIC_API_KEY`,
+opcjonalnie `SLACK_WEBHOOK_URL`.
+**Koszt:** minuty GH Actions (mieści się w darmowym limicie) + ~1 wywołanie Anthropic
+API / przebieg (grosze). **Zaparkowane na życzenie — dodatkowe opłaty.**
+**Alt bez API:** sam `/health` + healthchecks.io (`HEALTHCHECK_URL` już ustawione) +
+E-5 watchdog mail pokrywają „czy żyje" za darmo; brakuje tylko warstwy narracyjnej.
+
 ### Tylko notatka (nie epik)
 - `actuator` `show-details=never` — jeśli kiedyś potrzebny głębszy health (DB pool,
   disk) → osobny endpoint za auth, nie rozluźniać actuatora.
