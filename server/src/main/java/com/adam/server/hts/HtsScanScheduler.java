@@ -6,10 +6,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Fires {@link HtsScanService#scan()} two minutes after every H1 close (one
- * minute behind the SDD-SWING scan, so the shared market-data session is not hit
- * by both at once). Override with {@code HTS_CRON}; timezone follows the SDD-M15
- * scan zone (Europe/Warsaw on Heroku).
+ * Fires {@link HtsScanService#scan()} every 5 minutes so the FAST (H1/M5) model
+ * acts on the M5 close; the CORE (H4/M15) and SWING (D1/H1) models re-evaluate
+ * their last closed bar and the execution gate's per-bar idempotency stops a
+ * duplicate entry. Override the cadence with {@code HTS_CRON}; timezone follows
+ * the scan zone (Europe/Warsaw on Heroku).
  */
 @Component
 public class HtsScanScheduler {
@@ -22,8 +23,8 @@ public class HtsScanScheduler {
         this.scan = scan;
     }
 
-    @Scheduled(cron = "${app.hts.cron:0 2 * * * *}", zone = "${app.scan.zone:Europe/Warsaw}")
-    public void onH1Close() {
+    @Scheduled(cron = "${app.hts.cron:0 */5 * * * *}", zone = "${app.scan.zone:Europe/Warsaw}")
+    public void onBarClose() {
         try {
             scan.scan();
         } catch (Exception e) {

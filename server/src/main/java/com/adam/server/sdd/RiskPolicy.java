@@ -194,6 +194,22 @@ public class RiskPolicy {
         return pickDemoAccount(accounts);
     }
 
+    /**
+     * The demo sub-account a book trades on: {@code demo} → "Account m15",
+     * {@code swing} → "Account H1", {@code hts} → "Account m5", anything else →
+     * the preferred demo account. Used by the HTS engine, which now runs one
+     * timeframe model per demo account.
+     */
+    public Account pickForBook(String book, List<Account> accounts) {
+        if (com.adam.server.broker.Books.SWING.equalsIgnoreCase(book)) {
+            return pickSwingAccount(accounts);
+        }
+        if (com.adam.server.broker.Books.HTS.equalsIgnoreCase(book)) {
+            return pickHtsAccount(accounts);
+        }
+        return pickDemoAccount(accounts);
+    }
+
     public record LivePick(Account account, String hideReason) {
         static LivePick visible(Account account) {
             return new LivePick(account, null);

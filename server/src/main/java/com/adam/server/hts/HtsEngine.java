@@ -42,11 +42,13 @@ public class HtsEngine {
     public static final double RR = 2.0;
 
     /**
+     * @param variant   the timeframe model this evaluation belongs to (tags the signal)
      * @param ltfClosed closed execution-timeframe candles up to and including the trigger bar
      * @param htfClosed closed higher-timeframe candles (context)
      * @return the HTS signal for this symbol, or {@code null} when there is no setup
      */
-    public HtsScan evaluate(String code, String epic, List<Candle> ltfClosed, List<Candle> htfClosed, Instant now) {
+    public HtsScan evaluate(HtsVariant variant, String code, String epic,
+                            List<Candle> ltfClosed, List<Candle> htfClosed, Instant now) {
         if (ltfClosed == null || htfClosed == null) {
             return null;
         }
@@ -86,7 +88,7 @@ public class HtsEngine {
         double target = buy ? entry + RR * stopDist : entry - RR * stopDist;
         boolean htfUp = hFast.lower()[h] > hSlow.upper()[h];
 
-        return new HtsScan(now, code, epic, buy ? Direction.BUY : Direction.SELL,
+        return new HtsScan(variant, now, code, epic, buy ? Direction.BUY : Direction.SELL,
                 entry, stop, target, htfUp);
     }
 

@@ -29,6 +29,10 @@ public class HtsSignalEntity {
     @Column(name = "scanned_at", nullable = false)
     private Instant scannedAt;
 
+    /** Timeframe model: CORE (H4/M15) / SWING (D1/H1) / FAST (H1/M5). */
+    @Column(length = 16)
+    private String variant;
+
     @Column(nullable = false, length = 32)
     private String symbol;
 

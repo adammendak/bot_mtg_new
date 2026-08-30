@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      HTS now runs three timeframe models in parallel (CORE H4/M15, SWING D1/H1,
+      FAST H1/M5), one per demo account. Tag every stored signal with its model.
+    -->
+    <changeSet id="012-hts-signal-variant" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="hts_signals" columnName="variant"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="hts_signals">
+            <column name="variant" type="VARCHAR(16)"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>
