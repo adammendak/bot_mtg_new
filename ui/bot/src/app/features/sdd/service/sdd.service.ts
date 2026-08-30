@@ -15,6 +15,8 @@ import {
   SddScan,
   SwingLastResponse,
   HtsSignal,
+  HtsTrade,
+  HtsScorecardRow,
   SymbolStats,
 } from '../model/sdd.model';
 
@@ -41,6 +43,10 @@ export class SddService {
   readonly swingError = signal<string | null>(null);
   readonly htsSignals = signal<HtsSignal[]>([]);
   readonly htsError = signal<string | null>(null);
+  readonly htsTrades = signal<HtsTrade[]>([]);
+  readonly htsTradesError = signal<string | null>(null);
+  readonly htsScorecard = signal<HtsScorecardRow[]>([]);
+  readonly htsScorecardError = signal<string | null>(null);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
   readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [], hts: [] });
@@ -218,6 +224,31 @@ export class SddService {
     });
   }
 
+  /** Persisted HTS trades (E-3) — the lifecycle rows behind the runner exit. */
+  loadHtsTrades(status?: 'OPEN' | 'CLOSED', limit = 100): void {
+    if (!this.auth.canSeeBook('hts')) {
+      return;
+    }
+    const q = status ? `?status=${status}&limit=${limit}` : `?limit=${limit}`;
+    this.htsTradesError.set(null);
+    this.http.get<HtsTrade[]>(`/api/hts/trades${q}`).subscribe({
+      next: (t) => this.htsTrades.set(Array.isArray(t) ? t : []),
+      error: (e) => this.htsTradesError.set(formatHttpError('/api/hts/trades', e)),
+    });
+  }
+
+  /** HTS forward-test scorecard (E-4) — one row per timeframe model. */
+  loadHtsScorecard(): void {
+    if (!this.auth.canSeeBook('hts')) {
+      return;
+    }
+    this.htsScorecardError.set(null);
+    this.http.get<HtsScorecardRow[]>('/api/hts/scorecard').subscribe({
+      next: (r) => this.htsScorecard.set(Array.isArray(r) ? r : []),
+      error: (e) => this.htsScorecardError.set(formatHttpError('/api/hts/scorecard', e)),
+    });
+  }
+
   /** Open positions per book (with per-position risk) — standalone loader for the Konta page. */
   loadPositions(): void {
     this.positionsError.set(null);
@@ -243,6 +274,7 @@ export class SddService {
         this.busy.set(false);
         this.loadHtsSignals();
         this.loadPositions();
+        this.loadHtsTrades('OPEN');
       },
       error: (e) => {
         this.busy.set(false);

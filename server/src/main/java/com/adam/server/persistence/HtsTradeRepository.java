@@ -12,6 +12,9 @@ public interface HtsTradeRepository extends JpaRepository<HtsTradeEntity, Long> 
 
     List<HtsTradeEntity> findAllByOrderByIdDesc(Pageable pageable);
 
+    /** Whole history in entry order — the forward-test scorecard (E-4). */
+    List<HtsTradeEntity> findAllByOrderByIdAsc();
+
     /** Idempotency: has this exact signal bar already been executed for this variant? */
     boolean existsByVariantAndSymbolAndDirectionAndBarTime(
             String variant, String symbol, String direction, Instant barTime);

@@ -324,7 +324,7 @@ ADX off (permit opcjonalnie, na D1/H1 pomaga), pivotTargets off, splitEntries 1,
 
 ## Epiki po roadmapie taskowej
 
-### E-1 — Cykl życia pozycji HTS + żywy model wyjścia runner  ← zrobione (PR feat/hts-trade-lifecycle)
+### E-1 — Cykl życia pozycji HTS + żywy model wyjścia runner  ← zrobione (PR #70)
 - **Jedna pozycja na sygnał, nie dwa tickety.** `HtsExecutionGate` stawia teraz wejście
   **tylko ze stopem** (bez TP w zleceniu) i zapisuje wiersz do `hts_trades` (changeset 014),
   otagowany wariantem + `htf`/`ltf` + kontem — każdy model timeframe'owy śledzony osobno.
@@ -345,7 +345,21 @@ ADX off (permit opcjonalnie, na D1/H1 pomaga), pivotTargets off, splitEntries 1,
 - **Live day-halt** liczy zrealizowany P/L dnia z `hts_trades` + otwarty P/L konta.
 - API: `GET /api/hts/trades?status=&limit=` (grant `hts`).
 
-### E-2 — Sink do Notion (po E-1)
+### E-3 — UI cyklu życia HTS + E-4 scorecard forward-testu  ← zrobione (PR #71)
+- **Konta**: karta „Pozycje HTS — cykl życia (bot)" — otwarte pozycje per wariant ze stanem
+  runnera (`przed TP1` / `runner · trailing`), aktualny stop (runner_stop po TP1), size/reszta.
+- **History**: karta „HTS — zamknięte trady" — zamknięte pozycje HTS z wynikiem R, P/L, powodem
+  (`GET /api/hts/trades?status=CLOSED`).
+- **Analytics**: karta „HTS forward-test — scorecard" z `GET /api/hts/scorecard` — 1 wiersz na
+  `HtsVariant` (otwarte, zamknięte W/L, win rate, avg R, ΣR, max DD w R, realized P/L). Każdy
+  wariant zawsze widoczny → **to jest podstawa decyzji T11** (który wariant zostaje po wrześniu).
+- **`tp1_pnl`** — `HtsTradeService` backfilluje realny cash połówkowego domknięcia z feedu
+  transakcji (`matchTp1Pnl` = najwcześniejsza TRADE-transakcja ≥ `tp1At`; `matchPnl` = najpóźniejsza
+  = domknięcie runnera). Total `pnl = runner + tp1_pnl`.
+- **Cache świec w monitorze** — `manage()` pobiera świece raz na `epic|LTF` na cykl (kilka
+  otwartych pozycji na tym samym rynku dzieli jedno pobranie) — mniej wywołań Capital.
+
+### E-2 — Sink do Notion (po E-3)
 - `NotionHtsTradeSink implements HtsTradeSink`, `NOTION_TOKEN` + `NOTION_DATABASE_ID`, no-op gdy brak.
 - `onOpen` → `POST /v1/pages`, zapis `notion_page_id`; `onClose` → `PATCH` (wynik R, P/L, powód).
 

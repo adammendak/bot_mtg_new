@@ -1,7 +1,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { SddService } from '../service/sdd.service';
 import { AuthService } from '../../auth/auth.service';
-import { BookId, BOOK_TABS, DailyEquityPoint } from '../model/sdd.model';
+import { BookId, BOOK_TABS, DailyEquityPoint, HtsTrade } from '../model/sdd.model';
 
 interface ChartPoint {
   x: number;
@@ -222,7 +222,7 @@ interface Bar {
             <span class="small text-white-50">{{ visiblePoints().length }} days{{ rangeActive() ? ' (filtered)' : '' }}</span>
           </div>
           <div class="card-body p-0 table-scroll">
-            <table class="table table-sm table-striped table-hover mb-0">
+            <table class="table table-sm table-striped table-hover mb-0 daily-equity">
               <thead class="table-dark sticky-head">
                 <tr>
                   <th>Date</th>
@@ -249,6 +249,56 @@ interface Bar {
           </div>
         </div>
       }
+    }
+
+    @if (canSeeHts) {
+      <div class="card shadow-sm mt-3">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+          <span>HTS — zamknięte trady (cykl życia)</span>
+          <button type="button" class="btn btn-outline-light btn-sm" (click)="sdd.loadHtsTrades('CLOSED')">Odśwież</button>
+        </div>
+        <div class="card-body p-0 table-scroll">
+          @if (sdd.htsTradesError()) {
+            <div class="alert alert-danger py-2 m-2">{{ sdd.htsTradesError() }}</div>
+          }
+          <table class="table table-sm table-striped table-hover mb-0">
+            <thead class="table-dark sticky-head">
+              <tr>
+                <th>Zamknięto</th><th>Wariant</th><th>Symbol</th><th>Kier.</th>
+                <th class="text-end">Entry</th><th class="text-end">Exit</th>
+                <th class="text-end">R</th><th class="text-end">P/L</th><th>Powód</th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (closedHtsTrades().length === 0) {
+                <tr><td colspan="9" class="text-muted text-center">Brak zamkniętych tradów HTS.</td></tr>
+              } @else {
+                @for (t of closedHtsTrades(); track t.id) {
+                  <tr>
+                    <td class="text-nowrap small">{{ htsTime(t.exitAt) }}</td>
+                    <td><span class="badge text-bg-secondary">{{ t.variant }}</span></td>
+                    <td>{{ t.symbol }}</td>
+                    <td>
+                      <span class="badge" [class.text-bg-success]="t.direction === 'BUY'" [class.text-bg-danger]="t.direction === 'SELL'">
+                        {{ t.direction || '—' }}
+                      </span>
+                    </td>
+                    <td class="text-end">{{ fmtNum(t.entry) }}</td>
+                    <td class="text-end">{{ fmtNum(t.exitPrice) }}</td>
+                    <td class="text-end" [class.text-success]="(t.rMultiple ?? 0) > 0" [class.text-danger]="(t.rMultiple ?? 0) < 0">
+                      {{ t.rMultiple == null ? '–' : (t.rMultiple > 0 ? '+' : '') + t.rMultiple.toFixed(2) + 'R' }}
+                    </td>
+                    <td class="text-end" [class.text-success]="(t.pnl ?? 0) > 0" [class.text-danger]="(t.pnl ?? 0) < 0">
+                      {{ fmtNum(t.pnl) }} {{ t.pnlCcy || '' }}
+                    </td>
+                    <td class="small text-muted">{{ t.closeReason || '—' }}</td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
     }
   `,
   styles: [
@@ -347,6 +397,7 @@ export class HistoryComponent implements OnInit {
   readonly sdd = inject(SddService);
   private readonly auth = inject(AuthService);
   readonly visibleBooks = BOOK_TABS.filter((b) => this.auth.canSeeBook(b.id));
+  readonly canSeeHts = this.auth.canSeeBook('hts');
   readonly hover = signal<number | null>(null);
 
   // Custom date-range filter (empty = show all)
@@ -366,6 +417,23 @@ export class HistoryComponent implements OnInit {
   ngOnInit(): void {
     const current = this.sdd.historyBook();
     this.select(this.auth.canSeeBook(current) ? current : (this.visibleBooks[0]?.id ?? current));
+    if (this.canSeeHts) {
+      this.sdd.loadHtsTrades('CLOSED');
+    }
+  }
+
+  closedHtsTrades(): HtsTrade[] {
+    return this.sdd.htsTrades().filter((t) => (t.status || '').toUpperCase() === 'CLOSED');
+  }
+
+  htsTime(iso: string | null | undefined): string {
+    if (!iso) {
+      return '—';
+    }
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? String(iso)
+      : d.toLocaleString('pl-PL', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   select(book: BookId): void {
