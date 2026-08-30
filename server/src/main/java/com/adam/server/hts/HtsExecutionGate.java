@@ -30,11 +30,16 @@ import java.util.concurrent.ConcurrentHashMap;
  *       gated by its own {@code HTS_LIVE_EXECUTION_ENABLED}.</li>
  * </ul>
  *
- * <p>One market ticket per signal: structural stop + fixed R:R take-profit PUT
- * together (Capital quirk: a profit level set alone wipes the stop).
+ * <p><b>One position per signal, stop only</b> — no take-profit is sent with the
+ * entry. {@link HtsPositionMonitor} owns the exit: it closes half at TP1 (1:2
+ * R:R), locks the runner's stop at break-even + 1R, then trails the fast band
+ * and flattens the runner on a body close beyond the slow band. SDD opened two
+ * tickets; HTS opens one and manages it.
  *
- * <p>v1 idempotency is in memory (keyed {@code variant|symbol|direction|barTime});
- * a restart inside the same bar could re-enter. Persisting it is a follow-up.
+ * <p>Idempotency is both in memory (fast path) and in {@code hts_trades} via
+ * {@link HtsTradeService#alreadyExecuted}, so a restart inside the same signal
+ * bar cannot re-enter. Every fill is recorded to {@code hts_trades} and the
+ * position monitor fills the outcome on close.
  */
 @Component
 public class HtsExecutionGate {
@@ -44,6 +49,7 @@ public class HtsExecutionGate {
     private final BrokerBooks books;
     private final RiskPolicy risk;
     private final AppProperties properties;
+    private final HtsTradeService trades;
     private final boolean enabled;
     private final boolean liveEnabled;
     private final com.adam.server.scan.Mailer mailer;
@@ -53,6 +59,7 @@ public class HtsExecutionGate {
             BrokerBooks books,
             RiskPolicy risk,
             AppProperties properties,
+            HtsTradeService trades,
             com.adam.server.scan.Mailer mailer,
             @Value("${app.hts.execution-enabled:false}") boolean enabled,
             @Value("${app.hts.live-execution-enabled:false}") boolean liveEnabled
@@ -60,6 +67,7 @@ public class HtsExecutionGate {
         this.books = books;
         this.risk = risk;
         this.properties = properties;
+        this.trades = trades;
         this.mailer = mailer;
         this.enabled = enabled;
         this.liveEnabled = liveEnabled;
@@ -79,6 +87,9 @@ public class HtsExecutionGate {
                 + (s.timestamp() == null ? 0 : s.timestamp().toEpochMilli());
         if (!placed.add(key)) {
             return; // this bar already placed
+        }
+        if (trades.alreadyExecuted(s)) {
+            return; // persisted across a restart within the same signal bar
         }
         try {
             BrokerClient broker = books.forBook(book);
@@ -103,11 +114,14 @@ public class HtsExecutionGate {
                     return;
                 }
                 account = pick.account();
-                if (account != null && account.profitLoss() <= properties.getLiveHaltPln()) {
-                    log.warn("HTS [{}] LIVE execution skipped {} — open P/L {} past halt {}",
-                            s.variant().name(), s.symbol(), account.profitLoss(), properties.getLiveHaltPln());
-                    placed.remove(key);
-                    return;
+                if (account != null) {
+                    double dayPnl = trades.realisedPnlSince(book, trades.startOfToday()) + account.profitLoss();
+                    if (dayPnl <= properties.getLiveHaltPln()) {
+                        log.warn("HTS [{}] LIVE execution skipped {} — day P/L {} past halt {}",
+                                s.variant().name(), s.symbol(), dayPnl, properties.getLiveHaltPln());
+                        placed.remove(key);
+                        return;
+                    }
                 }
             } else {
                 account = risk.pickForBook(book, accounts);
@@ -139,14 +153,21 @@ public class HtsExecutionGate {
                 return;
             }
 
+            // Stop only — the position monitor runs the TP1 partial + trailing runner.
             OrderRequest req = new OrderRequest(
                     s.epic(), s.direction(), size, null, "MARKET",
-                    s.stopLevel(), null, s.targetLevel(), false);
+                    s.stopLevel(), null, null, false);
             OrderAck ack = broker.placeMarketOrder(req);
             if (ack != null && (ack.dealReference() != null || ack.dealId() != null)) {
-                log.info("HTS [{}] entry placed on {} {} {} size {} @ {} stop {} target {}",
+                log.info("HTS [{}] entry placed on {} {} {} size {} @ {} stop {} (TP1 target {} managed)",
                         s.variant().name(), book, s.symbol(), s.direction(), size,
                         s.entry(), s.stopLevel(), s.targetLevel());
+                try {
+                    trades.recordOpen(s, s.variant(), book, account.name(), size, ack);
+                } catch (Exception e) {
+                    log.warn("HTS [{}] entry {} placed but not recorded: {}",
+                            s.variant().name(), s.symbol(), e.getClass().getSimpleName());
+                }
             } else {
                 log.warn("HTS [{}] entry {} returned no deal reference", s.variant().name(), s.symbol());
                 placed.remove(key);

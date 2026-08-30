@@ -40,6 +40,35 @@ public class HtsEngine {
     public static final double CONSOLIDATION_SEP = 0.25;
     public static final double STOP_BUFFER_FRAC = 0.25;
     public static final double RR = 2.0;
+    /** After TP1 the runner's stop is locked no worse than this many R of profit. */
+    public static final double RUNNER_LOCK_R = 1.0;
+
+    /**
+     * Live runner read for {@link HtsPositionManager}: the last closed price, the
+     * far edge of the fast band (structural trail level, same buffer as the entry
+     * stop), and whether a candle body has closed beyond the slow band (the
+     * runner's final exit). {@code null} when there aren't enough bars.
+     */
+    public record RunnerRead(double lastClose, double fastFarEdge, boolean bodyBeyondSlow) {
+    }
+
+    public RunnerRead runnerRead(List<Candle> ltfClosed, boolean buy) {
+        if (ltfClosed == null || ltfClosed.size() < SLOW_LEN + 2) {
+            return null;
+        }
+        Band.Series fast = Band.rma(ltfClosed, FAST_LEN);
+        Band.Series slow = Band.rma(ltfClosed, SLOW_LEN);
+        int i = ltfClosed.size() - 1;
+        if (!fast.ready(i) || !slow.ready(i)) {
+            return null;
+        }
+        double close = ltfClosed.get(i).close();
+        double bandW = Math.max(0, fast.upper()[i] - fast.lower()[i]);
+        double buf = STOP_BUFFER_FRAC * bandW;
+        double edge = buy ? fast.lower()[i] - buf : fast.upper()[i] + buf;
+        boolean beyond = buy ? close < slow.lower()[i] : close > slow.upper()[i];
+        return new RunnerRead(close, edge, beyond);
+    }
 
     /**
      * @param variant   the timeframe model this evaluation belongs to (tags the signal)

@@ -322,6 +322,35 @@ ADX off (permit opcjonalnie, na D1/H1 pomaga), pivotTargets off, splitEntries 1,
 
 ---
 
+## Epiki po roadmapie taskowej
+
+### E-1 — Cykl życia pozycji HTS + żywy model wyjścia runner  ← zrobione (PR feat/hts-trade-lifecycle)
+- **Jedna pozycja na sygnał, nie dwa tickety.** `HtsExecutionGate` stawia teraz wejście
+  **tylko ze stopem** (bez TP w zleceniu) i zapisuje wiersz do `hts_trades` (changeset 014),
+  otagowany wariantem + `htf`/`ltf` + kontem — każdy model timeframe'owy śledzony osobno.
+- **`HtsPositionMonitor`** (30 s w każdy 5-min slot, `HTS_MONITOR_ENABLED` / `HTS_MONITOR_CRON`)
+  → `HtsTradeService.manage()` na każdą OPEN pozycję:
+  1. cena domknęła `entry ± 2×dystans_stopu` (TP1, 1:2 R:R, „1 %") → `closePosition(dealId, size/2)`
+     + `amendPosition` stopu na `entry ± 1R` (break-even + 1R). Zbyt mała pozycja do podziału
+     (poniżej `MIN_DEAL_SIZE`) → całość jedzie jako runner, stop i tak na +1R.
+  2. po TP1: `HtsEngine.runnerRead` (świeże świece LTF) → trailing stopu pod krawędź szybkiej
+     wstęgi (`amendPosition`, tylko w stronę zysku, min. krok 0.1 R).
+  3. świeca ciałem za wolną wstęgą → `closePosition(dealId, reszta)`.
+  4. reconcile: OPEN, którego broker nie raportuje → CLOSED + wynik z feedu transakcji
+     (`exit`, `r_multiple`, `pnl`, `close_reason` = STOP/TRAIL/TARGET/RUNNER/MANUAL).
+- **Zamknięcie z palca nie psuje algorytmu** — reconcile widzi brak deala i zamyka wiersz z
+  `close_reason` MANUAL/UNKNOWN; nic nie jest ponownie otwierane (idempotencja `hts_trades`).
+- **Rozszerzalność:** `HtsTradeSink` (`onOpen`/`onClose`, best-effort). Dziś `LogHtsTradeSink`.
+  E-2 = `NotionHtsTradeSink` — sink + `notion_page_id` na wierszu.
+- **Live day-halt** liczy zrealizowany P/L dnia z `hts_trades` + otwarty P/L konta.
+- API: `GET /api/hts/trades?status=&limit=` (grant `hts`).
+
+### E-2 — Sink do Notion (po E-1)
+- `NotionHtsTradeSink implements HtsTradeSink`, `NOTION_TOKEN` + `NOTION_DATABASE_ID`, no-op gdy brak.
+- `onOpen` → `POST /v1/pages`, zapis `notion_page_id`; `onClose` → `PATCH` (wynik R, P/L, powód).
+
+---
+
 ## Rozbieżności do naprawienia po drodze (z `HTS-vs-KOD.md`)
 
 | co | teraz w kodzie | docelowo (HTS) | task |

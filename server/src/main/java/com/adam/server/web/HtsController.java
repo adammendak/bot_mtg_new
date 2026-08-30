@@ -9,6 +9,8 @@ import com.adam.server.hts.HtsScan;
 import com.adam.server.hts.HtsScanService;
 import com.adam.server.persistence.HtsSignalEntity;
 import com.adam.server.persistence.HtsSignalRepository;
+import com.adam.server.persistence.HtsTradeEntity;
+import com.adam.server.persistence.HtsTradeRepository;
 import com.adam.server.sdd.Adx;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.springframework.data.domain.PageRequest;
@@ -33,11 +35,14 @@ public class HtsController {
     private final HtsBacktestService backtest;
     private final HtsScanService scan;
     private final HtsSignalRepository signals;
+    private final HtsTradeRepository htsTrades;
 
-    public HtsController(HtsBacktestService backtest, HtsScanService scan, HtsSignalRepository signals) {
+    public HtsController(HtsBacktestService backtest, HtsScanService scan, HtsSignalRepository signals,
+                         HtsTradeRepository htsTrades) {
         this.backtest = backtest;
         this.scan = scan;
         this.signals = signals;
+        this.htsTrades = htsTrades;
     }
 
     /**
@@ -116,6 +121,27 @@ public class HtsController {
         }
         int capped = Math.min(Math.max(limit, 1), 500);
         return signals.findAllByOrderByIdDesc(PageRequest.of(0, capped));
+    }
+
+    /**
+     * HTS trade lifecycle (E-1). {@code GET /api/hts/trades?status=OPEN&limit=100}
+     * — persisted entries per variant/timeframe, newest first. Omit {@code status}
+     * for all.
+     */
+    @GetMapping(value = "/api/hts/trades", produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<HtsTradeEntity> trades(
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "limit", defaultValue = "100") int limit,
+            Authentication authentication
+    ) {
+        if (denied(authentication)) {
+            return List.of();
+        }
+        int capped = Math.min(Math.max(limit, 1), 500);
+        if (status != null && !status.isBlank()) {
+            return htsTrades.findByStatusOrderByIdDesc(status.toUpperCase()).stream().limit(capped).toList();
+        }
+        return htsTrades.findAllByOrderByIdDesc(PageRequest.of(0, capped));
     }
 
     /** Manual scan trigger (also a Scheduler backup). */
