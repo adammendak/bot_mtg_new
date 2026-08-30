@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      The startup equity-history sync could 429 on selectAccount and then read
+      the demo account's transaction history while tagging it book='swing' (or
+      'hts'). Those books are brand-new demo accounts with no trading history of
+      their own, so their equity history should simply be empty until the scanner
+      writes real daily snapshots. Drop the mislabelled rows once; the sync fix
+      (abort on selectAccount failure) stops them coming back.
+    -->
+    <changeSet id="013-purge-mislabeled-snapshots" author="amendak">
+        <delete tableName="broker_snapshots">
+            <where>book in ('swing', 'hts')</where>
+        </delete>
+    </changeSet>
+</databaseChangeLog>
