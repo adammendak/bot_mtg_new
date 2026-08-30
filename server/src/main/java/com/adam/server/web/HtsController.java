@@ -24,8 +24,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * HTS ("wstęgi") strategy API. The backtest export is admin-only; the live scan
- * endpoints are gated on the {@code hts} book grant (adam + test have it).
+ * HTS ("wstęgi") strategy API — all endpoints gated on the {@code hts} book
+ * grant (adam + test have it). {@code GET /api/hts/backtest} returns per-trade
+ * CSV ({@code format=trades|csv}, for tools/equity_simulator.py) or a per-symbol
+ * JSON summary ({@code format=summary}, for the Analytics panel).
  */
 @RestController
 public class HtsController {
@@ -66,11 +68,12 @@ public class HtsController {
             @RequestParam(name = "pyramidMinBuf", defaultValue = "0.5") double pyramidMinBuf,
             @RequestParam(name = "supertrendTrail", defaultValue = "false") boolean supertrendTrail,
             @RequestParam(name = "waveTrendFilter", defaultValue = "false") boolean waveTrendFilter,
+            @RequestParam(name = "breakout", defaultValue = "false") boolean breakout,
             @RequestParam(name = "format", defaultValue = "csv") String format,
             Authentication authentication
     ) {
         AppUser user = CurrentUser.of(authentication);
-        if (user != null && !user.isAdmin()) {
+        if (user != null && !user.canSeeBook(Books.HTS)) {
             return ResponseEntity.status(403).body("forbidden");
         }
         var p = new HtsBacktestService.Params(
@@ -80,7 +83,11 @@ public class HtsController {
                 skipConsolidation, pivotTargets, maxNames, stopBuf, adxPermit, runnerLock,
                 Math.max(1, split),
                 Math.max(0, pyramidMax), Math.max(1, pyramidGap), pyramidMinBuf,
-                supertrendTrail, waveTrendFilter);
+                supertrendTrail, waveTrendFilter, breakout);
+        if ("summary".equalsIgnoreCase(format) || "json".equalsIgnoreCase(format)) {
+            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)
+                    .body(backtest.summary(p));
+        }
         List<SwingTradeRow> rows = backtest.run(p);
         StringBuilder sb = new StringBuilder("entry_time,exit_time,symbol,direction,result,r_multiple\n");
         for (SwingTradeRow r : rows) {

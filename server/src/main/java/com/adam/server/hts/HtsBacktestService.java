@@ -11,6 +11,7 @@ import com.adam.server.sdd.PivotPoints;
 import com.adam.server.sdd.SddSymbol;
 import com.adam.server.sdd.Supertrend;
 import com.adam.server.sdd.WaveTrend;
+import com.adam.server.web.dto.BacktestResult;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +58,7 @@ public class HtsBacktestService {
     private static final int SLOW_LEN = 144;
     private static final int PULLBACK_BARS = 10;
     private static final int SLOPE_BARS = 20;              // slow band must be sloping over this many bars
+    private static final int BREAKOUT_LOOKBACK = 6;        // breakout entry: cross must have happened within this many bars
     private static final double CONSOLIDATION_SEP = 0.25;  // required band separation as a fraction of slow-band width
     private static final int LOOK_AHEAD_BARS = 600;
     private static final double ADX_BLUE_FLOOR = 15.0;     // T3': below this ADX is the "blue" no-trend zone → no entry
@@ -94,7 +96,9 @@ public class HtsBacktestService {
             double pyramidMinBufferR,
             // T8 — indicator options
             boolean supertrendTrail,
-            boolean waveTrendFilter
+            boolean waveTrendFilter,
+            // breakout entry: enter on a fresh band cross (HTF supporting), no pullback required
+            boolean breakoutEntry
     ) {
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
@@ -103,7 +107,7 @@ public class HtsBacktestService {
                     /*stopBufferFrac*/ 0.25, /*adxPermit*/ false, /*runnerLockR*/ 1.0,
                     /*splitEntries*/ 1,
                     /*pyramidMax*/ 0, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
-                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false);
+                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false, /*breakoutEntry*/ false);
         }
     }
 
@@ -159,6 +163,48 @@ public class HtsBacktestService {
             }
         }
         return out;
+    }
+
+    /**
+     * Per-symbol aggregate of {@link #run(Params)} for the Analytics panel:
+     * trade count, wins / losses, win rate, average R (= expectancy, since R is
+     * already in 1R-stop units) and profit factor. Sorted by profit factor.
+     */
+    public List<BacktestResult> summary(Params p) {
+        Map<String, int[]> counts = new java.util.LinkedHashMap<>();      // [n, wins, losses]
+        Map<String, double[]> sums = new java.util.LinkedHashMap<>();     // [sumR, grossWin, grossLoss]
+        for (SwingTradeRow row : run(p)) {
+            counts.computeIfAbsent(row.symbol(), k -> new int[3]);
+            sums.computeIfAbsent(row.symbol(), k -> new double[3]);
+            int[] c = counts.get(row.symbol());
+            double[] s = sums.get(row.symbol());
+            double rm = row.rMultiple();
+            c[0]++;
+            s[0] += rm;
+            if (rm > 1e-9) {
+                c[1]++;
+                s[1] += rm;
+            } else if (rm < -1e-9) {
+                c[2]++;
+                s[2] += -rm;
+            }
+        }
+        List<BacktestResult> out = new ArrayList<>();
+        for (var e : counts.entrySet()) {
+            int[] c = e.getValue();
+            double[] s = sums.get(e.getKey());
+            double winRate = c[0] == 0 ? 0 : (double) c[1] / c[0];
+            double avgR = c[0] == 0 ? 0 : s[0] / c[0];
+            double pf = s[2] > 0 ? s[1] / s[2] : (s[1] > 0 ? 999.0 : 0.0);
+            out.add(new BacktestResult(e.getKey(), "", c[0], c[1], c[2],
+                    round4(winRate), round4(avgR), round4(avgR), round4(pf)));
+        }
+        out.sort((a, b) -> Double.compare(b.profitFactor(), a.profitFactor()));
+        return out;
+    }
+
+    private static double round4(double v) {
+        return Math.round(v * 10000.0) / 10000.0;
     }
 
     private record Cand(Instant time, String symbol, boolean buy, double entry, double stop,
@@ -218,7 +264,21 @@ public class HtsBacktestService {
             boolean htfDn = hFast.upper()[hIdx] < hSlow.lower()[hIdx];
 
             Integer dir = null;
-            if (ltfUp && htfUp && !consolidating(lFast, lSlow, i, true, p.skipConsolidation())
+            if (p.breakoutEntry()) {
+                // Enter on a RECENT band cross (the fast band cleared the slow band
+                // within the last BREAKOUT_LOOKBACK bars — a few bars of lag so the
+                // bands separate past the consolidation filter), HTF supporting.
+                // No pullback / body reclaim required.
+                boolean freshUp = ltfUp && !bandsCrossed(lFast, lSlow, i - BREAKOUT_LOOKBACK, true);
+                boolean freshDn = ltfDn && !bandsCrossed(lFast, lSlow, i - BREAKOUT_LOOKBACK, false);
+                if (freshUp && htfUp && !consolidating(lFast, lSlow, i, true, p.skipConsolidation())
+                        && adxOk(adx, i, true, p) && waveTrendOk(wt, i, true)) {
+                    dir = 1;
+                } else if (freshDn && htfDn && !consolidating(lFast, lSlow, i, false, p.skipConsolidation())
+                        && adxOk(adx, i, false, p) && waveTrendOk(wt, i, false)) {
+                    dir = -1;
+                }
+            } else if (ltfUp && htfUp && !consolidating(lFast, lSlow, i, true, p.skipConsolidation())
                     && pulledBack(ltf, lFast, i, true) && bar.close() > lFast.upper()[i]
                     && adxOk(adx, i, true, p) && waveTrendOk(wt, i, true)) {
                 dir = 1;
@@ -263,6 +323,14 @@ public class HtsBacktestService {
         double mid = (slow.upper()[i] + slow.lower()[i]) / 2.0;
         double midPrev = (slow.upper()[i - SLOPE_BARS] + slow.lower()[i - SLOPE_BARS]) / 2.0;
         return buy ? mid <= midPrev : mid >= midPrev; // slow band must slope with the trade
+    }
+
+    /** Was the fast band already fully clear of the slow band (in the trade direction) at bar {@code k}? */
+    private static boolean bandsCrossed(Band.Series fast, Band.Series slow, int k, boolean buy) {
+        if (k < 0 || !fast.ready(k) || !slow.ready(k)) {
+            return false;
+        }
+        return buy ? fast.lower()[k] > slow.upper()[k] : fast.upper()[k] < slow.lower()[k];
     }
 
     private static boolean pulledBack(List<Candle> ltf, Band.Series fast, int i, boolean buy) {

@@ -260,20 +260,31 @@ export class SddService {
     });
   }
 
-  /** #13: run the backtest replay and store results. */
-  runBacktest(book: BookId, days = 90): void {
+  /** HTS backtest replay for the book's timeframe model — per-symbol summary. */
+  runBacktest(book: BookId, days = 30): void {
+    const tf =
+      book === 'swing'
+        ? { htf: 'D1', ltf: 'H1' }
+        : book === 'hts'
+          ? { htf: 'H1', ltf: 'M5' }
+          : { htf: 'H4', ltf: 'M15' };
     this.backtestBusy.set(true);
     this.backtestError.set(null);
-    this.http.get<BacktestResult[]>(`/api/backtest?book=${book}&days=${days}`).subscribe({
-      next: (r) => {
-        this.backtest.set(Array.isArray(r) ? r : []);
-        this.backtestBusy.set(false);
-      },
-      error: (e) => {
-        this.backtestBusy.set(false);
-        this.backtestError.set(formatHttpError('/api/backtest', e));
-      },
-    });
+    this.http
+      .get<BacktestResult[]>(
+        `/api/hts/backtest?htf=${tf.htf}&ltf=${tf.ltf}&days=${days}` +
+          `&runner=true&adxPermit=true&format=summary`,
+      )
+      .subscribe({
+        next: (r) => {
+          this.backtest.set(Array.isArray(r) ? r : []);
+          this.backtestBusy.set(false);
+        },
+        error: (e) => {
+          this.backtestBusy.set(false);
+          this.backtestError.set(formatHttpError('/api/hts/backtest', e));
+        },
+      });
   }
 
   /** #6: execution audit timeline. */

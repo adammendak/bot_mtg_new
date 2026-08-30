@@ -76,7 +76,7 @@ import { BookId, BOOK_TABS } from '../model/sdd.model';
 
       <div class="col-lg-6">
         <div class="card shadow-sm">
-          <div class="card-header bg-dark text-white">Backtest replay (#13)</div>
+          <div class="card-header bg-dark text-white">Backtest HTS — model konta</div>
           <div class="card-body p-0">
             <div class="table-responsive">
               <table class="table table-sm table-striped table-hover mb-0">
@@ -89,7 +89,7 @@ import { BookId, BOOK_TABS } from '../model/sdd.model';
                   @if (sdd.backtestError()) {
                     <tr><td colspan="5" class="text-danger text-center">{{ sdd.backtestError() }}</td></tr>
                   } @else if (sdd.backtest().length === 0) {
-                    <tr><td colspan="5" class="text-muted text-center">Run backtest to replay the SDD engine over history.</td></tr>
+                    <tr><td colspan="5" class="text-muted text-center">Uruchom backtest HTS dla modelu TF tego konta (CORE H4/M15 · SWING D1/H1 · FAST H1/M5).</td></tr>
                   } @else {
                     @for (b of sdd.backtest(); track b.symbol) {
                       <tr>
@@ -138,7 +138,7 @@ export class AnalyticsComponent implements OnInit {
   }
 
   runBacktest(): void {
-    this.sdd.runBacktest(this.current as BookId, 90);
+    this.sdd.runBacktest(this.current as BookId, 30);
   }
 
   winClass(rate: number): string {
