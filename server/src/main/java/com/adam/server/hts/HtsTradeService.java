@@ -260,6 +260,7 @@ public class HtsTradeService {
         double tp1 = t.getTp1Pnl() != null ? t.getTp1Pnl() : 0.0;
         Double pnl = settle == null ? (t.getTp1Pnl() != null ? tp1 : null) : settle + tp1;
         t.setPnl(pnl);
+        boolean preset = t.getCloseReason() != null && !t.getCloseReason().isBlank(); // e.g. WEEKEND
         if (settle != null && t.getSize() != null && t.getSize() > 0 && leg > 0) {
             boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
             double closedSize = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
@@ -269,7 +270,9 @@ public class HtsTradeService {
             t.setRMultiple(round(rr));
             double targetR = t.getTargetLevel() != null
                     ? Math.abs(t.getTargetLevel() - t.getEntry()) / leg : Double.NaN;
-            if (Math.abs(rr + 1.0) <= REASON_TOLERANCE) {
+            if (preset) {
+                // keep the reason the caller stamped (WEEKEND)
+            } else if (Math.abs(rr + 1.0) <= REASON_TOLERANCE) {
                 t.setCloseReason(t.getTp1At() != null ? "TRAIL" : "STOP");
             } else if (!Double.isNaN(targetR) && Math.abs(rr - targetR) <= REASON_TOLERANCE) {
                 t.setCloseReason("TARGET");
@@ -278,9 +281,31 @@ public class HtsTradeService {
             } else {
                 t.setCloseReason("MANUAL");
             }
-        } else {
+        } else if (!preset) {
             t.setCloseReason("UNKNOWN");
         }
+    }
+
+    /**
+     * Pre-stamp {@code closeReason = WEEKEND} on every OPEN trade for {@code book}
+     * whose epic is not BTC, so the reconcile keeps that label. Called by
+     * {@link HtsWeekendFlattener} right after it closes the deals at the broker.
+     */
+    @Transactional
+    public int tagWeekend(String book, String btcEpic) {
+        int n = 0;
+        for (HtsTradeEntity t : trades.findByStatusOrderByIdDesc("OPEN")) {
+            if (!book.equalsIgnoreCase(t.getBook())) {
+                continue;
+            }
+            if (t.getEpic() != null && t.getEpic().equalsIgnoreCase(btcEpic)) {
+                continue;
+            }
+            t.setCloseReason("WEEKEND");
+            trades.save(t);
+            n++;
+        }
+        return n;
     }
 
     // ---- read side (E-3 / E-4) ----

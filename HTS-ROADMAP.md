@@ -359,6 +359,15 @@ ADX off (permit opcjonalnie, na D1/H1 pomaga), pivotTargets off, splitEntries 1,
 - **Cache świec w monitorze** — `manage()` pobiera świece raz na `epic|LTF` na cykl (kilka
   otwartych pozycji na tym samym rynku dzieli jedno pobranie) — mniej wywołań Capital.
 
+### Weekend gap guard — FAST (konto m5)  ← zrobione (PR #77)
+- `HtsWeekendFlattener` — `@Scheduled` (piątek 21:45 Europe/Warsaw,
+  `HTS_WEEKEND_FLATTEN_CRON`) zamyka każdą otwartą pozycję **poza BTC** na książce
+  `hts` (wariant FAST H1/M5 — scalp, 65 h weekendu na indeksie = gap na otwarciu).
+  CORE (H4/M15) i SWING (D1/H1) trzymają przez weekend z założenia; BTC 24/7.
+- `HtsTradeService.tagWeekend` pre-stempluje `close_reason = WEEKEND`, `applyClose`
+  tego nie nadpisuje; po zamknięciu wywołuje `manage()` żeby od razu zreconcile'ować.
+- Flaga: `hts.weekend-flatten` (panel E-6). Mail-podsumowanie przez `Mailer`.
+
 ### E-2 — Sink do Notion (po E-3)
 - `NotionHtsTradeSink implements HtsTradeSink`, `NOTION_TOKEN` + `NOTION_DATABASE_ID`, no-op gdy brak.
 - `onOpen` → `POST /v1/pages`, zapis `notion_page_id`; `onClose` → `PATCH` (wynik R, P/L, powód).
