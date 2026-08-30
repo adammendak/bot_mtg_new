@@ -131,6 +131,25 @@ class HtsExecutionGateTest {
     }
 
     @Test
+    void reSizesAfterWideningSoRiskDoesNotBlowOut() {
+        // broker min stop 500 pts; the band stop is ~166 pts -> widened. Size must
+        // be recomputed from 500, not left sized for 166 (~3x over-risk otherwise).
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 500.0, 0));
+        when(risk.sizeFor(anyDouble(), eq(500.0), anyDouble())).thenReturn(0.02);
+        when(risk.sizeFor(eq(10.0), org.mockito.ArgumentMatchers.doubleThat(d -> d < 200), anyDouble()))
+                .thenReturn(0.06);
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.02));
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(broker).placeMarketOrder(req.capture());
+        assertThat(req.getValue().size()).isEqualTo(0.02); // sized for the widened 500pt stop
+    }
+
+    @Test
     void neverStacksASecondPositionForAnOpenModelSymbol() {
         when(trades.hasOpenPosition(HtsVariant.FAST, "BTC")).thenReturn(true);
 

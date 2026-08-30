@@ -186,13 +186,6 @@ public class HtsExecutionGate {
                         s.variant().name(), s.symbol(), rules.minStopDistancePoints(),
                         s.stopLevel(), adjStop);
             }
-            double adjSize = rules.roundSize(size);
-            if (adjSize <= 0) {
-                log.warn("HTS [{}] execution {}: size rounds to zero (raw {}, minDeal {})",
-                        s.variant().name(), s.symbol(), size, rules.minDealSize());
-                placed.remove(key);
-                return;
-            }
             if (Math.abs(adjEntry - adjStop) <= 0) {
                 log.warn("HTS [{}] execution {}: stop equals entry after rounding ({})",
                         s.variant().name(), s.symbol(), adjEntry);
@@ -200,6 +193,28 @@ public class HtsExecutionGate {
                 return;
             }
             double adjDist = Math.abs(adjEntry - adjStop);
+            // If the stop was widened to the broker minimum, re-size from the NEW
+            // distance so risk stays ~1R — otherwise a 165pt band stop widened to
+            // a 500pt broker minimum would risk ~3× the intended amount.
+            if (adjDist > stopDist * 1.0001) {
+                double resized = risk.sizeFor(cash, adjDist, 1.0);
+                log.info("HTS [{}] {} re-sized after stop widen: {} -> {} (dist {} -> {})",
+                        s.variant().name(), s.symbol(), size, resized, stopDist, adjDist);
+                size = resized;
+            }
+            double adjSize = rules.roundSize(size);
+            if (adjSize <= 0) {
+                log.warn("HTS [{}] execution {}: size rounds to zero (raw {}, minDeal {})",
+                        s.variant().name(), s.symbol(), size, rules.minDealSize());
+                placed.remove(key);
+                return;
+            }
+            if (live && adjSize < properties.getMinDealSize()) {
+                log.warn("HTS [{}] LIVE execution skipped {} — size {} below min deal {} after shaping",
+                        s.variant().name(), s.symbol(), adjSize, properties.getMinDealSize());
+                placed.remove(key);
+                return;
+            }
             double adjTarget = buy ? adjEntry + HtsEngine.RR * adjDist : adjEntry - HtsEngine.RR * adjDist;
             if (adjEntry != s.entry() || adjStop != s.stopLevel() || adjSize != size) {
                 log.info("HTS [{}] {} order shaped for broker: entry {}->{} stop {}->{} size {}->{}",
