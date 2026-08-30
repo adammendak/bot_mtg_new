@@ -95,8 +95,11 @@ public class HtsScanService {
             market.login();
             ZoneId zone = ZoneId.of(properties.getTimezone());
             List<SddSymbol> universe = SddSymbol.htsUniverseFor(now, zone);
+            int minute = now.atZone(zone).getMinute();
             for (HtsVariant variant : HtsVariant.values()) {
-                scanVariant(variant, universe, market, now, found);
+                if (variant.dueAtMinute(minute)) {
+                    scanVariant(variant, universe, market, now, found);
+                }
             }
             lastError = null;
             mailer.clearThrottle("scan-hts");
