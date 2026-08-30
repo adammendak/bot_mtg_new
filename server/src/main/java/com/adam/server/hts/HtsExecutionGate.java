@@ -78,7 +78,11 @@ public class HtsExecutionGate {
             return;
         }
         boolean live = s.variant().live();
-        if (live ? !flags.enabled("hts.live-execution") : !flags.enabled("hts.execution")) {
+        String flag = live ? "hts.live-execution" : "hts.execution";
+        if (!flags.enabled(flag)) {
+            // A signal that is NOT executed must be loud — this is how one slips by.
+            log.warn("HTS [{}] execution SKIPPED for {} {} — feature flag {} is OFF",
+                    s.variant().name(), s.symbol(), s.direction(), flag);
             return;
         }
         String book = s.variant().book();

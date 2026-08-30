@@ -428,6 +428,24 @@ na Capital. Teraz przełącznik w adminie działa **od ręki**, bez przestoju.
 - `HTS_SCAN_ENABLED` (nowa env, default true) jako default dla `hts.scan`.
 **Testy:** `FeatureFlagsTest` (+6). 205 serwer, 15 UI — zielone.
 
+**Poprawka 2026-08-30 (PR #80):** dwa błędy z E-6 naprawione.
+1. **`FeatureFlags` konstruktor** — prywatny bezargumentowy `FeatureFlags()` (dla `forTest`)
+   sprawiał, że Spring **omijał** publiczny `@Value` konstruktor: `repo == null`, nic się
+   nie zapisywało, każdy restart czyścił panel (env-default = zaszyty `FALLBACK`, nie
+   Heroku). → usunięty; jeden `@Autowired` konstruktor, `forTest()` woła go z `repo = null`.
+2. **Flagi SDD/SWING usunięte** — `sdd.scan` / `sdd.execution` / `swing.scan` /
+   `swing.execution` zniknęły z panelu. `ScanScheduler` / `SwingScanScheduler` /
+   `ExecutionGate` / `SwingExecutionGate` wróciły na `@Value("${SCAN_ENABLED:false}")` itd.
+   (env, default **off**). Changeset 018 czyści stare wiersze `feature_flags`.
+- **Panel = tylko HTS**, 5 flag: `hts.scan`, `hts.execution`, `hts.live-execution`,
+  `hts.monitor`, `hts.weekend-flatten` — **wszystkie default `true`** (`@Value` `:true` +
+  `FALLBACK` `true` + `enabled()` fallback `true`). „Fail toward ON": brak wiersza,
+  nieudany `refresh()`, nieznany klucz → nie wyłącza egzekucji.
+- `HtsExecutionGate` loguje **WARN** gdy pomija sygnał przez wyłączoną flagę
+  (widoczne w logach / Monitorze — koniec „sygnał przeszedł bokiem").
+- env-defaulty: `HTS_EXECUTION_ENABLED:true`, `HTS_LIVE_EXECUTION_ENABLED:true`,
+  `SCAN_ENABLED:false`, `SWING_ENABLED:false` w `application.properties`.
+
 ### E-7 — TOTP dla admina + TTL/refresh bearer tokena  ← zrobione (PR #75)
 **Po co:** konto `live` = realne pieniądze, a jedyna bramka to hasło + bearer bez
 wygasania. Token raz wyciekły (log przeglądarki, historia narzędzia) żyje wiecznie.

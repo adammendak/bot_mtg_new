@@ -293,8 +293,7 @@ class ScanServiceMockBrokerTest {
                 new com.adam.server.ops.SchedulerHeartbeat(java.time.Clock.systemUTC(), "");
         com.adam.server.ops.ErrorLog errorLog =
                 org.mockito.Mockito.mock(com.adam.server.ops.ErrorLog.class);
-        ScanScheduler scheduler = new ScanScheduler(scanService, webhooks, heartbeat, errorLog,
-                com.adam.server.ops.FeatureFlags.forTest());
+        ScanScheduler scheduler = new ScanScheduler(scanService, webhooks, heartbeat, errorLog, true);
         assertThatCode(scheduler::onM15Close).doesNotThrowAnyException();
     }
 
@@ -352,7 +351,7 @@ class ScanServiceMockBrokerTest {
                 publisher,
                 new NewsBlackout(props, RestClient.builder(), clock),
                 risk,
-                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram, monitor, com.adam.server.scan.Mailer.disabled(), com.adam.server.ops.FeatureFlags.forTest()),
+                new ExecutionGate(props, books, risk, new SddExecutionState(mock(SddExecutionRepository.class)), publisher, telegram, monitor, com.adam.server.scan.Mailer.disabled()),
                 accounts,
                 clock,
                 null,

@@ -4,6 +4,7 @@ import com.adam.server.persistence.FeatureFlagEntity;
 import com.adam.server.persistence.FeatureFlagRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -17,42 +18,40 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Runtime feature flags (E-6). Each flag overrides one env-var boolean —
- * execution / scan / monitor toggles — without a dyno restart (and without the
- * Capital.com 429 storm a restart triggers). A DB row wins; with no row the
- * {@code application.properties} default applies. The override cache is refreshed
- * on every write and re-read from the DB every 30 s as a safety net.
+ * Runtime toggles for the live HTS pipeline (E-6), editable from the admin panel
+ * without a dyno restart. Only HTS flags exist — SDD-M15 / SDD-SWING are retired
+ * and their schedulers are gated by plain env vars (default off).
  *
- * <p>The set of known flags is fixed here so the admin UI and the callers agree.
+ * <p><b>Fail toward ON.</b> Every flag here defaults to {@code true}: a missing
+ * DB row, a failed refresh, or an unknown key must never silently disarm the
+ * scan / execution / monitor. A DB override (set from the panel) wins and, since
+ * the fix in this class, survives a restart. To stop something you must
+ * explicitly toggle it off — it will not turn itself off.
  */
 @Service
 public class FeatureFlags {
 
     private static final Logger log = LoggerFactory.getLogger(FeatureFlags.class);
 
-    /** flag name → the env property that is its default, in display order. */
+    /** flag name → the env property that supplies its default, in display order. */
     private static final Map<String, String> KEY = new LinkedHashMap<>();
     /** flag name → human description for the admin panel. */
     private static final Map<String, String> DESC = new LinkedHashMap<>();
-    /** flag name → default when the property is unset. */
+    /** flag name → hard fallback when everything else is missing (all true — fail toward ON). */
     private static final Map<String, Boolean> FALLBACK = new LinkedHashMap<>();
 
     static {
-        def("sdd.scan", "app.scan.enabled", true, "Skan SDD-M15 (zarchiwizowany)");
-        def("sdd.execution", "app.execution-enabled", false, "Egzekucja SDD-M15 na demo/live");
-        def("swing.scan", "app.swing.enabled", true, "Skan SDD-SWING H1 (zarchiwizowany)");
-        def("swing.execution", "app.swing.execution-enabled", false, "Egzekucja SDD-SWING");
-        def("hts.scan", "app.hts.scan-enabled", true, "Skan HTS (wszystkie warianty)");
-        def("hts.execution", "app.hts.execution-enabled", false, "Egzekucja HTS na kontach demo");
-        def("hts.live-execution", "app.hts.live-execution-enabled", false, "Egzekucja HTS CORE_LIVE (realne)");
-        def("hts.monitor", "app.hts.monitor-enabled", true, "Monitor pozycji HTS (runner exit)");
-        def("hts.weekend-flatten", "app.hts.weekend-flatten-enabled", true,
+        def("hts.scan", "app.hts.scan-enabled", "Skan HTS (wszystkie warianty)");
+        def("hts.execution", "app.hts.execution-enabled", "Egzekucja HTS na kontach demo");
+        def("hts.live-execution", "app.hts.live-execution-enabled", "Egzekucja HTS CORE_LIVE (realne)");
+        def("hts.monitor", "app.hts.monitor-enabled", "Monitor pozycji HTS (runner exit)");
+        def("hts.weekend-flatten", "app.hts.weekend-flatten-enabled",
                 "Zamknij pozycje FAST (konto m5) w piątek wieczorem — bez BTC");
     }
 
-    private static void def(String name, String prop, boolean fallback, String desc) {
+    private static void def(String name, String prop, String desc) {
         KEY.put(name, prop);
-        FALLBACK.put(name, fallback);
+        FALLBACK.put(name, true);
         DESC.put(name, desc);
     }
 
@@ -61,29 +60,24 @@ public class FeatureFlags {
     private final Map<String, Boolean> overrides = new ConcurrentHashMap<>();
 
     /**
-     * Defaults come from the resolved {@code @Value} booleans — the same
-     * placeholder resolution the gates used before E-6. {@code Environment
-     * .getProperty(key, Boolean.class, fallback)} silently returned the fallback
-     * for {@code ${ENV:default}}-valued keys, so the panel's "env default" column
-     * (and any "Reset to env") disagreed with the real Heroku config.
+     * The single constructor — {@code @Autowired} so Spring never falls back to a
+     * no-arg one (the earlier regression: a private no-arg constructor added for
+     * tests made Spring skip this constructor entirely, so {@code repo} was null,
+     * nothing persisted, and every restart wiped the panel toggles).
+     *
+     * <p>Defaults resolve from {@code @Value} — nested {@code ${ENV:default}} and
+     * all — exactly as the schedulers/gates did before E-6.
      */
+    @Autowired
     public FeatureFlags(
             FeatureFlagRepository repo,
-            @Value("${app.scan.enabled:true}") boolean sddScan,
-            @Value("${app.execution-enabled:false}") boolean sddExecution,
-            @Value("${app.swing.enabled:true}") boolean swingScan,
-            @Value("${app.swing.execution-enabled:false}") boolean swingExecution,
             @Value("${app.hts.scan-enabled:true}") boolean htsScan,
-            @Value("${app.hts.execution-enabled:false}") boolean htsExecution,
-            @Value("${app.hts.live-execution-enabled:false}") boolean htsLiveExecution,
+            @Value("${app.hts.execution-enabled:true}") boolean htsExecution,
+            @Value("${app.hts.live-execution-enabled:true}") boolean htsLiveExecution,
             @Value("${app.hts.monitor-enabled:true}") boolean htsMonitor,
             @Value("${app.hts.weekend-flatten-enabled:true}") boolean htsWeekendFlatten
     ) {
         this.repo = repo;
-        defaults.put("sdd.scan", sddScan);
-        defaults.put("sdd.execution", sddExecution);
-        defaults.put("swing.scan", swingScan);
-        defaults.put("swing.execution", swingExecution);
         defaults.put("hts.scan", htsScan);
         defaults.put("hts.execution", htsExecution);
         defaults.put("hts.live-execution", htsLiveExecution);
@@ -93,23 +87,19 @@ public class FeatureFlags {
         refresh();
     }
 
-    private FeatureFlags() {
-        this.repo = null;
-        defaults.putAll(FALLBACK);
-    }
-
-    /** Test instance: property fallbacks as defaults, no DB. {@link #set}/{@link #reset} just move the cache. */
+    /** Test instance — no DB. {@link #set}/{@link #reset} only move the in-memory cache. */
     public static FeatureFlags forTest() {
-        return new FeatureFlags();
+        return new FeatureFlags(null, true, true, true, true, true);
     }
 
-    /** Effective value: DB override if set, otherwise the env default. */
+    /** Effective value: DB override if set, otherwise the env default, otherwise true. */
     public boolean enabled(String name) {
         Boolean o = overrides.get(name);
         if (o != null) {
             return o;
         }
-        return defaults.getOrDefault(name, false);
+        Boolean d = defaults.get(name);
+        return d != null ? d : FALLBACK.getOrDefault(name, false);
     }
 
     public boolean isKnown(String name) {
@@ -178,7 +168,7 @@ public class FeatureFlags {
         List<FlagView> out = new ArrayList<>();
         for (String name : KEY.keySet()) {
             FeatureFlagEntity r = rows.get(name);
-            boolean envDefault = defaults.getOrDefault(name, false);
+            boolean envDefault = defaults.getOrDefault(name, FALLBACK.getOrDefault(name, false));
             out.add(new FlagView(
                     name, DESC.get(name), enabled(name), envDefault, overrides.containsKey(name),
                     r == null ? null : r.getUpdatedAt(),
