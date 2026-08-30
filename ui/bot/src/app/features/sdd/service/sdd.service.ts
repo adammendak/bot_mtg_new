@@ -40,7 +40,7 @@ export class SddService {
   readonly swingError = signal<string | null>(null);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
-  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [] });
+  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [], hts: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly history = signal<HistoryResponse | null>(null);
@@ -108,7 +108,14 @@ export class SddService {
     });
     this.positionsError.set(null);
     this.http.get<PositionsByBook>('/api/positions/risk').subscribe({
-      next: (p) => this.positions.set({ demo: p.demo ?? [], live: p.live ?? [], glowne: p.glowne ?? [], swing: p.swing ?? [] }),
+      next: (p) =>
+        this.positions.set({
+          demo: p.demo ?? [],
+          live: p.live ?? [],
+          glowne: p.glowne ?? [],
+          swing: p.swing ?? [],
+          hts: p.hts ?? [],
+        }),
       error: (e) => this.positionsError.set(formatHttpError('/api/positions/risk', e)),
     });
   }

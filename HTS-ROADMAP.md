@@ -164,27 +164,91 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
   sizowanych własnym (ciaśniejszym) stopem tak, że pełne wypełnienie = pełne 1R — to model z T7‑style
   księgowaniem, odłożony.
 
-### T7 — Piramidowanie  ← wymaga rozpisania (odłożone)
-- Dokładanie na kolejnych cofnięciach do wstęgi w tym samym trendzie; pełne wyjście przy złamaniu wolnej.
-- **Problem:** księgowanie ryzyka dla dokładek jest niejednoznaczne (równe loty + własne stopy →
-  ryzyko rośnie; „w zysku" → dokładki finansowane otwartym zyskiem). Potrzebny osobny projekt
-  modelu (stop dokładki na entry poprzedniej jednostki? wspólny stop pod wstęgą?).
-- Konflikt z obecnym `ExecutionGate` („NO pyramid") — najpierw backtest, potem decyzja o żywej egzekucji.
+### T7 — Piramidowanie (rozpisane)
+
+**Idea (z filmów):** po TP1, gdy trend trwa, dokładasz kolejne jednostki na każdym powrocie
+ceny do szybkiej wstęgi (ten sam setup pullback+reclaim co wejście bazowe). Równe loty, nie
+martingale. Pełne wyjście całego stosu przy zamknięciu ciała za wolną wstęgą.
+
+#### Reguła ryzyka — „house money"
+Dokładki są finansowane **zrealizowanym + zablokowanym zyskiem**, nie nowym ryzykiem konta.
+Niezmiennik: **łączne ryzyko otwartego stosu ≤ 1R bazowego** w każdym momencie.
+
+- Jednostka bazowa U0: ryzyko = 1R (jak dziś). Po TP1 (½ pozycji) stop reszty U0 skacze na
+  `entry ± runnerLockR·stopDist` (już jest w modelu wyjścia). Od tego momentu U0 nie ryzykuje
+  nic z konta (najgorszy wynik = +runnerLockR).
+- Dokładka Uk (k = 1..`pyramidMax`): wielkość = **taka, by jej ryzyko do jej własnego stopu
+  równało się buforowi zysku, który mamy „na stole"**, ale nie więcej niż 1R.
+  `size(Uk) = min(bufor_zysku_R, 1) / dist(entry_k → stop_k)`.
+- Stop dokładki `stop_k` = **wspólny stop trailowany pod szybką wstęgą** (ta sama linia co runner
+  U0). Czyli cały stos ma jeden ruchomy stop = krawędź szybkiej wstęgi + bufor 0.25·szer.
+- `bufor_zysku_R` = (zrealizowane R z TP1) + (otwarte R stosu wycenione do wspólnego stopu).
+  Gdy trend jedzie, bufor rośnie → kolejne dokładki mogą być większe, ale twardy cap 1R/jednostkę
+  i **≤ 1R na cały otwarty nierozliczony stos** (suma `size·dist(entry→wspólny stop)` ≤ 1R).
+
+#### Warunki dokładki
+1. Bazowa pozycja w zysku (TP1 zrealizowane).
+2. Świeży setup: cena weszła do szybkiej wstęgi w ostatnich `PULLBACK_BARS` i ciało zamknęło się
+   z powrotem za krawędzią (dokładnie `HtsEngine`/`collect` warunek wejścia).
+3. Wstęgi nadal w trendzie (LTF fast czysto nad/pod slow) i **nie w konsolidacji**.
+4. `k < pyramidMax` (param, domyślnie 2) i minimalny odstęp `pyramidGapBars` od poprzedniej
+   dokładki (żeby jeden szeroki pullback nie odpalił 3 dokładek).
+5. `bufor_zysku_R ≥ pyramidMinBufferR` (domyślnie 0.5) — nie dokładamy „na styk".
+
+#### Wyjście
+- Wspólny trailing stop pod szybką wstęgą: dotknięcie → zamyka **cały stos** po tej cenie.
+- Zamknięcie ciała za wolną wstęgą → zamyka **cały stos** po close (jak runner dziś).
+- TP1 dotyczy tylko U0. Dokładki nie mają własnego TP — jadą z runnerem do wolnej wstęgi.
+- R całości = Σ per-jednostka `size_k · (exit − entry_k)/stopDist_bazowy` (w jednostkach 1R U0),
+  żeby liczby były porównywalne z resztą backtestu.
+
+#### Backtest (`HtsBacktestService`)
+- Nowy tryb `replayPyramid(c, rr, runnerLockR, pyramidMax, gapBars, minBufferR)` — rozszerzenie
+  `replayRr` runner-branch: po ustawieniu `rA` (TP1) skanuj do przodu; na każdym barze sprawdź
+  warunek dokładki (potrzebne serie `c.fast` — już są w `Cand`), dołóż jednostkę do listy
+  `List<Unit{entry, sizeR}>`, aktualizuj wspólny `runnerStop` = max(lock, krawędź wstęgi).
+  Zamknięcie: wspólny stop albo `bodyBeyondSlow`.
+- Params: `int pyramidMax` (0 = wyłączone, domyślnie), `int pyramidGapBars` (domyślnie 5),
+  `double pyramidMinBufferR` (domyślnie 0.5). Endpoint: `?pyramidMax= &pyramidGap= &pyramidMinBuf=`.
+- Grid: `pyramidMax ∈ {0,1,2,3}` na modelu D1/H1 i H4/M15, okna m2back/recent, z ADX i bez.
+  Metryki: **avgR, win rate, max DD, PF** (cel: WR ↑ / DD ↓, nie sam avgR).
+
+#### Żywa egzekucja (po zielonym backteście, osobno)
+- `HtsExecutionGate` dziś: 1 ticket na sygnał, `placed` keyed `symbol|dir|barTime`. Piramida
+  wymaga: śledzenia otwartego stosu per symbol (ile jednostek, wspólny stop), modyfikacji SL
+  wszystkich ticketów przy trailu, oraz reguły „dokładka tylko gdy bazowa w zysku".
+- Konflikt z `ExecutionGate` SDD-M15 („NO pyramid") nie dotyczy — to osobny gate/book.
+- **Wejdzie za flagą** `HTS_PYRAMID_ENABLED` (domyślnie false), niezależną od `HTS_EXECUTION_ENABLED`.
 
 ### T8 — Supertrend / WaveTrend jako opcje
 - Runner‑trail: Supertrend vs linia RMA133 vs „close pod wolną wstęgą" — A/B.
 - WaveTrend: timing OB/OS jako dodatkowy filtr wejścia (extreme → czekaj na reclaim).
 - Wskaźniki już w kodzie (`com.adam.server.sdd.Supertrend`, `WaveTrend`).
 
-### T9 — Live: 3. book `hts` + 3. konto Capital
-- `HtsEngine` + `HtsScanService` + `HtsExecutionGate` (opt‑in `HTS_EXECUTION_ENABLED`).
-- `Books.HTS`, grant Liquibase, `CAPITAL_HTS_*` config vars, book w UI/API/overview.
-- Wdrożyć **zwycięską konfigurację** z T1–T8 na osobnym demo koncie, na miesiąc forward,
-  równolegle z SDD‑M15 i swing.
+### T9 — Live: 3. book `hts` + 3. konto Capital  ← zrobione (egzekucja domyślnie OFF)
+- **Plumbing:** `Books.HTS` + `BrokerBooks.hts()` + bean `htsBroker` (`CAPITAL_HTS_*`),
+  `app.capital.hts.*`, `RiskPolicy.pickHtsAccount` (pinuje „Account m5"), grant Liquibase
+  `010-hts-book.xml`, book w `/api/accounts` `/api/broker` `/api/positions` `/health`
+  (`htsConfigured`), zakładka „HTS" w UI (dashboard, admin, overview).
+- **Silnik live:** `HtsEngine` (ostatnia zamknięta świeca, konfiguracja domyślna T1–T6:
+  wstęgi 33/144 high/low, pullback+reclaim, skip‑konsolidacji, stop = krawędź szybkiej
+  wstęgi + bufor 0.25×szer., TP1 = 2×dystans stopu, ADX off). Model główny **D1(kontekst)/H1(egzekucja)**.
+- **Skan:** `HtsScanService` + `HtsScanScheduler` (cron `HTS_CRON`, dom. `0 2 * * * *` — minutę
+  za swingiem). Persist do `hts_signals` (`011-hts-signals.xml`), notyfikacja (`LogHtsNotifier`,
+  rich mail = T10), oddanie do `HtsExecutionGate`.
+- **Egzekucja:** `HtsExecutionGate` na booku `hts`, jeden market ticket (stop + TP1 razem),
+  sizing `ryzyko$ / dystans_stopu`. **`HTS_EXECUTION_ENABLED` domyślnie `false`.**
+- **API:** `GET /api/hts/last`, `GET /api/hts/signals`, `POST /api/hts/scan` (gate: book `hts`).
+- **Do zrobienia po stronie Heroku (Ty):** ustawić `CAPITAL_HTS_API_KEY` / `CAPITAL_HTS_EMAIL` /
+  `CAPITAL_HTS_PASSWORD` (konto „Account m5"). Potem `HTS_EXECUTION_ENABLED=true` gdy gotowe.
+- **Rozważ:** wyłączenie egzekucji SDD‑M15 na „Account m15" jeśli HTS‑core (H4/M15) ma tam wejść —
+  do Twojej decyzji; teraz HTS live idzie na osobne „Account m5".
 
-### T10 — Bogaty mail sygnału HTS
-- Jak task 6 dla swinga: stan obu interwałów (wstęgi HTF+LTF, ADX, ATR, pozycja vs PP),
-  entry/stop/targety, jedno zdanie „dlaczego". Adres `adam.mendak@gmail.com`.
+### T10 — Bogaty mail sygnału HTS  ← zrobione
+- `MailHtsNotifier` + `HtsSignalContext`: stan D1 (band + slope), H1 (separacja wstęg, slope,
+  ile barów temu pullback), ADX(14)/+DI/−DI + strefa, ATR(14), cena vs pivot, geometria trade'u
+  (stop w cenie i %, R:R), akapit „dlaczego". Idzie przez wspólny `Mailer` (no-op bez SMTP)
+  na `MAIL_TO` (domyślnie `adam.mendak@gmail.com`).
 
 ### T11 — Kolejne warianty HTS jako osobne żywe konfiguracje
 - Po ustabilizowaniu głównego modelu HTS na 3. koncie: dołożyć drugą parę swingową,
@@ -264,9 +328,9 @@ spójne z D1/H1 i z SDD/swing. Sample 55–65 tradów = wiarygodny.
 `skipConsolidation=true`, ADX off (permit jako opcja, na D1/H1 pomaga), `pivotTargets=false`,
 `splitEntries=1`.
 
-**Następne:** T9 — żywy book `hts` + konto „Account m5", `HtsEngine`/`HtsScanService`/
-`HtsExecutionGate`, `HTS_EXECUTION_ENABLED` (domyślnie off), grant Liquibase, `CAPITAL_HTS_*`,
-book w UI/overview. Potem T10 (mail). T7 (piramida) po zaprojektowaniu modelu ryzyka dokładek.
+**Następne:** T7 (piramida — model rozpisany, do zakodowania w backteście `replayPyramid` + grid),
+potem T8 (Supertrend/WaveTrend opcje), T11 (drugi model swingowy + H1/M5).
+Zrobione: T1–T6, T9 (żywy `hts`), T10 (mail), fix `/api/history/sync` 503.
 
 ## Stan „co jest w kodzie" (backtest, nie live)
 
@@ -274,7 +338,15 @@ book w UI/overview. Potem T10 (mail). T7 (piramida) po zaprojektowaniu modelu ry
 - `Supertrend`, `WaveTrend`, `Ema`, `Sma` — jest (niewpięte w silnik).
 - Band‑entry + runner „close pod wstęgą" — jest w `SwingBacktestService` (H4/H1) i `BacktestService` (H1/M15)
   jako tryby backtestu.
-- `HtsBacktestService` — **jest** (T1‑T4): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
-  `adxPermit` (T3'), `pivotTargets` (T4), runner. Endpoint `GET /api/hts/backtest` (admin).
+- `HtsBacktestService` — **jest** (T1‑T6): timeframe‑generyczny, `stopBufferFrac` (bufor stopu),
+  `adxPermit` (T3'), `pivotTargets` (T4), `splitEntries` (T6), runner‑lock. `GET /api/hts/backtest`.
 - `equity_simulator.py` — **jest** `--day-stop` / `--max-dd` (T5, strona backtestu).
+- **Live (T9)** — **jest**: `HtsEngine`, `HtsScanService`, `HtsScanScheduler`, `HtsExecutionGate`
+  (`HTS_EXECUTION_ENABLED=false`), book `hts` na „Account m5", `hts_signals`, `/api/hts/last|signals|scan`.
+  Żywe silniki SDD‑M15/swing i ich egzekucja — **nietknięte**.
+- **Mail (T10)** — **jest**: `MailHtsNotifier` + `HtsSignalContext` (nota analityczna, D1+H1 obraz wstęg,
+  ADX, ATR, geometria). Wspólny `Mailer`, `MAIL_TO`.
+- **Fix history‑sync** — **jest**: `transactionHistory(from,to,budget)` w SPI, `CapitalComBrokerClient`
+  przerywa spacer po `app.history-sync.walk-budget-seconds` (18 s); `/sync-all` ma własny cap 24 s;
+  `safeSync` łapie `Throwable`. Koniec z 503/500 na prodzie.
 - Żywe silniki (`SddEngine`, `SddSwingEngine`) i egzekucja (`ExecutionGate`, `SwingExecutionGate`) — **nietknięte**.

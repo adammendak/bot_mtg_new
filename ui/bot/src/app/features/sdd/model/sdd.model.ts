@@ -66,6 +66,7 @@ export interface HealthInfo {
   demoConfigured: boolean;
   liveConfigured: boolean;
   swingConfigured?: boolean;
+  htsConfigured?: boolean;
   webhookConfigured?: boolean;
   lastWebhook?: string;
   lastWebhookAt?: string | null;
@@ -82,8 +83,11 @@ export interface Position {
   riskPln: number | null;
 }
 
-/** Broker book identifiers. `swing` = separate demo account for the SDD-SWING (H1) strategy. */
-export type BookId = 'demo' | 'live' | 'glowne' | 'swing';
+/**
+ * Broker book identifiers. `swing` = separate demo account for the SDD-SWING (H1)
+ * strategy; `hts` = separate demo account for the HTS ("wstęgi") strategy.
+ */
+export type BookId = 'demo' | 'live' | 'glowne' | 'swing' | 'hts';
 
 /** All book tabs in dashboard order — filter by AuthService.canSeeBook() before rendering. */
 export const BOOK_TABS: { id: BookId; label: string }[] = [
@@ -91,6 +95,7 @@ export const BOOK_TABS: { id: BookId; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'glowne', label: 'Główne' },
   { id: 'swing', label: 'Swing' },
+  { id: 'hts', label: 'HTS' },
 ];
 
 export interface PositionsByBook {
@@ -98,6 +103,7 @@ export interface PositionsByBook {
   live: Position[];
   glowne: Position[];
   swing: Position[];
+  hts: Position[];
 }
 
 export interface AccountView {

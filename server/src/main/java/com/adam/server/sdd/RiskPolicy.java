@@ -173,6 +173,27 @@ public class RiskPolicy {
         return pickDemoAccount(accounts);
     }
 
+    /**
+     * "HTS" book pick — a separate Capital.com DEMO sub-account for the HTS
+     * ("wstęgi") strategy. Accepts only the account named {@code HTS_ACCOUNT_NAME}
+     * ({@code app.hts-account-name}, default {@code "Account m5"}); falls back to
+     * the preferred / first non-Fintokei demo account if that name is absent.
+     */
+    public Account pickHtsAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        String name = properties.getHtsAccountName();
+        if (name != null && !name.isBlank()) {
+            for (Account a : accounts) {
+                if (!isFintokei(a.name()) && name.equals(a.name())) {
+                    return a;
+                }
+            }
+        }
+        return pickDemoAccount(accounts);
+    }
+
     public record LivePick(Account account, String hideReason) {
         static LivePick visible(Account account) {
             return new LivePick(account, null);

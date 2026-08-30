@@ -302,6 +302,7 @@ export class SddDashboardComponent implements OnInit {
       { id: 'demo', title: 'Demo', headerClass: 'bg-primary text-white' },
       { id: 'live', title: 'Live', headerClass: 'bg-dark text-white' },
       { id: 'swing', title: 'Swing', headerClass: 'bg-info text-dark' },
+      { id: 'hts', title: 'HTS', headerClass: 'bg-secondary text-white' },
     ] as { id: BookId; title: string; headerClass: string }[]
   ).filter((b) => this.auth.canSeeBook(b.id));
   readonly canSeeSwing = this.auth.canSeeBook('swing');

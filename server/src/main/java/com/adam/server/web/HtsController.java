@@ -2,30 +2,42 @@ package com.adam.server.web;
 
 import com.adam.server.auth.AppUser;
 import com.adam.server.auth.CurrentUser;
+import com.adam.server.broker.Books;
 import com.adam.server.broker.Resolution;
 import com.adam.server.hts.HtsBacktestService;
+import com.adam.server.hts.HtsScan;
+import com.adam.server.hts.HtsScanService;
+import com.adam.server.persistence.HtsSignalEntity;
+import com.adam.server.persistence.HtsSignalRepository;
 import com.adam.server.sdd.Adx;
 import com.adam.server.web.dto.SwingTradeRow;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * HTS ("wstęgi") strategy backtest — read API. Admin only until the {@code hts}
- * book exists.
+ * HTS ("wstęgi") strategy API. The backtest export is admin-only; the live scan
+ * endpoints are gated on the {@code hts} book grant (adam + test have it).
  */
 @RestController
 public class HtsController {
 
     private final HtsBacktestService backtest;
+    private final HtsScanService scan;
+    private final HtsSignalRepository signals;
 
-    public HtsController(HtsBacktestService backtest) {
+    public HtsController(HtsBacktestService backtest, HtsScanService scan, HtsSignalRepository signals) {
         this.backtest = backtest;
+        this.scan = scan;
+        this.signals = signals;
     }
 
     /**
@@ -70,5 +82,47 @@ public class HtsController {
                     .append(',').append(r.rMultiple()).append('\n');
         }
         return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv")).body(sb.toString());
+    }
+
+    /** The most recent HTS scan's signals (in memory), plus scan status. */
+    @GetMapping(value = "/api/hts/last", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Object last(Authentication authentication) {
+        if (denied(authentication)) {
+            return Map.of("error", "forbidden");
+        }
+        // LinkedHashMap, not Map.of — scannedAt is null before the first scan.
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("scannedAt", scan.lastScanAt() == null ? null : scan.lastScanAt().toString());
+        out.put("error", scan.lastError() == null ? "" : scan.lastError());
+        out.put("signals", scan.last());
+        return out;
+    }
+
+    /** Persisted HTS signal history (newest first). */
+    @GetMapping(value = "/api/hts/signals", produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<HtsSignalEntity> signals(
+            @RequestParam(name = "limit", defaultValue = "200") int limit,
+            Authentication authentication
+    ) {
+        if (denied(authentication)) {
+            return List.of();
+        }
+        int capped = Math.min(Math.max(limit, 1), 500);
+        return signals.findAllByOrderByIdDesc(PageRequest.of(0, capped));
+    }
+
+    /** Manual scan trigger (also a Scheduler backup). */
+    @PostMapping(value = "/api/hts/scan", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Object trigger(Authentication authentication) {
+        if (denied(authentication)) {
+            return Map.of("error", "forbidden");
+        }
+        List<HtsScan> out = scan.scan();
+        return Map.of("count", out.size(), "signals", out);
+    }
+
+    private static boolean denied(Authentication authentication) {
+        AppUser user = CurrentUser.of(authentication);
+        return user != null && !user.canSeeBook(Books.HTS);
     }
 }

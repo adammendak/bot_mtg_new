@@ -334,7 +334,8 @@ class ScanServiceMockBrokerTest {
     private ScanService newService(AppProperties props, Clock clock, ScanStore store, SignalWebhookPublisher publisher) {
         BrokerBooks books = new BrokerBooks(broker, new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"),
-                new UnavailableBrokerClient("swing", "test"));
+                new UnavailableBrokerClient("swing", "test"),
+                new UnavailableBrokerClient("hts", "test"));
         RiskPolicy risk = new RiskPolicy(props);
         AccountQueryService accounts = new AccountQueryService(books, risk, props);
         TelegramNotifier telegram = new TelegramNotifier(props, RestClient.builder());

@@ -36,14 +36,15 @@ public class AccountQueryService {
     }
 
     public List<AccountView> list() {
-        return List.of(view(books.demo()), view(books.live()), view(books.glowne()), view(books.swing()));
+        return List.of(view(books.demo()), view(books.live()), view(books.glowne()),
+                view(books.swing()), view(books.hts()));
     }
 
     /** All books in one row each: account metrics + book kind + strategy + position tally. */
     public List<OverviewView> overview() {
         return List.of(
                 overview(books.demo()), overview(books.live()),
-                overview(books.glowne()), overview(books.swing()));
+                overview(books.glowne()), overview(books.swing()), overview(books.hts()));
     }
 
     /** Overview filtered to the books the caller may see (non-admin users). */
@@ -123,6 +124,7 @@ public class AccountQueryService {
             case "live" -> "LIVE";
             case "glowne" -> "MAIN";
             case "swing" -> "SWING";
+            case "hts" -> "HTS";
             default -> "DEMO";
         };
     }
@@ -138,7 +140,13 @@ public class AccountQueryService {
 
     /** The strategy attached to a book. */
     static String strategyOf(String book) {
-        return Books.SWING.equals(book) ? "SDD-SWING" : "SDD-M15";
+        if (Books.SWING.equals(book)) {
+            return "SDD-SWING";
+        }
+        if (Books.HTS.equals(book)) {
+            return "HTS";
+        }
+        return "SDD-M15";
     }
 
     public AccountView view(BrokerClient client) {
@@ -148,6 +156,7 @@ public class AccountQueryService {
                 case "live" -> "LIVE not configured (CAPITAL_LIVE_API_KEY / CAPITAL_LIVE_EMAIL / CAPITAL_LIVE_PASSWORD)";
                 case "glowne" -> "GLOWNE not configured (CAPITAL_GLOWNE_API_KEY / CAPITAL_GLOWNE_EMAIL / CAPITAL_GLOWNE_PASSWORD)";
                 case "swing" -> "SWING not configured (CAPITAL_SWING_API_KEY / CAPITAL_SWING_EMAIL / CAPITAL_SWING_PASSWORD)";
+                case "hts" -> "HTS not configured (CAPITAL_HTS_API_KEY / CAPITAL_HTS_EMAIL / CAPITAL_HTS_PASSWORD)";
                 default -> "DEMO not configured (CAPITAL_API_KEY / CAPITAL_EMAIL / CAPITAL_API_PASSWORD)";
             });
         }
@@ -180,6 +189,8 @@ public class AccountQueryService {
                     ? risk.pickGlowneAccount(accounts)
                     : Books.SWING.equals(client.book())
                     ? risk.pickSwingAccount(accounts)
+                    : Books.HTS.equals(client.book())
+                    ? risk.pickHtsAccount(accounts)
                     : risk.pickDemoAccount(accounts);
             if (picked == null) {
                 return disconnected(client, "no account available");
