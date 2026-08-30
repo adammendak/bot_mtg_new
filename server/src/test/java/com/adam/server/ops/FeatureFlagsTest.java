@@ -21,7 +21,7 @@ class FeatureFlagsTest {
     /** sddScan, sddExec, swingScan, swingExec, htsScan, htsExec, htsLiveExec, htsMonitor. */
     private FeatureFlags flags(boolean sddScan, boolean htsExec) {
         when(repo.findAll()).thenReturn(List.of());
-        return new FeatureFlags(repo, sddScan, false, true, false, true, htsExec, false, true);
+        return new FeatureFlags(repo, sddScan, false, true, false, true, htsExec, false, true, true);
     }
 
     @Test

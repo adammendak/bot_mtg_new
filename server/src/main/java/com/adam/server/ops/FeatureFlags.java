@@ -46,6 +46,8 @@ public class FeatureFlags {
         def("hts.execution", "app.hts.execution-enabled", false, "Egzekucja HTS na kontach demo");
         def("hts.live-execution", "app.hts.live-execution-enabled", false, "Egzekucja HTS CORE_LIVE (realne)");
         def("hts.monitor", "app.hts.monitor-enabled", true, "Monitor pozycji HTS (runner exit)");
+        def("hts.weekend-flatten", "app.hts.weekend-flatten-enabled", true,
+                "Zamknij pozycje FAST (konto m5) w piątek wieczorem — bez BTC");
     }
 
     private static void def(String name, String prop, boolean fallback, String desc) {
@@ -74,7 +76,8 @@ public class FeatureFlags {
             @Value("${app.hts.scan-enabled:true}") boolean htsScan,
             @Value("${app.hts.execution-enabled:false}") boolean htsExecution,
             @Value("${app.hts.live-execution-enabled:false}") boolean htsLiveExecution,
-            @Value("${app.hts.monitor-enabled:true}") boolean htsMonitor
+            @Value("${app.hts.monitor-enabled:true}") boolean htsMonitor,
+            @Value("${app.hts.weekend-flatten-enabled:true}") boolean htsWeekendFlatten
     ) {
         this.repo = repo;
         defaults.put("sdd.scan", sddScan);
@@ -85,6 +88,7 @@ public class FeatureFlags {
         defaults.put("hts.execution", htsExecution);
         defaults.put("hts.live-execution", htsLiveExecution);
         defaults.put("hts.monitor", htsMonitor);
+        defaults.put("hts.weekend-flatten", htsWeekendFlatten);
         log.info("Feature flag env defaults: {}", defaults);
         refresh();
     }
