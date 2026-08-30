@@ -89,7 +89,7 @@ class ApiSmokeTest {
     void staticDashboardServesBootstrapTables() throws Exception {
         mvc.perform(get("/index.html"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("SDD-M15")));
+                .andExpect(content().string(containsString("loadAccounts")));
     }
 
     @Test

@@ -267,11 +267,16 @@ public class EquityHistoryService {
                 chosen = risk.pickDemoAccount(accounts);
             }
             // Must select the account in the session, or the transaction history
-            // comes from the session's default (first) account instead.
+            // comes from the session's default account instead — which is how the
+            // `swing` / `hts` history got polluted with the demo account's data
+            // when selectAccount 429'd during the startup sync storm. Abort rather
+            // than write cross-account numbers under the wrong book.
             try {
                 client.selectAccount(chosen.id());
             } catch (Exception e) {
-                log.warn("EquityHistory selectAccount failed for {}: {}", client.book(), e.getClass().getSimpleName());
+                log.warn("EquityHistory selectAccount failed for {} — skipping sync to avoid cross-account data: {}",
+                        client.book(), e.getClass().getSimpleName());
+                return null;
             }
             return chosen;
         } catch (Exception e) {

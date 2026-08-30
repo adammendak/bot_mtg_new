@@ -42,7 +42,7 @@ class AccountQueryServiceTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"));
-        service = new AccountQueryService(books, new RiskPolicy(props), props);
+        service = new AccountQueryService(books, new RiskPolicy(props), props, true, true);
         when(demo.book()).thenReturn("demo");
         when(demo.id()).thenReturn("capital");
         when(demo.configured()).thenReturn(true);
@@ -104,7 +104,7 @@ class AccountQueryServiceTest {
         assertThat(rows).hasSize(5);
         OverviewView demoRow = rows.stream().filter(r -> r.id().equals("demo")).findFirst().orElseThrow();
         assertThat(demoRow.kind()).isEqualTo("DEMO");
-        assertThat(demoRow.strategy()).isEqualTo("SDD-M15");
+        assertThat(demoRow.strategy()).isEqualTo("HTS CORE (H4/M15)");
         assertThat(demoRow.connected()).isTrue();
         assertThat(demoRow.positionsCount()).isEqualTo(2);
         assertThat(demoRow.positionsPnl()).isEqualTo(17.0);

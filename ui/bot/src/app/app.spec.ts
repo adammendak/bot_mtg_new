@@ -17,10 +17,10 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render dashboard nav', async () => {
+  it('should render the brand', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.navbar-brand')?.textContent).toContain('SDD-M15');
+    expect(compiled.querySelector('.navbar-brand')?.textContent).toContain('BOT-reinvented');
   });
 });

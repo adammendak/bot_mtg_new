@@ -1,12 +1,7 @@
 import { Routes } from '@angular/router';
-import { adminGuard } from '../auth/auth.guard';
 
 export const SDD_ROUTES: Routes = [
-  {
-    path: '',
-    loadComponent: () =>
-      import('./ui/sdd-dashboard.component').then((m) => m.SddDashboardComponent),
-  },
+  { path: '', redirectTo: 'overview', pathMatch: 'full' },
   {
     path: 'overview',
     loadComponent: () =>
@@ -26,11 +21,5 @@ export const SDD_ROUTES: Routes = [
     path: 'strategies',
     loadComponent: () =>
       import('./ui/strategies.component').then((m) => m.StrategiesComponent),
-  },
-  {
-    path: 'glowne',
-    canActivate: [adminGuard],
-    loadComponent: () =>
-      import('./ui/glowne-dashboard.component').then((m) => m.GlowneDashboardComponent),
   },
 ];

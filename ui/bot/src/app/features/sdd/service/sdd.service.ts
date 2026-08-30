@@ -218,6 +218,39 @@ export class SddService {
     });
   }
 
+  /** Open positions per book (with per-position risk) — standalone loader for the Konta page. */
+  loadPositions(): void {
+    this.positionsError.set(null);
+    this.http.get<PositionsByBook>('/api/positions/risk').subscribe({
+      next: (p) =>
+        this.positions.set({
+          demo: p.demo ?? [],
+          live: p.live ?? [],
+          glowne: p.glowne ?? [],
+          swing: p.swing ?? [],
+          hts: p.hts ?? [],
+        }),
+      error: (e) => this.positionsError.set(formatHttpError('/api/positions/risk', e)),
+    });
+  }
+
+  /** Manual HTS scan (all variants) — the scheduler runs every 5 min anyway. */
+  triggerHtsScan(): void {
+    this.busy.set(true);
+    this.htsError.set(null);
+    this.http.post<unknown>('/api/hts/scan', {}).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.loadHtsSignals();
+        this.loadPositions();
+      },
+      error: (e) => {
+        this.busy.set(false);
+        this.htsError.set(formatHttpError('/api/hts/scan', e));
+      },
+    });
+  }
+
   /** #14: per-symbol performance (win rate, expectancy, profit factor). */
   loadSymbolStats(book: BookId, days = 0): void {
     this.symbolStatsError.set(null);

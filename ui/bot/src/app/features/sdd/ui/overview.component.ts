@@ -1,18 +1,22 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { SddService } from '../service/sdd.service';
-import { BookId, OverviewView } from '../model/sdd.model';
+import { BookId, OverviewView, Position } from '../model/sdd.model';
 
 /**
- * All-accounts overview: every book in one table with an explicit DEMO / LIVE /
- * MAIN badge, the strategy attached to the book, execution state, and a live
- * tally of open positions with summed unrealised P/L.
+ * Konta — the app home page: every book in one table (kind badge, HTS timeframe
+ * model, execution state, equity / risk), the open positions across all books,
+ * and the recent HTS signals. Manual "Skanuj HTS" triggers a scan; the scheduler
+ * runs every 5 min anyway.
  */
 @Component({
   selector: 'app-overview',
   standalone: true,
   template: `
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-      <h2 class="h4 mb-0 me-2">Accounts overview</h2>
+      <h2 class="h4 mb-0 me-2">Konta</h2>
+      <button type="button" class="btn btn-primary btn-sm" (click)="scanHts()" [disabled]="sdd.busy()">
+        {{ sdd.busy() ? 'Skanuję…' : 'Skanuj HTS' }}
+      </button>
       @if (live()) {
         <span class="badge text-bg-success" title="Live via SSE">● live</span>
       }
@@ -129,6 +133,51 @@ import { BookId, OverviewView } from '../model/sdd.model';
     </div>
 
     <div class="card shadow-sm mt-3">
+      <div class="card-header">Otwarte pozycje</div>
+      <div class="card-body p-0">
+        @if (sdd.positionsError()) {
+          <div class="alert alert-danger m-2 py-2 mb-0">{{ sdd.positionsError() }}</div>
+        }
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead>
+              <tr>
+                <th>Book</th>
+                <th>Epic</th>
+                <th>Kier.</th>
+                <th class="text-end">Size</th>
+                <th class="text-end">Level</th>
+                <th class="text-end">Stop</th>
+                <th class="text-end">uP/L</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of allPositions(); track p.book + p.pos.dealId) {
+                <tr>
+                  <td><span class="badge text-bg-secondary">{{ p.book }}</span></td>
+                  <td>{{ p.pos.epic }}</td>
+                  <td>
+                    <span class="badge" [class]="p.pos.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
+                      {{ p.pos.direction }}
+                    </span>
+                  </td>
+                  <td class="text-end">{{ p.pos.size }}</td>
+                  <td class="text-end">{{ fmt(p.pos.level) }}</td>
+                  <td class="text-end" [class.text-danger]="p.pos.stopLevel == null">
+                    {{ p.pos.stopLevel == null ? 'brak' : fmt(p.pos.stopLevel) }}
+                  </td>
+                  <td class="text-end" [class]="pnlClass(p.pos.unrealizedPnl)">{{ fmt(p.pos.unrealizedPnl) }}</td>
+                </tr>
+              } @empty {
+                <tr><td colspan="7" class="text-muted text-center py-3">Brak otwartych pozycji.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span>Sygnały HTS (wstęgi) — ostatnie</span>
         <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reloadHts()">Odśwież</button>
@@ -187,6 +236,7 @@ export class OverviewComponent implements OnInit {
   ngOnInit(): void {
     this.load();
     this.sdd.loadHtsSignals();
+    this.sdd.loadPositions();
     this.closeSse = this.sdd.liveOverview((rows) => {
       if (Array.isArray(rows) && rows.length > 0) {
         this.sdd.overview.set(rows);
@@ -196,6 +246,21 @@ export class OverviewComponent implements OnInit {
 
   reloadHts(): void {
     this.sdd.loadHtsSignals();
+  }
+
+  scanHts(): void {
+    this.sdd.triggerHtsScan();
+  }
+
+  allPositions(): { book: string; pos: Position }[] {
+    const by = this.sdd.positions();
+    const out: { book: string; pos: Position }[] = [];
+    for (const book of ['demo', 'live', 'swing', 'hts', 'glowne'] as BookId[]) {
+      for (const pos of by[book] ?? []) {
+        out.push({ book, pos });
+      }
+    }
+    return out;
   }
 
   htsTime(iso: string | null | undefined): string {
