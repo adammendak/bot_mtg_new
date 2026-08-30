@@ -215,6 +215,54 @@ def simulate(trades: list[Trade], capital: float, risk_pct: float, label: str, s
     return res
 
 
+def monte_carlo(trades: list["Trade"], capital: float, risk_pct: float, n_iter: int, seed: int = 42):
+    """
+    Losowe przetasowania kolejności R-multiples (E-10). Dla każdej permutacji
+    liczy compounding equity, max drawdown %% i końcowy zwrot %%. Zwraca
+    percentyle p5 / p50 / p95 obu rozkładów — estymacja „jak źle / jak dobrze
+    mogło pójść przy tej samej próbce tradów, innej kolejności".
+    """
+    import random
+    import statistics
+
+    rs = [t.r_multiple for t in trades]
+    if len(rs) < 3:
+        return None
+    rng = random.Random(seed)
+    max_dds: list[float] = []
+    finals: list[float] = []
+    for _ in range(n_iter):
+        order = rs[:]
+        rng.shuffle(order)
+        equity = capital
+        peak = capital
+        worst = 0.0
+        for r in order:
+            equity *= (1 + risk_pct * r)
+            peak = max(peak, equity)
+            dd = (peak - equity) / peak * 100 if peak > 0 else 0.0
+            worst = max(worst, dd)
+        max_dds.append(worst)
+        finals.append((equity / capital - 1) * 100)
+
+    def pct(xs: list[float], q: float) -> float:
+        xs = sorted(xs)
+        i = min(len(xs) - 1, max(0, int(round(q * (len(xs) - 1)))))
+        return xs[i]
+
+    return {
+        "iterations": n_iter,
+        "trades": len(rs),
+        "maxdd_p5_%": round(pct(max_dds, 0.05), 2),
+        "maxdd_p50_%": round(pct(max_dds, 0.50), 2),
+        "maxdd_p95_%": round(pct(max_dds, 0.95), 2),
+        "return_p5_%": round(pct(finals, 0.05), 2),
+        "return_p50_%": round(pct(finals, 0.50), 2),
+        "return_p95_%": round(pct(finals, 0.95), 2),
+        "return_mean_%": round(statistics.fmean(finals), 2),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+", help="pliki CSV w formacie path:Etykieta (np. trades_rr25.csv:2.5R)")
@@ -227,6 +275,8 @@ def main():
                     help="N stratnych tradów pod rząd w jednym dniu → pomiń resztę dnia (0 = wyłączone)")
     ap.add_argument("--max-dd", type=float, default=0.0,
                     help="twardy DD od szczytu w %% → close-all i stop symulacji (0 = wyłączone)")
+    ap.add_argument("--monte-carlo", type=int, default=0,
+                    help="N losowych przetasowań kolejności tradów → rozkład max DD i zwrotu (0 = wyłączone)")
     ap.add_argument("--out-dir", default=".")
     args = ap.parse_args()
 
@@ -243,6 +293,7 @@ def main():
 
     all_summaries = []
     plot_series = []  # (label_for_plot, times, equity)
+    mc_rows = []      # (label, monte_carlo dict)
 
     for path, label in scenarios:
         trades = load_trades(path, args.win_r, args.loss_r)
@@ -256,6 +307,10 @@ def main():
             all_summaries.append(res.summary())
             _write_equity_csv(res, out_dir / f"equity_{_safe(label)}_portfolio.csv")
             plot_series.append((label, res.times, res.equity_curve[1:]))
+            if args.monte_carlo:
+                mc = monte_carlo(trades, args.capital, args.risk, args.monte_carlo)
+                if mc:
+                    mc_rows.append((label, mc))
         else:
             by_symbol: dict[str, list[Trade]] = {}
             for t in trades:
@@ -281,6 +336,27 @@ def main():
         for s in all_summaries:
             print(" | ".join(str(s[k]).ljust(col_w[k]) for k in keys))
         print(f"\nZapisano: {out_dir / 'summary.csv'}")
+
+    # Monte Carlo (E-10)
+    if mc_rows:
+        print("\n=== MONTE CARLO (losowa kolejność tradów) ===")
+        keys = list(mc_rows[0][1].keys())
+        header = ["label"] + keys
+        widths = {h: len(h) for h in header}
+        for label, mc in mc_rows:
+            widths["label"] = max(widths["label"], len(label))
+            for k in keys:
+                widths[k] = max(widths[k], len(str(mc[k])))
+        print(" | ".join(h.ljust(widths[h]) for h in header))
+        for label, mc in mc_rows:
+            print(" | ".join([label.ljust(widths["label"])]
+                             + [str(mc[k]).ljust(widths[k]) for k in keys]))
+        with open(out_dir / "monte_carlo.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=header)
+            w.writeheader()
+            for label, mc in mc_rows:
+                w.writerow({"label": label, **mc})
+        print(f"\nZapisano: {out_dir / 'monte_carlo.csv'}")
 
     # wykres
     try:

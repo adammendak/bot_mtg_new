@@ -105,6 +105,80 @@ public class HtsController {
         return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv")).body(sb.toString());
     }
 
+    /**
+     * E-9 parameter sweep. {@code GET /api/hts/backtest/sweep?rr=1.5,2,2.5&stopBuf=0,0.25&runnerLock=1&adxPermit=false,true}
+     * — portfolio aggregate per combo (cross-product capped at 24 cells).
+     */
+    @GetMapping(value = "/api/hts/backtest/sweep", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Object sweep(
+            @RequestParam(name = "htf", defaultValue = "H4") String htf,
+            @RequestParam(name = "ltf", defaultValue = "M15") String ltf,
+            @RequestParam(name = "days", defaultValue = "30") int days,
+            @RequestParam(name = "offsetDays", defaultValue = "0") int offsetDays,
+            @RequestParam(name = "rr", defaultValue = "1.5,2,2.5") String rr,
+            @RequestParam(name = "stopBuf", defaultValue = "0,0.25") String stopBuf,
+            @RequestParam(name = "runnerLock", defaultValue = "1") String runnerLock,
+            @RequestParam(name = "adxPermit", defaultValue = "false,true") String adxPermit,
+            Authentication authentication
+    ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (user != null && !user.isAdmin()) {
+            return ResponseEntity.status(403).body("forbidden");
+        }
+        var base = new HtsBacktestService.Params(
+                Resolution.valueOf(htf.toUpperCase()), Resolution.valueOf(ltf.toUpperCase()),
+                days, offsetDays, 2.0, true, false, Adx.TREND_THRESHOLD,
+                true, false, 4, 0.25, false, 1.0, 1, 0, 5, 0.5, false, false, false);
+        return backtest.sweep(base, doubles(rr), doubles(stopBuf), doubles(runnerLock), bools(adxPermit));
+    }
+
+    /**
+     * E-10 walk-forward split. Same params as {@code /api/hts/backtest}; the
+     * replayed trades are split by entry time at {@code split} (0..1, default 0.7)
+     * into in-sample / out-of-sample halves.
+     */
+    @GetMapping(value = "/api/hts/backtest/oos", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Object oos(
+            @RequestParam(name = "htf", defaultValue = "H4") String htf,
+            @RequestParam(name = "ltf", defaultValue = "M15") String ltf,
+            @RequestParam(name = "days", defaultValue = "60") int days,
+            @RequestParam(name = "offsetDays", defaultValue = "0") int offsetDays,
+            @RequestParam(name = "rr", defaultValue = "2.0") double rr,
+            @RequestParam(name = "stopBuf", defaultValue = "0.25") double stopBuf,
+            @RequestParam(name = "runnerLock", defaultValue = "1.0") double runnerLock,
+            @RequestParam(name = "adxPermit", defaultValue = "false") boolean adxPermit,
+            @RequestParam(name = "split", defaultValue = "0.7") double split,
+            Authentication authentication
+    ) {
+        AppUser user = CurrentUser.of(authentication);
+        if (user != null && !user.isAdmin()) {
+            return ResponseEntity.status(403).body("forbidden");
+        }
+        var p = new HtsBacktestService.Params(
+                Resolution.valueOf(htf.toUpperCase()), Resolution.valueOf(ltf.toUpperCase()),
+                days, offsetDays, rr, true, false, Adx.TREND_THRESHOLD,
+                true, false, 4, stopBuf, adxPermit, runnerLock, 1, 0, 5, 0.5, false, false, false);
+        return backtest.oos(p, split);
+    }
+
+    private static double[] doubles(String csv) {
+        String[] parts = csv.split(",");
+        double[] out = new double[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            out[i] = Double.parseDouble(parts[i].trim());
+        }
+        return out;
+    }
+
+    private static boolean[] bools(String csv) {
+        String[] parts = csv.split(",");
+        boolean[] out = new boolean[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            out[i] = Boolean.parseBoolean(parts[i].trim());
+        }
+        return out;
+    }
+
     /** The most recent HTS scan's signals (in memory), plus scan status. */
     @GetMapping(value = "/api/hts/last", produces = MediaType.APPLICATION_JSON_VALUE)
     public Object last(Authentication authentication) {
