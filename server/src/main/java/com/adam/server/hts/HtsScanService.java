@@ -128,8 +128,8 @@ public class HtsScanService {
         for (SddSymbol symbol : universe) {
             String epic = symbol.epic(properties);
             try {
-                List<Candle> ltf = market.candles(epic, v.ltf(), fromLtf, now, 1000);
-                List<Candle> htf = market.candles(epic, v.htf(), fromHtf, now, 1000);
+                List<Candle> ltf = HtsCandles.fetch(market, epic, v.ltf(), fromLtf, now);
+                List<Candle> htf = HtsCandles.fetch(market, epic, v.htf(), fromHtf, now);
                 HtsScan signal = engine.evaluate(v, symbol.code(), epic, ltf, htf, now);
                 if (signal != null) {
                     found.add(signal);
