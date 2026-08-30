@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { formatHttpError } from '../sdd/service/sdd.service';
+import { AuthService } from '../auth/auth.service';
 import { AdminUser, FeatureFlag } from './admin.model';
 
 const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
@@ -78,6 +79,51 @@ const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-dark text-white">Bezpieczeństwo — 2FA (TOTP) dla Twojego konta</div>
+      <div class="card-body">
+        @if (mfaEnabled()) {
+          <p class="mb-2">
+            <span class="badge text-bg-success">2FA WŁĄCZONE</span>
+            <span class="text-muted ms-2">Kody zapasowe pozostałe: {{ auth.user()?.backupCodesLeft ?? '?' }}</span>
+          </p>
+          <div class="input-group input-group-sm" style="max-width: 22rem">
+            <input class="form-control" type="text" placeholder="kod 2FA lub zapasowy" [(ngModel)]="totpCode" />
+            <button class="btn btn-outline-danger" [disabled]="totpBusy" (click)="disableTotp()">Wyłącz 2FA</button>
+          </div>
+        } @else if (setup()) {
+          <div class="row g-3 align-items-start">
+            <div class="col-auto">
+              @if (setup()!.qrDataUri) {
+                <img [src]="setup()!.qrDataUri" alt="QR TOTP" width="180" height="180" class="border rounded" />
+              }
+            </div>
+            <div class="col">
+              <p class="small mb-1">Zeskanuj QR w aplikacji (Google Authenticator, Aegis, 1Password…) albo wpisz sekret ręcznie:</p>
+              <code class="d-block mb-2 user-select-all">{{ setup()!.secret }}</code>
+              <div class="input-group input-group-sm" style="max-width: 20rem">
+                <input class="form-control" type="text" inputmode="numeric" placeholder="6-cyfrowy kod" [(ngModel)]="totpCode" />
+                <button class="btn btn-primary" [disabled]="totpBusy || !totpCode" (click)="enableTotp()">Potwierdź</button>
+              </div>
+            </div>
+          </div>
+          @if (backupCodes().length) {
+            <div class="alert alert-warning mt-3 mb-0">
+              <strong>Zapisz kody zapasowe</strong> — każdy działa raz, nie pokażemy ich ponownie:
+              <div class="d-flex flex-wrap gap-2 mt-2">
+                @for (c of backupCodes(); track c) {
+                  <code class="user-select-all">{{ c }}</code>
+                }
+              </div>
+            </div>
+          }
+        } @else {
+          <p class="text-muted mb-2">Drugi składnik logowania dla tego konta. Zalecane przy koncie live.</p>
+          <button class="btn btn-outline-primary btn-sm" [disabled]="totpBusy" (click)="startTotp()">Włącz 2FA</button>
+        }
       </div>
     </div>
 
@@ -203,10 +249,15 @@ const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
 })
 export class AdminComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  readonly auth = inject(AuthService);
 
   readonly users = signal<AdminUser[]>([]);
   readonly flags = signal<FeatureFlag[]>([]);
   readonly flagBusy = signal<string | null>(null);
+  readonly setup = signal<{ secret: string; otpauthUri: string; qrDataUri: string | null } | null>(null);
+  readonly backupCodes = signal<string[]>([]);
+  totpCode = '';
+  totpBusy = false;
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly saving = signal(false);
@@ -216,6 +267,61 @@ export class AdminComponent implements OnInit {
   ngOnInit(): void {
     this.load();
     this.loadFlags();
+    this.auth.refresh(); // pull mfaEnabled / backupCodesLeft
+  }
+
+  mfaEnabled(): boolean {
+    return this.auth.user()?.mfaEnabled === true;
+  }
+
+  startTotp(): void {
+    this.totpBusy = true;
+    this.backupCodes.set([]);
+    this.http.post<{ secret: string; otpauthUri: string; qrDataUri: string | null }>('/api/auth/totp/setup', {}).subscribe({
+      next: (s) => {
+        this.setup.set(s);
+        this.totpBusy = false;
+      },
+      error: (e) => {
+        this.totpBusy = false;
+        this.error.set(formatHttpError('/api/auth/totp/setup', e));
+      },
+    });
+  }
+
+  enableTotp(): void {
+    this.totpBusy = true;
+    this.http.post<{ backupCodes: string[] }>('/api/auth/totp/enable', { code: this.totpCode.trim() }).subscribe({
+      next: (r) => {
+        this.totpBusy = false;
+        this.totpCode = '';
+        this.setup.set(null);
+        this.backupCodes.set(r.backupCodes ?? []);
+        this.message.set('2FA włączone.');
+        this.auth.refresh();
+      },
+      error: (e) => {
+        this.totpBusy = false;
+        this.error.set(formatHttpError('/api/auth/totp/enable', e));
+      },
+    });
+  }
+
+  disableTotp(): void {
+    this.totpBusy = true;
+    this.http.post('/api/auth/totp/disable', { code: this.totpCode.trim() }).subscribe({
+      next: () => {
+        this.totpBusy = false;
+        this.totpCode = '';
+        this.backupCodes.set([]);
+        this.message.set('2FA wyłączone.');
+        this.auth.refresh();
+      },
+      error: (e) => {
+        this.totpBusy = false;
+        this.error.set(formatHttpError('/api/auth/totp/disable', e));
+      },
+    });
   }
 
   loadFlags(): void {

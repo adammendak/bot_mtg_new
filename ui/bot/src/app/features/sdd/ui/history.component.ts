@@ -128,7 +128,7 @@ interface Bar {
             >
               <defs>
                 <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" [attr.stop-color]="trendColor()" stop-opacity="0.28" />
+                  <stop offset="0%" [attr.stop-color]="trendColor()" stop-opacity="0.10" />
                   <stop offset="100%" [attr.stop-color]="trendColor()" stop-opacity="0.02" />
                 </linearGradient>
               </defs>
@@ -154,6 +154,16 @@ interface Bar {
               <!-- panel separators -->
               <line [attr.x1]="padL" [attr.y1]="equityBottom" [attr.x2]="chartW - padR" [attr.y2]="equityBottom" class="panel" />
               <line [attr.x1]="padL" [attr.y1]="pnlBottom" [attr.x2]="chartW - padR" [attr.y2]="pnlBottom" class="panel" />
+              <line [attr.x1]="padL" [attr.y1]="underBottom" [attr.x2]="chartW - padR" [attr.y2]="underBottom" class="panel" />
+
+              <!-- underwater (drawdown from running peak) -->
+              <line [attr.x1]="padL" [attr.y1]="underTop" [attr.x2]="chartW - padR" [attr.y2]="underTop" class="zero" />
+              <text [attr.x]="padL - 8" [attr.y]="underTop + 4" text-anchor="end" class="tick">0%</text>
+              <text [attr.x]="padL - 8" [attr.y]="underBottom" text-anchor="end" class="tick">{{ fmtPct(-underMaxPct()) }}</text>
+              <text [attr.x]="padL + 2" [attr.y]="underTop - 6" class="tick">underwater</text>
+              @if (points().length > 1) {
+                <path [attr.d]="ddPath()" class="dd-area" />
+              }
 
               <!-- date ticks -->
               @for (d of dateTicks(); track d.x) {
@@ -171,23 +181,27 @@ interface Bar {
               }
               <polyline [attr.points]="linePoints()" class="line" [attr.stroke]="trendColor()" fill="none" />
 
-              <!-- equity dots -->
-              @for (p of points(); track p.x) {
-                @if (p.y != null) {
-                  <circle
-                    [attr.cx]="p.x"
-                    [attr.cy]="p.y"
-                    [attr.r]="hover() === $index ? 5 : 3"
-                    class="dot"
-                    [attr.stroke]="trendColor()"
-                    (mouseenter)="hover.set($index)"
-                  />
+              <!-- equity dots — hidden past 60 points, hover still works via the capture rect -->
+              @if (!manyPoints()) {
+                @for (p of points(); track p.x) {
+                  @if (p.y != null) {
+                    <circle
+                      [attr.cx]="p.x"
+                      [attr.cy]="p.y"
+                      [attr.r]="hover() === $index ? 5 : 3"
+                      class="dot"
+                      [attr.stroke]="trendColor()"
+                      (mouseenter)="hover.set($index)"
+                    />
+                  }
                 }
+              } @else if (hover() != null && points()[hover()!]?.y != null) {
+                <circle [attr.cx]="points()[hover()!].x" [attr.cy]="points()[hover()!].y" r="5" class="dot" [attr.stroke]="trendColor()" />
               }
 
               <!-- crosshair + tooltip -->
               @if (hoverPoint(); as hp) {
-                <line [attr.x1]="hp.x" [attr.y1]="padT" [attr.x2]="hp.x" [attr.y2]="pnlBottom" class="cross" />
+                <line [attr.x1]="hp.x" [attr.y1]="padT" [attr.x2]="hp.x" [attr.y2]="underBottom" class="cross" />
                 <g [attr.transform]="'translate(' + hp.tx + ',' + hp.ty + ')'">
                   <rect [attr.width]="hp.tw" [attr.height]="hp.th" rx="5" class="tip-bg" />
                   <text [attr.x]="10" [attr.y]="18" class="tip-title">{{ hp.date }}</text>
@@ -209,12 +223,30 @@ interface Bar {
                 [attr.x]="padL"
                 [attr.y]="padT"
                 [attr.width]="plotW()"
-                [attr.height]="pnlBottom - padT"
+                [attr.height]="underBottom - padT"
                 (mousemove)="onHover($event)"
               />
             </svg>
           </div>
         </div>
+
+        @if (monthlyPnl().length > 0) {
+          <div class="card shadow-sm mb-3">
+            <div class="card-header bg-dark text-white">Miesięczny P/L</div>
+            <div class="card-body">
+              <div class="month-grid">
+                @for (m of monthlyPnl(); track m.month) {
+                  <div class="month-cell" [style.background]="monthlyBg(m.pnl)" [title]="m.month + ': ' + fmtMoney(m.pnl)">
+                    <div class="month-label">{{ m.label }}</div>
+                    <div class="month-val" [class.text-success]="m.pnl > 0" [class.text-danger]="m.pnl < 0">
+                      {{ fmtShort(m.pnl) }}
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        }
 
         <div class="card shadow-sm">
           <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
@@ -346,6 +378,31 @@ interface Bar {
         fill: #dc3545;
         opacity: 0.85;
       }
+      .dd-area {
+        fill: rgba(220, 53, 69, 0.18);
+        stroke: #dc3545;
+        stroke-width: 1;
+      }
+      .month-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+        gap: 6px;
+      }
+      .month-cell {
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        padding: 6px 8px;
+        text-align: center;
+      }
+      .month-label {
+        font-size: 10px;
+        color: #6c757d;
+      }
+      .month-val {
+        font-size: 12px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
       .cross {
         stroke: #6c757d;
         stroke-width: 1;
@@ -405,7 +462,7 @@ export class HistoryComponent implements OnInit {
   readonly toDate = signal<string>('');
 
   readonly chartW = 900;
-  readonly chartH = 420;
+  readonly chartH = 520;
   readonly padL = 72;
   readonly padR = 72;
   readonly padT = 24;
@@ -413,6 +470,8 @@ export class HistoryComponent implements OnInit {
   readonly equityBottom = 256;
   readonly pnlTop = 264;
   readonly pnlBottom = 358;
+  readonly underTop = 388;
+  readonly underBottom = 468;
 
   ngOnInit(): void {
     const current = this.sdd.historyBook();
@@ -574,6 +633,67 @@ export class HistoryComponent implements OnInit {
     const last = pts[pts.length - 1];
     const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y!.toFixed(1)}`).join(' ');
     return `${line} L${last.x.toFixed(1)},${base} L${first.x.toFixed(1)},${base} Z`;
+  }
+
+  /** Fixed dots become noise past this many points — keep only the hovered one. */
+  manyPoints(): boolean {
+    return this.raw().length > 60;
+  }
+
+  /**
+   * Underwater curve: drawdown from the running peak at each point,
+   * {@code (equity - runningMax) / runningMax}, always ≤ 0.
+   */
+  ddSeries(): { x: number; dd: number }[] {
+    const pts = this.points();
+    let peak = -Infinity;
+    return pts.map((p) => {
+      if (p.equity != null && isFinite(p.equity)) {
+        peak = Math.max(peak, p.equity);
+      }
+      const dd = p.equity != null && isFinite(p.equity) && peak > 0 ? (p.equity - peak) / peak : 0;
+      return { x: p.x, dd: Math.min(0, dd) };
+    });
+  }
+
+  /** Deepest drawdown in the visible window, as a positive percentage (min 1%). */
+  underMaxPct(): number {
+    const worst = Math.min(0, ...this.ddSeries().map((d) => d.dd));
+    return Math.max(1, Math.abs(worst) * 100);
+  }
+
+  ddPath(): string {
+    const s = this.ddSeries();
+    if (s.length < 2) {
+      return '';
+    }
+    const maxAbs = this.underMaxPct() / 100;
+    const y = (dd: number) => this.underTop + (Math.abs(dd) / maxAbs) * (this.underBottom - this.underTop);
+    const line = s.map((d, i) => `${i === 0 ? 'M' : 'L'}${d.x.toFixed(1)},${y(d.dd).toFixed(1)}`).join(' ');
+    const last = s[s.length - 1];
+    const first = s[0];
+    return `${line} L${last.x.toFixed(1)},${this.underTop} L${first.x.toFixed(1)},${this.underTop} Z`;
+  }
+
+  /** visiblePoints() grouped by calendar month, dayPnl summed. */
+  monthlyPnl(): { month: string; label: string; pnl: number }[] {
+    const by = new Map<string, number>();
+    for (const p of this.visiblePoints()) {
+      if (p.dayPnl == null || !isFinite(p.dayPnl)) {
+        continue;
+      }
+      const m = p.date.slice(0, 7); // YYYY-MM
+      by.set(m, (by.get(m) ?? 0) + p.dayPnl);
+    }
+    return [...by.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([month, pnl]) => ({ month, label: month.slice(5) + '/' + month.slice(2, 4), pnl }));
+  }
+
+  monthlyBg(pnl: number): string {
+    const max = Math.max(1, ...this.monthlyPnl().map((m) => Math.abs(m.pnl)));
+    const a = Math.min(0.85, (Math.abs(pnl) / max) * 0.85 + 0.05);
+    return pnl >= 0 ? `rgba(25, 135, 84, ${a.toFixed(3)})` : `rgba(220, 53, 69, ${a.toFixed(3)})`;
   }
 
   bars(): Bar[] {

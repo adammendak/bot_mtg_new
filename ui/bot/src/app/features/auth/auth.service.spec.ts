@@ -32,7 +32,7 @@ describe('AuthService', () => {
       }),
     );
     const ok = await firstValueFrom(service.login('adam', 'dupa1234'));
-    expect(ok).toBe(true);
+    expect(ok).toBe('ok');
     expect(service.isAuthenticated()).toBe(true);
     expect(service.user()?.username).toBe('adam');
     expect(service.isAdmin()).toBe(true);
@@ -46,7 +46,7 @@ describe('AuthService', () => {
       }),
     );
     const ok = await firstValueFrom(service.login('test', 'dupa1234'));
-    expect(ok).toBe(true);
+    expect(ok).toBe('ok');
     expect(service.isAuthenticated()).toBe(true);
     expect(service.user()?.username).toBe('test');
     expect(service.isAdmin()).toBe(false);
@@ -56,7 +56,7 @@ describe('AuthService', () => {
   it('rejects wrong credentials', async () => {
     http.post.mockReturnValue(throwError(() => new Error('401')));
     const ok = await firstValueFrom(service.login('adam', 'wrong'));
-    expect(ok).toBe(false);
+    expect(ok).toBe('fail');
     expect(service.isAuthenticated()).toBe(false);
   });
 

@@ -12,6 +12,8 @@ import com.adam.server.sdd.SddSymbol;
 import com.adam.server.sdd.Supertrend;
 import com.adam.server.sdd.WaveTrend;
 import com.adam.server.web.dto.BacktestResult;
+import com.adam.server.web.dto.HtsOosResult;
+import com.adam.server.web.dto.HtsSweepRow;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,6 +111,14 @@ public class HtsBacktestService {
                     /*pyramidMax*/ 0, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
                     /*supertrendTrail*/ false, /*waveTrendFilter*/ false, /*breakoutEntry*/ false);
         }
+
+        /** Copy overriding just the four swept axes (E-9). */
+        public Params withSweep(double rr, double stopBufferFrac, double runnerLockR, boolean adxPermit) {
+            return new Params(htf, ltf, days, offsetDays, rr, true, adxFilter, adxThreshold,
+                    skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
+                    splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
+                    supertrendTrail, waveTrendFilter, breakoutEntry);
+        }
     }
 
     public List<SwingTradeRow> run(Params p) {
@@ -205,6 +215,85 @@ public class HtsBacktestService {
 
     private static double round4(double v) {
         return Math.round(v * 10000.0) / 10000.0;
+    }
+
+    // ---- E-9: parameter sweep -----------------------------------------------
+
+    /**
+     * Cross-product sweep over rr × stopBuf × runnerLock × adxPermit. Each cell
+     * is a portfolio-level aggregate over all symbols (trades in entry order).
+     * The number of cells is capped so the endpoint stays bounded.
+     */
+    public List<HtsSweepRow> sweep(Params base, double[] rrs, double[] stopBufs,
+                                   double[] runnerLocks, boolean[] adxPermits) {
+        List<HtsSweepRow> out = new ArrayList<>();
+        int cap = 24;
+        for (double rr : rrs) {
+            for (double sb : stopBufs) {
+                for (double rl : runnerLocks) {
+                    for (boolean ap : adxPermits) {
+                        if (out.size() >= cap) {
+                            return out;
+                        }
+                        Agg a = aggregate(run(base.withSweep(rr, sb, rl, ap)));
+                        out.add(new HtsSweepRow(rr, sb, rl, ap, a.n, a.winRate, a.avgR, a.sumR, a.maxDdR));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    // ---- E-10: walk-forward / out-of-sample split --------------------------
+
+    /** Replay once, split the trades by entry time at {@code splitPct} of the window. */
+    public HtsOosResult oos(Params p, double splitPct) {
+        double frac = Math.min(0.95, Math.max(0.05, splitPct));
+        List<SwingTradeRow> rows = new ArrayList<>(run(p));
+        rows.sort(Comparator.comparing(SwingTradeRow::entryTime));
+        if (rows.isEmpty()) {
+            return new HtsOosResult(frac, null,
+                    new HtsOosResult.Half(0, 0, 0, 0, 0), new HtsOosResult.Half(0, 0, 0, 0, 0));
+        }
+        String start = rows.getFirst().entryTime();
+        String end = rows.getLast().entryTime();
+        // Time-proportional split: pick the ISO string at frac of [start, end] by index fallback.
+        int cut = (int) Math.round(rows.size() * frac);
+        cut = Math.min(rows.size() - 1, Math.max(1, cut));
+        String splitAt = rows.get(cut).entryTime();
+        Agg is = aggregate(rows.subList(0, cut));
+        Agg oosHalf = aggregate(rows.subList(cut, rows.size()));
+        return new HtsOosResult(frac, splitAt,
+                new HtsOosResult.Half(is.n, is.winRate, is.avgR, is.sumR, is.maxDdR),
+                new HtsOosResult.Half(oosHalf.n, oosHalf.winRate, oosHalf.avgR, oosHalf.sumR, oosHalf.maxDdR));
+    }
+
+    private record Agg(int n, double winRate, double avgR, double sumR, double maxDdR) {
+    }
+
+    private static Agg aggregate(List<SwingTradeRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return new Agg(0, 0, 0, 0, 0);
+        }
+        List<SwingTradeRow> ordered = new ArrayList<>(rows);
+        ordered.sort(Comparator.comparing(SwingTradeRow::entryTime));
+        int wins = 0;
+        double sumR = 0;
+        double cum = 0;
+        double peak = 0;
+        double maxDd = 0;
+        for (SwingTradeRow r : ordered) {
+            double rm = r.rMultiple();
+            sumR += rm;
+            if (rm > 1e-9) {
+                wins++;
+            }
+            cum += rm;
+            peak = Math.max(peak, cum);
+            maxDd = Math.max(maxDd, peak - cum);
+        }
+        int n = ordered.size();
+        return new Agg(n, round4((double) wins / n), round4(sumR / n), round4(sumR), round4(maxDd));
     }
 
     private record Cand(Instant time, String symbol, boolean buy, double entry, double stop,

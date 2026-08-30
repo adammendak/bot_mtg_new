@@ -9,6 +9,7 @@ import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import com.adam.server.persistence.HtsTradeEntity;
 import com.adam.server.persistence.HtsTradeRepository;
+import com.adam.server.web.dto.HtsJournal;
 import com.adam.server.web.dto.HtsScorecardRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -291,6 +292,117 @@ public class HtsTradeService {
             return trades.findByStatusOrderByIdDesc(status.trim().toUpperCase()).stream().limit(capped).toList();
         }
         return trades.findAllByOrderByIdDesc(PageRequest.of(0, capped));
+    }
+
+    /**
+     * Trade journal (E-8) — closed trades filtered by variant / symbol / exit-date
+     * range, sliced into a per-day series, an R histogram and per-reason /
+     * per-symbol groups.
+     */
+    public HtsJournal journal(String variant, String symbol, Instant from, Instant to) {
+        List<HtsTradeEntity> rows = new ArrayList<>();
+        for (HtsTradeEntity t : trades.findAllByOrderByIdAsc()) {
+            if (!"CLOSED".equalsIgnoreCase(t.getStatus()) || t.getRMultiple() == null) {
+                continue;
+            }
+            if (variant != null && !variant.isBlank() && !variant.equalsIgnoreCase(t.getVariant())) {
+                continue;
+            }
+            if (symbol != null && !symbol.isBlank() && !symbol.equalsIgnoreCase(t.getSymbol())) {
+                continue;
+            }
+            Instant when = t.getExitAt() != null ? t.getExitAt() : t.getOpenedAt();
+            if (from != null && (when == null || when.isBefore(from))) {
+                continue;
+            }
+            if (to != null && (when == null || when.isAfter(to))) {
+                continue;
+            }
+            rows.add(t);
+        }
+
+        int wins = 0;
+        double sumR = 0;
+        Map<String, double[]> perDay = new LinkedHashMap<>();   // date -> [r, pnl, trades, pnlKnown]
+        int[] hist = new int[6]; // <=-1, -1..0, 0..1, 1..2, 2..3, >3
+        Map<String, long[]> perReason = new LinkedHashMap<>();  // key -> [trades, wins, sumR*1e6]
+        Map<String, long[]> perSymbol = new LinkedHashMap<>();
+        java.time.ZoneId zone = java.time.ZoneId.of(properties.getTimezone());
+
+        for (HtsTradeEntity t : rows) {
+            double r = t.getRMultiple();
+            sumR += r;
+            if (r > 0) {
+                wins++;
+            }
+            hist[bucket(r)]++;
+            Instant when = t.getExitAt() != null ? t.getExitAt() : t.getOpenedAt();
+            String day = when.atZone(zone).toLocalDate().toString();
+            double[] d = perDay.computeIfAbsent(day, k -> new double[4]);
+            d[0] += r;
+            if (t.getPnl() != null) {
+                d[1] += t.getPnl();
+                d[3] = 1;
+            }
+            d[2] += 1;
+            accumulate(perReason, t.getCloseReason() == null ? "UNKNOWN" : t.getCloseReason(), r);
+            accumulate(perSymbol, t.getSymbol(), r);
+        }
+
+        List<HtsJournal.Day> days = new ArrayList<>();
+        for (Map.Entry<String, double[]> e : perDay.entrySet()) {
+            double[] d = e.getValue();
+            days.add(new HtsJournal.Day(e.getKey(), round(d[0]), d[3] == 1 ? round(d[1]) : null, (int) d[2]));
+        }
+        String[] labels = {"≤ −1R", "−1…0R", "0…1R", "1…2R", "2…3R", "> 3R"};
+        List<HtsJournal.Bucket> histogram = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            histogram.add(new HtsJournal.Bucket(labels[i], hist[i]));
+        }
+        int n = rows.size();
+        return new HtsJournal(n, wins, n == 0 ? 0 : round((double) wins / n), n == 0 ? 0 : round(sumR / n),
+                round(sumR), days, histogram, groups(perReason), groups(perSymbol));
+    }
+
+    private static int bucket(double r) {
+        if (r <= -1) {
+            return 0;
+        }
+        if (r < 0) {
+            return 1;
+        }
+        if (r < 1) {
+            return 2;
+        }
+        if (r < 2) {
+            return 3;
+        }
+        if (r < 3) {
+            return 4;
+        }
+        return 5;
+    }
+
+    private static void accumulate(Map<String, long[]> m, String key, double r) {
+        long[] v = m.computeIfAbsent(key, k -> new long[3]);
+        v[0]++;
+        if (r > 0) {
+            v[1]++;
+        }
+        v[2] += Math.round(r * 1_000_000L);
+    }
+
+    private static List<HtsJournal.Group> groups(Map<String, long[]> m) {
+        List<HtsJournal.Group> out = new ArrayList<>();
+        for (Map.Entry<String, long[]> e : m.entrySet()) {
+            long[] v = e.getValue();
+            double sumR = v[2] / 1_000_000.0;
+            out.add(new HtsJournal.Group(e.getKey(), (int) v[0], (int) v[1],
+                    v[0] == 0 ? 0 : round((double) v[1] / v[0]),
+                    v[0] == 0 ? 0 : round(sumR / v[0]), round(sumR)));
+        }
+        out.sort((a, b) -> Integer.compare(b.trades(), a.trades()));
+        return out;
     }
 
     /**

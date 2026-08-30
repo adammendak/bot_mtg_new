@@ -419,7 +419,7 @@ na Capital. Teraz przełącznik w adminie działa **od ręki**, bez przestoju.
 - `HTS_SCAN_ENABLED` (nowa env, default true) jako default dla `hts.scan`.
 **Testy:** `FeatureFlagsTest` (+6). 205 serwer, 15 UI — zielone.
 
-### E-7 — TOTP dla admina + TTL/refresh bearer tokena  ← TIER 1
+### E-7 — TOTP dla admina + TTL/refresh bearer tokena  ← zrobione (PR #75)
 **Po co:** konto `live` = realne pieniądze, a jedyna bramka to hasło + bearer bez
 wygasania. Token raz wyciekły (log przeglądarki, historia narzędzia) żyje wiecznie.
 **Zakres:**
@@ -431,7 +431,7 @@ wygasania. Token raz wyciekły (log przeglądarki, historia narzędzia) żyje wi
   lub `security_events`.
 **Rozmiar:** M (1–2 dni).
 
-### E-8 — Dziennik tradów HTS: heatmapa-kalendarz + histogram R + filtry  ← TIER 2
+### E-8 — Dziennik tradów HTS  ← zrobione (PR #75)
 **Po co:** dane już są w Postgresie (`hts_trades`: `close_reason`, `r_multiple`,
 `pnl`, `variant`, `symbol`). E-3 dało surową tabelę — brakuje warstwy analizy do
 oceny forward-testu.
@@ -442,7 +442,7 @@ oceny forward-testu.
 - `GET /api/hts/journal?groupBy=day|symbol|reason&from&to` — agregacja po stronie serwera.
 **Rozmiar:** M. Naturalne rozszerzenie E-3, samodzielny epik bo to głównie UI.
 
-### E-9 — UI do sweepów backtestu HTS + heatmapa parametrów  ← TIER 2
+### E-9 — UI do sweepów backtestu HTS + heatmapa parametrów  ← zrobione (PR #75)
 **Po co:** sweepy (RR × ADX × `stopBufferFrac` × `splitEntries` …) czyta się dziś
 z tabelek wklejonych ręcznie do markdownu (sekcje „Wyniki" niżej). `HtsBacktestService`
 ma już pełny zestaw parametrów i `format=summary`.
@@ -453,7 +453,7 @@ ma już pełny zestaw parametrów i `format=summary`.
 - Podpięcie pod stronę Analytics (obok scorecardu E-4).
 **Rozmiar:** M–L.
 
-### E-10 — Walk-forward / OOS split + Monte Carlo drawdown  ← TIER 2
+### E-10 — Walk-forward / OOS split + Monte Carlo drawdown  ← zrobione (PR #75)
 **Po co:** luka metodologiczna (zapisana już w `rr-1to1-vs-2.5r-i-supertrend.md`):
 okna 30/60/90 dni się nakładają → in-sample bias. Decyzja T11 zyska na twardszej
 walidacji.
@@ -464,7 +464,7 @@ walidacji.
   R-multiples → rozkład max drawdown / końcowego equity (percentyle).
 **Rozmiar:** M.
 
-### E-11 — Test HTTP-level dla `CapitalComBrokerClient`  ← TIER 2 (mały, wysoka dźwignia)
+### E-11 — Test HTTP-level dla `CapitalComBrokerClient`  ← zrobione (PR #75)
 **Po co:** realna integracja HTTP (retry, mapowanie błędów, timeouty, rotacja
 tokena, 429) nie ma dedykowanego testu — tylko pośrednio przez `ApiSmokeTest` /
 mock broker. Throttling Capital to **powracający realny problem** (backtesty HTS).
@@ -472,6 +472,34 @@ mock broker. Throttling Capital to **powracający realny problem** (backtesty HT
 timeout → wyjątek zmapowany, `error.invalid.max.daterange` → propagacja,
 token rotation bumpuje `sessionAt`. ~10–15 przypadków.
 **Rozmiar:** S–M (0.5–1 dzień).
+
+---
+
+### Stan wdrożenia E-7…E-11 (PR #75, wszystko w 1 PR)
+- **E-7:** bearer tokeny wygasają — absolutny TTL (`AUTH_TOKEN_TTL_HOURS`, 7 dni) +
+  okno bezczynności (`AUTH_TOKEN_IDLE_HOURS`, 24 h) resetowane przy każdym żądaniu;
+  hourly sweep; `POST /api/auth/refresh` rotuje. TOTP (RFC 6238, `dev.samstevens.totp`):
+  enrolment (QR data-URI) → weryfikacja kodu → 10 kodów zapasowych (SHA-256). Login
+  dwuetapowy: `/api/auth/login` → `{mfaRequired, mfaToken}` → `/api/auth/login/totp`.
+  Migracja 017. Nieudane logowania / złe kody → `ErrorLog` (`auth`). UI: drugi krok
+  logowania + karta „Bezpieczeństwo — 2FA" w adminie.
+- **E-8:** `HtsTradeService.journal(variant, symbol, from, to)` → seria per dzień,
+  histogram R, grupy wg powodu / symbolu. `GET /api/hts/journal`. Karta „Dziennik HTS"
+  na Analytics (filtry + histogram + tabele + pasek dni).
+- **E-9:** `HtsBacktestService.sweep(...)` — cross-product rr × stopBuf × runnerLock ×
+  adxPermit (cap 24 komórki), agregat portfelowy per komórka. `GET /api/hts/backtest/sweep`.
+  Karta „Sweep parametrów" z tłem komórek wg `avgR`.
+- **E-10:** `HtsBacktestService.oos(params, split)` — replay raz, podział tradów po
+  czasie na IS / OOS. `GET /api/hts/backtest/oos`. Karta „Walk-forward / OOS".
+  `tools/equity_simulator.py --monte-carlo N` — przetasowania kolejności → p5/p50/p95
+  max DD i zwrotu.
+- **E-11:** `CapitalComBrokerClientHttpTest` (okhttp `MockWebServer`) — handshake sesji
+  wysyła api key + email; 429 → `BrokerException` bez wycieku hasła; 200 bez tokenów
+  odrzucone; brak creds fail-fast; `error.invalid.max.daterange` propaguje;
+  `selectAccount` rotuje tokeny na kolejne żądania.
+- **Redesign wykresu equity** (`history.component.ts`): 3. panel underwater (DD od
+  szczytu, czerwony obszar), miesięczna heatmapa P/L (CSS grid), gradient 0.28→0.10,
+  kropki ukryte > 60 punktów.
 
 ### E-12 — Cotygodniowy przegląd AI mailem  ← TIER 3
 **Po co:** rozszerzenie `MailHtsNotifier` (nota analityczna per sygnał) na
