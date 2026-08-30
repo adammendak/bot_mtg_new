@@ -71,6 +71,16 @@ public class HtsTradeService {
                 s.variant().name(), s.symbol(), s.direction().name(), s.timestamp());
     }
 
+    /**
+     * True when this model already holds an OPEN position for the symbol. HTS is
+     * "one position per signal, actively managed" — the gate must not stack a new
+     * entry every bar while the previous one is still running.
+     */
+    public boolean hasOpenPosition(HtsVariant variant, String symbol) {
+        return variant != null && symbol != null
+                && trades.existsByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN");
+    }
+
     @Transactional
     public HtsTradeEntity recordOpen(HtsScan s, HtsVariant v, String book, String accountName,
                                      double size, OrderAck ack) {
@@ -106,31 +116,44 @@ public class HtsTradeService {
             return 0;
         }
         BrokerClient market = books.marketData();
-        Map<String, Set<String>> liveDealsByBook = new HashMap<>();
+        Map<String, LiveDeals> liveByBook = new HashMap<>();
         Map<String, List<BrokerTransaction>> txByBook = new HashMap<>();
         Map<String, List<Candle>> candleCache = new HashMap<>(); // epic|LTF within this cycle
         int touched = 0;
         for (HtsTradeEntity t : open) {
-            Set<String> liveDeals = liveDealsByBook.computeIfAbsent(t.getBook(), this::openDealIds);
-            if (liveDeals == null) {
-                continue; // broker unreachable — retry next cycle
-            }
-            if (t.getDealId() == null || !liveDeals.contains(t.getDealId())) {
-                applyClose(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx));
-                trades.save(t);
-                fan(sink -> sink.onClose(t));
-                touched++;
-                continue;
-            }
-            if (t.getTp1At() != null && t.getTp1Pnl() == null
-                    && fillTp1Pnl(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx))) {
-                touched++;
-            }
-            if (manageRunner(t, market, candleCache)) {
-                touched++;
+            // One bad row must never roll back the whole reconcile pass.
+            try {
+                LiveDeals live = liveByBook.computeIfAbsent(t.getBook(), this::liveDeals);
+                if (live == null) {
+                    continue; // broker unreachable — retry next cycle
+                }
+                boolean stillOpen =
+                        (t.getDealId() != null && live.ids().contains(t.getDealId()))
+                                || (t.getDealReference() != null && live.refs().contains(t.getDealReference()));
+                if (!stillOpen) {
+                    applyClose(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx));
+                    trades.save(t);
+                    fan(sink -> sink.onClose(t));
+                    touched++;
+                    continue;
+                }
+                if (t.getTp1At() != null && t.getTp1Pnl() == null
+                        && fillTp1Pnl(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx))) {
+                    touched++;
+                }
+                if (manageRunner(t, market, candleCache)) {
+                    touched++;
+                }
+            } catch (RuntimeException e) {
+                log.warn("HTS reconcile: trade {} ({} {}) skipped this pass: {}",
+                        t.getId(), t.getVariant(), t.getSymbol(), e.getClass().getSimpleName());
             }
         }
         return touched;
+    }
+
+    /** Live broker deal identifiers for a book — both dealId and dealReference. */
+    private record LiveDeals(Set<String> ids, Set<String> refs) {
     }
 
     /** Backfill the realised cash of the TP1 half from the transaction feed. */
@@ -258,7 +281,17 @@ public class HtsTradeService {
         double leg = t.getEntry() != null && t.getStopLevel() != null
                 ? Math.abs(t.getEntry() - t.getStopLevel()) : 0.0;
         double tp1 = t.getTp1Pnl() != null ? t.getTp1Pnl() : 0.0;
-        Double pnl = settle == null ? (t.getTp1Pnl() != null ? tp1 : null) : settle + tp1;
+        // NB: keep the branches explicit — `cond ? doublePrimitive : null` makes
+        // javac unbox the null (NPE: Double.doubleValue) when settle and tp1Pnl
+        // are both absent, which is exactly the reconcile-a-fresh-trade case.
+        Double pnl;
+        if (settle != null) {
+            pnl = settle + tp1;
+        } else if (t.getTp1Pnl() != null) {
+            pnl = tp1;
+        } else {
+            pnl = null;
+        }
         t.setPnl(pnl);
         boolean preset = t.getCloseReason() != null && !t.getCloseReason().isBlank(); // e.g. WEEKEND
         if (settle != null && t.getSize() != null && t.getSize() > 0 && leg > 0) {
@@ -539,7 +572,7 @@ public class HtsTradeService {
 
     // ---- broker helpers (null = "unknown this pass, retry") ----
 
-    private Set<String> openDealIds(String book) {
+    private LiveDeals liveDeals(String book) {
         try {
             BrokerClient c = books.forBook(book);
             if (c == null || !c.configured()) {
@@ -549,12 +582,16 @@ public class HtsTradeService {
                 c.login();
             }
             Set<String> ids = new HashSet<>();
+            Set<String> refs = new HashSet<>();
             for (Position p : c.openPositions()) {
                 if (p.dealId() != null) {
                     ids.add(p.dealId());
                 }
+                if (p.dealReference() != null) {
+                    refs.add(p.dealReference());
+                }
             }
-            return ids;
+            return new LiveDeals(ids, refs);
         } catch (Exception e) {
             log.warn("HTS reconcile: open positions unavailable for {} ({})", book, e.getClass().getSimpleName());
             return null;

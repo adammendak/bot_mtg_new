@@ -5,6 +5,7 @@ import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketPrice;
+import com.adam.server.broker.model.MarketRules;
 import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
 import com.adam.server.broker.model.Position;
@@ -35,6 +36,15 @@ public interface BrokerClient {
     List<Candle> candles(String epic, Resolution resolution, Instant from, Instant to, int max);
 
     MarketPrice marketPrice(String epic);
+
+    /**
+     * Instrument dealing rules (size step / minimum, price precision, min stop
+     * distance) used to round an order into a shape the broker will actually
+     * accept. Default: permissive — no adjustment.
+     */
+    default MarketRules marketRules(String epic) {
+        return MarketRules.permissive(epic);
+    }
 
     OrderAck placeWorkingOrder(OrderRequest request);
 

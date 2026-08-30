@@ -182,7 +182,7 @@ public class PaperBrokerClient implements BrokerClient {
 
     @Override
     public Confirmation confirm(String dealReference) {
-        return new Confirmation(dealReference, dealReference, "OPEN", "ACCEPTED", "", Direction.BUY, 0.0, 0.0);
+        return new Confirmation(dealReference, dealReference, "OPEN", "ACCEPTED", null, "", Direction.BUY, 0.0, 0.0);
     }
 
     private OrderAck recordOrder(OrderRequest request, String status) {

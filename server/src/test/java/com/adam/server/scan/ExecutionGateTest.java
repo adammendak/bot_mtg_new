@@ -102,9 +102,9 @@ class ExecutionGateTest {
                 .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
                 .thenReturn(new OrderAck("refB", null, "SUBMITTED"));
         when(demoClient.confirm("refA"))
-                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 2.0));
         when(demoClient.confirm("refB"))
-                .thenReturn(new Confirmation("refB", "dealB", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+                .thenReturn(new Confirmation("refB", "dealB", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 2.0));
 
         gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("demo", 0), false);
@@ -267,7 +267,7 @@ class ExecutionGateTest {
                 .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
                 .thenReturn(new OrderAck("refB", null, "SUBMITTED"));
         when(demoClient.confirm(anyString()))
-                .thenReturn(new Confirmation("r", "d", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+                .thenReturn(new Confirmation("r", "d", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 2.0));
 
         gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("demo", 0), false);
@@ -325,7 +325,7 @@ class ExecutionGateTest {
         when(demoClient.openPositions()).thenReturn(List.of());
         when(demoClient.placeMarketOrder(any())).thenReturn(new OrderAck("refA", null, "SUBMITTED"));
         when(demoClient.confirm("refA"))
-                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 4.0));
+                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 4.0));
 
         gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("demo", 0), false);
@@ -375,7 +375,7 @@ class ExecutionGateTest {
                 .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
                 .thenReturn(new OrderAck("refB", null, "SUBMITTED"));
         when(demoClient.confirm(anyString()))
-                .thenReturn(new Confirmation("r", "d", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+                .thenReturn(new Confirmation("r", "d", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 2.0));
 
         Instant later = bar.plusSeconds(900);
         gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, later)),
@@ -520,9 +520,9 @@ class ExecutionGateTest {
                 .thenReturn(new OrderAck("refA", null, "SUBMITTED"))
                 .thenReturn(new OrderAck("refB", null, "SUBMITTED"));
         when(demoClient.confirm("refA"))
-                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+                .thenReturn(new Confirmation("refA", "dealA", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 2.0));
         when(demoClient.confirm("refB"))
-                .thenReturn(new Confirmation("refB", "dealB", "OPEN", "ACCEPTED", "DE40", Direction.BUY, 100.0, 2.0));
+                .thenReturn(new Confirmation("refB", "dealB", "OPEN", "ACCEPTED", null, "DE40", Direction.BUY, 100.0, 2.0));
 
         gate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("demo", 0), false);

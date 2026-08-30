@@ -19,6 +19,9 @@ public interface HtsTradeRepository extends JpaRepository<HtsTradeEntity, Long> 
     boolean existsByVariantAndSymbolAndDirectionAndBarTime(
             String variant, String symbol, String direction, Instant barTime);
 
+    /** No stacking: does this variant already hold a position for the symbol? */
+    boolean existsByVariantAndSymbolAndStatus(String variant, String symbol, String status);
+
     /** Today's realised P/L on a book — for the live day-halt. */
     List<HtsTradeEntity> findByBookAndStatusAndExitAtAfter(String book, String status, Instant since);
 }

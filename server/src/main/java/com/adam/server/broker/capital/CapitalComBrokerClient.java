@@ -9,6 +9,7 @@ import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketPrice;
+import com.adam.server.broker.model.MarketRules;
 import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
 import com.adam.server.broker.model.Position;
@@ -30,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Live Capital.com adapter. Tokens stay in memory; credentials are never logged.
@@ -49,6 +51,9 @@ public class CapitalComBrokerClient implements BrokerClient {
     private volatile Instant sessionAt = Instant.EPOCH;
     private volatile RestClient authedClient;
     private volatile Instant authedAt = Instant.EPOCH;
+
+    /** Dealing rules per epic — static for the life of the process, fetched once. */
+    private final Map<String, MarketRules> rulesCache = new ConcurrentHashMap<>();
 
     public CapitalComBrokerClient(
             RestClient.Builder builder,
@@ -247,6 +252,62 @@ public class CapitalComBrokerClient implements BrokerClient {
         double bid = nz(s.bid());
         double ask = nz(s.askOrOffer());
         return new MarketPrice(epic, bid, ask, updated);
+    }
+
+    @Override
+    public MarketRules marketRules(String epic) {
+        MarketRules cached = rulesCache.get(epic);
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            CapitalJson.MarketResponse body = authed()
+                    .get()
+                    .uri("/api/v1/markets/{epic}", epic)
+                    .retrieve()
+                    .body(CapitalJson.MarketResponse.class);
+            MarketRules r = toRules(epic, body);
+            rulesCache.put(epic, r);
+            log.info("Capital.com {} rules {}: minDealSize={} priceDp={} minStop={} maxStop={}",
+                    book, epic, r.minDealSize(), r.priceDecimalPlaces(),
+                    r.minStopDistancePoints(), r.maxStopDistancePoints());
+            return r;
+        } catch (Exception e) {
+            log.warn("Capital.com {} market rules unavailable for {} ({}) — using permissive",
+                    book, epic, e.getClass().getSimpleName());
+            return MarketRules.permissive(epic);
+        }
+    }
+
+    private static MarketRules toRules(String epic, CapitalJson.MarketResponse body) {
+        if (body == null) {
+            return MarketRules.permissive(epic);
+        }
+        int dp = body.snapshot() != null && body.snapshot().decimalPlacesFactor() != null
+                ? body.snapshot().decimalPlacesFactor() : -1;
+        double mid = body.snapshot() == null ? 0
+                : (nz(body.snapshot().bid()) + nz(body.snapshot().askOrOffer())) / 2.0;
+        CapitalJson.DealingRulesJson d = body.dealingRules();
+        double minSize = d == null ? 0 : ruleToPoints(d.minDealSize(), mid);
+        double minStop = 0;
+        double maxStop = 0;
+        if (d != null) {
+            minStop = Math.max(ruleToPoints(d.minNormalStopOrLimitDistance(), mid),
+                    ruleToPoints(d.minStepDistance(), mid));
+            maxStop = ruleToPoints(d.maxStopOrLimitDistance(), mid);
+        }
+        return new MarketRules(epic, minSize, dp, minStop, maxStop);
+    }
+
+    /** Capital {unit,value} → price points ({@code PERCENTAGE} needs the price). */
+    private static double ruleToPoints(CapitalJson.RuleValue rv, double price) {
+        if (rv == null || rv.value() == null) {
+            return 0;
+        }
+        if ("PERCENTAGE".equalsIgnoreCase(rv.unit()) && price > 0) {
+            return price * rv.value() / 100.0;
+        }
+        return rv.value();
     }
 
     @Override
@@ -536,6 +597,7 @@ public class CapitalComBrokerClient implements BrokerClient {
                 body.dealId(),
                 body.status(),
                 body.dealStatus(),
+                body.reason(),
                 body.epic(),
                 direction,
                 body.level(),
