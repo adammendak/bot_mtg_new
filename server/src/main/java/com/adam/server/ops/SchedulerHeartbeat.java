@@ -47,11 +47,17 @@ public class SchedulerHeartbeat {
         this.healthcheckUrl = healthcheckUrl == null ? "" : healthcheckUrl.trim();
     }
 
-    /** Register a probe. Grace: it counts as fresh until {@code maxSilence} after boot. */
+    /**
+     * Register a probe. Idempotent and quiet on repeat, so a scheduler may call
+     * it every cycle (it needs to — a flag toggled on at runtime must start the
+     * probe). Grace: counts as fresh until {@code maxSilence} after the first
+     * registration.
+     */
     public void register(String name, Duration maxSilence) {
-        this.maxSilence.put(name, maxSilence);
-        this.lastOk.putIfAbsent(name, clock.instant());
-        log.info("Heartbeat probe registered: {} (max silence {}s)", name, maxSilence.toSeconds());
+        if (this.maxSilence.putIfAbsent(name, maxSilence) == null) {
+            this.lastOk.putIfAbsent(name, clock.instant());
+            log.info("Heartbeat probe registered: {} (max silence {}s)", name, maxSilence.toSeconds());
+        }
     }
 
     /** A scheduler completed a cycle without throwing. */

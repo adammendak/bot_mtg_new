@@ -9,7 +9,6 @@ import com.adam.server.broker.model.OrderRequest;
 import com.adam.server.sdd.RiskPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -50,8 +49,7 @@ public class HtsExecutionGate {
     private final RiskPolicy risk;
     private final AppProperties properties;
     private final HtsTradeService trades;
-    private final boolean enabled;
-    private final boolean liveEnabled;
+    private final com.adam.server.ops.FeatureFlags flags;
     private final com.adam.server.scan.Mailer mailer;
     private final com.adam.server.ops.ErrorLog errorLog;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
@@ -61,19 +59,17 @@ public class HtsExecutionGate {
             RiskPolicy risk,
             AppProperties properties,
             HtsTradeService trades,
+            com.adam.server.ops.FeatureFlags flags,
             com.adam.server.scan.Mailer mailer,
-            com.adam.server.ops.ErrorLog errorLog,
-            @Value("${app.hts.execution-enabled:false}") boolean enabled,
-            @Value("${app.hts.live-execution-enabled:false}") boolean liveEnabled
+            com.adam.server.ops.ErrorLog errorLog
     ) {
         this.books = books;
         this.risk = risk;
         this.properties = properties;
         this.trades = trades;
+        this.flags = flags;
         this.mailer = mailer;
         this.errorLog = errorLog;
-        this.enabled = enabled;
-        this.liveEnabled = liveEnabled;
     }
 
     /** Best-effort: never throws to the scan. */
@@ -82,7 +78,7 @@ public class HtsExecutionGate {
             return;
         }
         boolean live = s.variant().live();
-        if (live ? !liveEnabled : !enabled) {
+        if (live ? !flags.enabled("hts.live-execution") : !flags.enabled("hts.execution")) {
             return;
         }
         String book = s.variant().book();

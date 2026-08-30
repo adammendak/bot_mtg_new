@@ -9,7 +9,6 @@ import com.adam.server.broker.model.OrderRequest;
 import com.adam.server.sdd.RiskPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
@@ -34,7 +33,7 @@ public class SwingExecutionGate {
 
     private final BrokerBooks books;
     private final RiskPolicy risk;
-    private final boolean enabled;
+    private final com.adam.server.ops.FeatureFlags flags;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
 
     private final com.adam.server.scan.Mailer mailer;
@@ -43,12 +42,12 @@ public class SwingExecutionGate {
             BrokerBooks books,
             RiskPolicy risk,
             com.adam.server.scan.Mailer mailer,
-            @Value("${app.swing.execution-enabled:false}") boolean enabled
+            com.adam.server.ops.FeatureFlags flags
     ) {
         this.books = books;
         this.risk = risk;
         this.mailer = mailer;
-        this.enabled = enabled;
+        this.flags = flags;
     }
 
     /** The swing sub-account ({@code SWING_ACCOUNT_NAME}, default {@code "Account H1"}). */
@@ -58,7 +57,7 @@ public class SwingExecutionGate {
 
     /** Best-effort: never throws to the scan. */
     public void executeSignal(SwingScan s) {
-        if (!enabled || s == null || s.direction() == null) {
+        if (!flags.enabled("swing.execution") || s == null || s.direction() == null) {
             return;
         }
         String key = s.symbol() + "|" + s.direction().name() + "|"

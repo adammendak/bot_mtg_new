@@ -63,6 +63,7 @@ class ExecutionPersistenceTest {
     AppProperties props;
     RiskPolicy risk;
     BrokerBooks books;
+    com.adam.server.ops.FeatureFlags flags;
     ExecutionGate gate;
     SddExecutionState state;
 
@@ -79,6 +80,8 @@ class ExecutionPersistenceTest {
         props.setMaxOpenNames(4);
         props.setNewsCalendarUrl("");
         risk = new RiskPolicy(props);
+        flags = com.adam.server.ops.FeatureFlags.forTest();
+        flags.set("sdd.execution", true, "test");
 
         // Repository mock backed by the in-memory list, simulating Postgres.
         when(repository.findAll()).thenAnswer(i -> new ArrayList<>(db));
@@ -121,7 +124,7 @@ class ExecutionPersistenceTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"));
-        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
 
         when(demoClient.book()).thenReturn("demo");
         when(demoClient.id()).thenReturn("capital");
@@ -137,7 +140,7 @@ class ExecutionPersistenceTest {
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
         when(demoClient.openPositions()).thenReturn(List.of());
 
         freshGate.executeBook("demo", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
@@ -154,7 +157,7 @@ class ExecutionPersistenceTest {
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
         Position tp = new Position("dealA", "refA", "DE40", Direction.BUY, 2.0, 100, 97.5, 101.0, 0, "PLN", Instant.now());
         Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
         when(demoClient.openPositions()).thenReturn(List.of(tp, runner));
@@ -177,7 +180,7 @@ class ExecutionPersistenceTest {
                 100, 1, 97.5, "dealA", "dealB", true));
         SddExecutionState fresh = new SddExecutionState(repository); // restart
         fresh.loadFromDb();
-        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        ExecutionGate freshGate = new ExecutionGate(props, books, risk, fresh, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
 
         Position runner = new Position("dealB", "refB", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 0, "PLN", Instant.now());
         when(demoClient.openPositions()).thenReturn(List.of(runner));
