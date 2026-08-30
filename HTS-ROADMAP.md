@@ -365,6 +365,125 @@ ADX off (permit opcjonalnie, na D1/H1 pomaga), pivotTargets off, splitEntries 1,
 
 ---
 
+## Epiki z audytu 2026-08-30 (triaged)
+
+Audyt z drugiej sesji (czytany kod, HEAD `ab5691c`). Poniżej tylko to, co ma sens
+dla obecnej fazy — **forward-test wrzesień na 3 kontach demo + 1 realne**. Odrzucone
+/ tylko-notatka na końcu. Kolejność = priorytet.
+
+### E-5 — Obserwowalność: dead-man switch + heartbeat + trwały log błędów  ← TIER 1
+**Po co:** dziś jedyny sygnał „bot żyje" to `/health` + mail/Telegram per-trade.
+Scheduler może po cichu paść (restart dyno, wyjątek w cronie, 429 Capital — **już
+widziane**) i nikt się nie dowie, bo brak sygnałów nie generuje alertu. W trakcie
+forward-testu = stracony miesiąc danych.
+**Zakres:**
+- `SchedulerHeartbeat` — każdy scheduler (`ScanScheduler`, `HtsScanScheduler`,
+  `HtsPositionMonitor`) po udanym cyklu stempluje `lastOkAt` (in-memory + wiersz
+  `scheduler_heartbeat`).
+- Watchdog `@Scheduled` co 15 min: jeśli któryś heartbeat starszy niż 2× jego
+  interwał → mail (throttled przez `Mailer`) + wpis do logu błędów.
+- Opcjonalny ping zewnętrzny: `HEALTHCHECK_URL` (healthchecks.io / UptimeRobot)
+  trafiany na końcu każdego udanego cyklu skanu — domyka lukę „całe dyno padło".
+- `/health` rozszerzone o `lastScanAt` / `lastHtsScanAt` / `lastMonitorAt`.
+- **Trwały log błędów:** tabela `error_events` (czas, źródło, klasa wyjątku, msg,
+  book/wariant), pisana z `catch` w schedulerach + gate; podgląd w adminie
+  (E-6 / osobna karta). Zastępuje efemeryczny log Heroku dla „co się ostatnio wysypało".
+**Rozmiar:** M (2–3 dni).
+
+### E-6 — Feature flagi w DB + przełączniki w adminie (bez redeployu)  ← TIER 1
+**Po co:** `EXECUTION_ENABLED`, `HTS_EXECUTION_ENABLED`, `HTS_LIVE_EXECUTION_ENABLED`,
+`*_SCAN_ENABLED` to dziś env-vary Heroku → każda zmiana = restart dyno, a restart
+= burza 429 na Capital (widziane w v112). Przy 3 wariantach HTS równolegle chcemy
+móc **wyłączyć jeden wariant w sekundę**, bez przestoju.
+**Zakres:**
+- Tabela `feature_flags` (klucz, bool, updatedAt, updatedBy); `FeatureFlags`
+  serwis z cache + fallback na dotychczasowy env var gdy brak wiersza.
+- `AdminUserController` + `admin.component.ts` — sekcja toggli: egzekucja per book,
+  skan per strategia, `HTS_MONITOR_ENABLED`.
+- Gate'y (`ExecutionGate`, `HtsExecutionGate`, `*ScanScheduler`) czytają przez
+  `FeatureFlags` zamiast wstrzykniętego `@Value boolean`.
+- Audyt zmian flag → `error_events` / osobny `admin_audit`.
+**Rozmiar:** M (2–3 dni). Zależność: warto po E-5 (wspólna tabela audytu).
+
+### E-7 — TOTP dla admina + TTL/refresh bearer tokena  ← TIER 1
+**Po co:** konto `live` = realne pieniądze, a jedyna bramka to hasło + bearer bez
+wygasania. Token raz wyciekły (log przeglądarki, historia narzędzia) żyje wiecznie.
+**Zakres:**
+- TOTP (`java-otp` lub `dev.samstevens.totp`), enrollment w adminie (QR),
+  wymagany przy logowaniu admina; kody zapasowe.
+- Bearer token: `exp` (np. 12 h) + endpoint `/api/auth/refresh`; front odświeża
+  po 401. Rotacja sekretu podpisu.
+- (opcjonalnie) log zdarzeń logowania: kto, IP, sukces/porażka → `error_events`
+  lub `security_events`.
+**Rozmiar:** M (1–2 dni).
+
+### E-8 — Dziennik tradów HTS: heatmapa-kalendarz + histogram R + filtry  ← TIER 2
+**Po co:** dane już są w Postgresie (`hts_trades`: `close_reason`, `r_multiple`,
+`pnl`, `variant`, `symbol`). E-3 dało surową tabelę — brakuje warstwy analizy do
+oceny forward-testu.
+**Zakres (UI, backend liczy agregaty):**
+- Kalendarz-heatmapa dziennego wyniku (R lub P/L) — kolor komórki wg sumy dnia.
+- Histogram rozkładu R (słupki −1…+3+), osobno per wariant.
+- Filtry: wariant / symbol / powód zamknięcia / zakres dat.
+- `GET /api/hts/journal?groupBy=day|symbol|reason&from&to` — agregacja po stronie serwera.
+**Rozmiar:** M. Naturalne rozszerzenie E-3, samodzielny epik bo to głównie UI.
+
+### E-9 — UI do sweepów backtestu HTS + heatmapa parametrów  ← TIER 2
+**Po co:** sweepy (RR × ADX × `stopBufferFrac` × `splitEntries` …) czyta się dziś
+z tabelek wklejonych ręcznie do markdownu (sekcje „Wyniki" niżej). `HtsBacktestService`
+ma już pełny zestaw parametrów i `format=summary`.
+**Zakres:**
+- `GET /api/hts/backtest/sweep` — przyjmuje listy wartości per parametr, zwraca
+  siatkę `{params, n, winRate, avgR, sumR, maxDdR}`.
+- Angular: formularz zakresów + tabela/heatmapa (tło komórki wg `avgR`), eksport CSV.
+- Podpięcie pod stronę Analytics (obok scorecardu E-4).
+**Rozmiar:** M–L.
+
+### E-10 — Walk-forward / OOS split + Monte Carlo drawdown  ← TIER 2
+**Po co:** luka metodologiczna (zapisana już w `rr-1to1-vs-2.5r-i-supertrend.md`):
+okna 30/60/90 dni się nakładają → in-sample bias. Decyzja T11 zyska na twardszej
+walidacji.
+**Zakres:**
+- `HtsBacktestService`: flaga `oosSplit` — trenuj parametry na `[0, k)`, raportuj
+  wynik na `[k, n)`; zwróć oba.
+- `tools/equity_simulator.py`: `--monte-carlo N` — losowe przetasowania sekwencji
+  R-multiples → rozkład max drawdown / końcowego equity (percentyle).
+**Rozmiar:** M.
+
+### E-11 — Test HTTP-level dla `CapitalComBrokerClient`  ← TIER 2 (mały, wysoka dźwignia)
+**Po co:** realna integracja HTTP (retry, mapowanie błędów, timeouty, rotacja
+tokena, 429) nie ma dedykowanego testu — tylko pośrednio przez `ApiSmokeTest` /
+mock broker. Throttling Capital to **powracający realny problem** (backtesty HTS).
+**Zakres:** `MockWebServer` (OkHttp) — scenariusze: 429 → backoff, 401 → re-login,
+timeout → wyjątek zmapowany, `error.invalid.max.daterange` → propagacja,
+token rotation bumpuje `sessionAt`. ~10–15 przypadków.
+**Rozmiar:** S–M (0.5–1 dzień).
+
+### E-12 — Cotygodniowy przegląd AI mailem  ← TIER 3
+**Po co:** rozszerzenie `MailHtsNotifier` (nota analityczna per sygnał) na
+podsumowanie tygodnia: co zagrało, co nie, czy któryś wariant/instrument
+systematycznie odstaje — liczone z `hts_trades` + `sdd_execution_entries`.
+**Zakres:** `@Scheduled` (pon rano) → zbierz tydzień → prompt do Anthropic API
+(`claude-sonnet-5`; wzorzec wywołań jest w `tools/`) → mail. `AI_REVIEW_ENABLED`
++ `ANTHROPIC_API_KEY`, no-op gdy brak.
+**Rozmiar:** M. Sensowne dopiero gdy uzbiera się kilka tygodni danych.
+
+### E-13 — Web Push na istniejącym service workerze  ← TIER 3
+`manifest.webmanifest` + `sw.js` (PWA) już są. Web Push API → alerty bez maila/
+Telegrama. Tanie bo SW jest, ale mail/Telegram już pokrywają potrzebę. Odłożone.
+
+### Tylko notatka (nie epik)
+- `actuator` `show-details=never` — jeśli kiedyś potrzebny głębszy health (DB pool,
+  disk) → osobny endpoint za auth, nie rozluźniać actuatora.
+- Skonsolidowany widok portfela — **w większości zrobione** (`/api/overview` +
+  `liveOverview` SSE na stronie Konta); ewentualny drobny polish.
+- Metryki czasu etapów (fetch świec / egzekucja / zapis DB) — przydatne przy
+  throttlingu, ale niższy priorytet niż E-5; można dołożyć logowaniem czasów w E-5.
+- Log zdarzeń bezpieczeństwa jako osobny system — niski priorytet przy 1 userze;
+  minimalny wariant wchodzi w E-7.
+
+---
+
 ## Rozbieżności do naprawienia po drodze (z `HTS-vs-KOD.md`)
 
 | co | teraz w kodzie | docelowo (HTS) | task |
