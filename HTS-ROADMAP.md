@@ -399,20 +399,25 @@ forward-testu = stracony miesiąc danych.
 - Flagi: `OPS_WATCHDOG_ENABLED`, `OPS_WATCHDOG_MS` (300000), `HEALTHCHECK_URL`,
   `OPS_ERROR_RETENTION_DAYS`.
 
-### E-6 — Feature flagi w DB + przełączniki w adminie (bez redeployu)  ← TIER 1
+### E-6 — Feature flagi w DB + przełączniki w adminie (bez redeployu)  ← zrobione (PR #74)
 **Po co:** `EXECUTION_ENABLED`, `HTS_EXECUTION_ENABLED`, `HTS_LIVE_EXECUTION_ENABLED`,
-`*_SCAN_ENABLED` to dziś env-vary Heroku → każda zmiana = restart dyno, a restart
-= burza 429 na Capital (widziane w v112). Przy 3 wariantach HTS równolegle chcemy
-móc **wyłączyć jeden wariant w sekundę**, bez przestoju.
-**Zakres:**
-- Tabela `feature_flags` (klucz, bool, updatedAt, updatedBy); `FeatureFlags`
-  serwis z cache + fallback na dotychczasowy env var gdy brak wiersza.
-- `AdminUserController` + `admin.component.ts` — sekcja toggli: egzekucja per book,
-  skan per strategia, `HTS_MONITOR_ENABLED`.
-- Gate'y (`ExecutionGate`, `HtsExecutionGate`, `*ScanScheduler`) czytają przez
-  `FeatureFlags` zamiast wstrzykniętego `@Value boolean`.
-- Audyt zmian flag → `error_events` / osobny `admin_audit`.
-**Rozmiar:** M (2–3 dni). Zależność: warto po E-5 (wspólna tabela audytu).
+`*_SCAN_ENABLED` to były env-vary Heroku → każda zmiana = restart dyno = burza 429
+na Capital. Teraz przełącznik w adminie działa **od ręki**, bez przestoju.
+**Co weszło:**
+- Tabela `feature_flags` (changeset 016; name unique, enabled, updated_at, updated_by).
+- `FeatureFlags` (`com.adam.server.ops`) — 8 znanych flag: `sdd.scan`, `sdd.execution`,
+  `swing.scan`, `swing.execution`, `hts.scan`, `hts.execution`, `hts.live-execution`,
+  `hts.monitor`. Wartość: wiersz DB wygrywa, brak wiersza → default z
+  `application.properties`. Cache odświeżany przy zapisie + co 30 s z DB.
+- Gate'y i schedulery (`ExecutionGate`, `SwingExecutionGate`, `HtsExecutionGate`,
+  `ScanScheduler`, `SwingScanScheduler`, `HtsScanScheduler`, `HtsPositionMonitor`)
+  czytają `flags.enabled(NAZWA)` w miejscu sprawdzenia, nie `@Value` z konstruktora
+  → toggle działa natychmiast. Scheduler rejestruje heartbeat leniwie w metodzie
+  cyklu, więc włączenie flagi w locie od razu startuje probe E-5.
+- `GET/PUT/DELETE /api/admin/flags[/{name}]` (admin). `admin.component.ts` — karta
+  „Feature flagi" z przełącznikiem per flaga + „Reset do env", widać kto/kiedy zmienił.
+- `HTS_SCAN_ENABLED` (nowa env, default true) jako default dla `hts.scan`.
+**Testy:** `FeatureFlagsTest` (+6). 205 serwer, 15 UI — zielone.
 
 ### E-7 — TOTP dla admina + TTL/refresh bearer tokena  ← TIER 1
 **Po co:** konto `live` = realne pieniądze, a jedyna bramka to hasło + bearer bez

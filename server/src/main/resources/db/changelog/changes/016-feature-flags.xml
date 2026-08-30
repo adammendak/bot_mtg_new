@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      Runtime feature flags (E-6). One row overrides one env-var boolean
+      (execution / scan / monitor toggles) without a dyno restart. No row =
+      the env default still wins. Read + cached by FeatureFlags, edited from
+      the admin panel.
+    -->
+    <changeSet id="016-feature-flags" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="feature_flags"/></not>
+        </preConditions>
+        <createTable tableName="feature_flags">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(48)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_feature_flags_name"/>
+            </column>
+            <column name="enabled" type="BOOLEAN"><constraints nullable="false"/></column>
+            <column name="updated_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_by" type="VARCHAR(64)"/>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>

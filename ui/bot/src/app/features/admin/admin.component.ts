@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { formatHttpError } from '../sdd/service/sdd.service';
-import { AdminUser } from './admin.model';
+import { AdminUser, FeatureFlag } from './admin.model';
 
 const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
 
@@ -81,6 +81,73 @@ const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
       </div>
     </div>
 
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <span>Feature flagi — przełączniki bez redeployu (E-6)</span>
+        <button type="button" class="btn btn-outline-light btn-sm" (click)="loadFlags()">Refresh</button>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped table-hover mb-0 align-middle">
+            <thead class="table-dark">
+              <tr>
+                <th>Flaga</th><th>Opis</th><th class="text-center">Stan</th>
+                <th class="text-center">Env default</th><th>Zmienił</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (flags().length === 0) {
+                <tr><td colspan="6" class="text-muted text-center py-3">Ładowanie…</td></tr>
+              } @else {
+                @for (fl of flags(); track fl.name) {
+                  <tr>
+                    <td><code>{{ fl.name }}</code></td>
+                    <td class="small">{{ fl.description }}</td>
+                    <td class="text-center">
+                      <div class="form-check form-switch d-inline-block">
+                        <input
+                          class="form-check-input"
+                          type="checkbox"
+                          role="switch"
+                          [checked]="fl.enabled"
+                          [disabled]="flagBusy() === fl.name"
+                          (change)="toggleFlag(fl, $event)"
+                        />
+                      </div>
+                      <span class="badge ms-1" [class.text-bg-success]="fl.enabled" [class.text-bg-secondary]="!fl.enabled">
+                        {{ fl.enabled ? 'ON' : 'off' }}
+                      </span>
+                    </td>
+                    <td class="text-center">
+                      <span class="badge" [class.text-bg-success]="fl.envDefault" [class.text-bg-secondary]="!fl.envDefault">
+                        {{ fl.envDefault ? 'ON' : 'off' }}
+                      </span>
+                    </td>
+                    <td class="small text-muted">
+                      @if (fl.overridden) {
+                        {{ fl.updatedBy || '?' }}
+                        <span class="d-block">{{ fl.updatedAt | date: 'MM-dd HH:mm' }}</span>
+                      } @else {
+                        <span class="text-muted">env</span>
+                      }
+                    </td>
+                    <td class="text-end">
+                      @if (fl.overridden) {
+                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                [disabled]="flagBusy() === fl.name" (click)="resetFlag(fl)">
+                          Reset do env
+                        </button>
+                      }
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     @if (form()) {
       <div class="card shadow-sm mb-4">
         <div class="card-header bg-dark text-white">{{ form()!.id ? 'Edytuj użytkownika' : 'Nowy użytkownik' }}</div>
@@ -138,6 +205,8 @@ export class AdminComponent implements OnInit {
   private readonly http = inject(HttpClient);
 
   readonly users = signal<AdminUser[]>([]);
+  readonly flags = signal<FeatureFlag[]>([]);
+  readonly flagBusy = signal<string | null>(null);
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly saving = signal(false);
@@ -146,6 +215,47 @@ export class AdminComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadFlags();
+  }
+
+  loadFlags(): void {
+    this.http.get<FeatureFlag[]>('/api/admin/flags').subscribe({
+      next: (f) => this.flags.set(Array.isArray(f) ? f : []),
+      error: (e) => this.error.set(formatHttpError('/api/admin/flags', e)),
+    });
+  }
+
+  toggleFlag(fl: FeatureFlag, event: Event): void {
+    const enabled = (event.target as HTMLInputElement).checked;
+    this.flagBusy.set(fl.name);
+    this.error.set(null);
+    this.http.put<FeatureFlag[]>(`/api/admin/flags/${fl.name}`, { enabled }).subscribe({
+      next: (list) => {
+        this.flags.set(Array.isArray(list) ? list : []);
+        this.flagBusy.set(null);
+        this.message.set(`Flaga ${fl.name} → ${enabled ? 'ON' : 'off'}.`);
+      },
+      error: (e) => {
+        this.flagBusy.set(null);
+        this.error.set(formatHttpError('/api/admin/flags', e));
+        this.loadFlags();
+      },
+    });
+  }
+
+  resetFlag(fl: FeatureFlag): void {
+    this.flagBusy.set(fl.name);
+    this.http.delete<FeatureFlag[]>(`/api/admin/flags/${fl.name}`).subscribe({
+      next: (list) => {
+        this.flags.set(Array.isArray(list) ? list : []);
+        this.flagBusy.set(null);
+        this.message.set(`Flaga ${fl.name} zresetowana do env default.`);
+      },
+      error: (e) => {
+        this.flagBusy.set(null);
+        this.error.set(formatHttpError('/api/admin/flags', e));
+      },
+    });
   }
 
   load(): void {

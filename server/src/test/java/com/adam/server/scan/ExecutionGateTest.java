@@ -67,6 +67,7 @@ class ExecutionGateTest {
     RiskPolicy risk;
     SddExecutionState state;
     BrokerBooks books;
+    com.adam.server.ops.FeatureFlags flags;
     ExecutionGate gate;
 
     final Instant bar = Instant.parse("2026-08-28T12:00:00Z");
@@ -85,7 +86,9 @@ class ExecutionGateTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"));
-        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        flags = com.adam.server.ops.FeatureFlags.forTest();
+        flags.set("sdd.execution", true, "test");
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
 
         when(demoClient.book()).thenReturn("demo");
         when(demoClient.id()).thenReturn("capital");
@@ -294,7 +297,7 @@ class ExecutionGateTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"));
-        ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
 
         liveGate.executeBook("live", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),
                 view("live", 0), false);
@@ -342,7 +345,7 @@ class ExecutionGateTest {
 
     @Test
     void executionDisabledDoesNotPlaceAmendOrClose() {
-        props.setExecutionEnabled(false);
+        flags.set("sdd.execution", false, "test");
         state.put(new SddExecutionState.Entry("demo", "GER40", "DE40", Direction.BUY, bar,
                 100, 1, 97.5, "dealA", "dealB", true));
         Position pos = new Position("dealA", "refA", "DE40", Direction.BUY, 2.0, 100, 97.5, null, 5, "PLN", Instant.now());
@@ -513,7 +516,7 @@ class ExecutionGateTest {
         when(repo.save(any(SddExecutionEntity.class)))
                 .thenThrow(new InvalidDataAccessApiUsageException("Executing an update/delete query"));
         state = new SddExecutionState(repo);
-        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
+        gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled(), flags);
 
         when(demoClient.openPositions()).thenReturn(List.of());
         when(demoClient.placeMarketOrder(any()))

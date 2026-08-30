@@ -1,11 +1,10 @@
 package com.adam.server.hts;
 
 import com.adam.server.ops.ErrorLog;
+import com.adam.server.ops.FeatureFlags;
 import com.adam.server.ops.SchedulerHeartbeat;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -22,40 +21,35 @@ import java.time.Duration;
  *   <li>reconciles: any OPEN trade the broker no longer reports is flipped to
  *       CLOSED with its outcome (exit, R, P/L, reason) filled in.</li>
  * </ul>
- * Override the cadence with {@code HTS_MONITOR_CRON}; disable with
- * {@code HTS_MONITOR_ENABLED=false}.
+ * Override the cadence with {@code HTS_MONITOR_CRON}; toggle with the
+ * {@code hts.monitor} feature flag.
  */
 @Component
 public class HtsPositionMonitor {
 
     private static final Logger log = LoggerFactory.getLogger(HtsPositionMonitor.class);
     private static final String PROBE = "hts-monitor";
+    private static final String FLAG = "hts.monitor";
 
     private final HtsTradeService trades;
     private final SchedulerHeartbeat heartbeat;
     private final ErrorLog errorLog;
+    private final FeatureFlags flags;
 
-    @Value("${app.hts.monitor-enabled:true}")
-    private boolean enabled = true;
-
-    public HtsPositionMonitor(HtsTradeService trades, SchedulerHeartbeat heartbeat, ErrorLog errorLog) {
+    public HtsPositionMonitor(HtsTradeService trades, SchedulerHeartbeat heartbeat, ErrorLog errorLog,
+                              FeatureFlags flags) {
         this.trades = trades;
         this.heartbeat = heartbeat;
         this.errorLog = errorLog;
-    }
-
-    @PostConstruct
-    void registerProbe() {
-        if (enabled) {
-            heartbeat.register(PROBE, Duration.ofMinutes(13));
-        }
+        this.flags = flags;
     }
 
     @Scheduled(cron = "${app.hts.monitor-cron:30 */5 * * * *}", zone = "${app.scan.zone:Europe/Warsaw}")
     public void run() {
-        if (!enabled) {
+        if (!flags.enabled(FLAG)) {
             return;
         }
+        heartbeat.register(PROBE, Duration.ofMinutes(13));
         try {
             int touched = trades.manage();
             heartbeat.ok(PROBE);
