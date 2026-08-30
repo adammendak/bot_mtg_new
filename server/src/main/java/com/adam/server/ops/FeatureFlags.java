@@ -4,7 +4,7 @@ import com.adam.server.persistence.FeatureFlagEntity;
 import com.adam.server.persistence.FeatureFlagRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,11 +58,34 @@ public class FeatureFlags {
     private final Map<String, Boolean> defaults = new LinkedHashMap<>();
     private final Map<String, Boolean> overrides = new ConcurrentHashMap<>();
 
-    public FeatureFlags(FeatureFlagRepository repo, Environment env) {
+    /**
+     * Defaults come from the resolved {@code @Value} booleans — the same
+     * placeholder resolution the gates used before E-6. {@code Environment
+     * .getProperty(key, Boolean.class, fallback)} silently returned the fallback
+     * for {@code ${ENV:default}}-valued keys, so the panel's "env default" column
+     * (and any "Reset to env") disagreed with the real Heroku config.
+     */
+    public FeatureFlags(
+            FeatureFlagRepository repo,
+            @Value("${app.scan.enabled:true}") boolean sddScan,
+            @Value("${app.execution-enabled:false}") boolean sddExecution,
+            @Value("${app.swing.enabled:true}") boolean swingScan,
+            @Value("${app.swing.execution-enabled:false}") boolean swingExecution,
+            @Value("${app.hts.scan-enabled:true}") boolean htsScan,
+            @Value("${app.hts.execution-enabled:false}") boolean htsExecution,
+            @Value("${app.hts.live-execution-enabled:false}") boolean htsLiveExecution,
+            @Value("${app.hts.monitor-enabled:true}") boolean htsMonitor
+    ) {
         this.repo = repo;
-        for (Map.Entry<String, String> e : KEY.entrySet()) {
-            defaults.put(e.getKey(), env.getProperty(e.getValue(), Boolean.class, FALLBACK.get(e.getKey())));
-        }
+        defaults.put("sdd.scan", sddScan);
+        defaults.put("sdd.execution", sddExecution);
+        defaults.put("swing.scan", swingScan);
+        defaults.put("swing.execution", swingExecution);
+        defaults.put("hts.scan", htsScan);
+        defaults.put("hts.execution", htsExecution);
+        defaults.put("hts.live-execution", htsLiveExecution);
+        defaults.put("hts.monitor", htsMonitor);
+        log.info("Feature flag env defaults: {}", defaults);
         refresh();
     }
 

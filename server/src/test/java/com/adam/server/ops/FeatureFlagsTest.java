@@ -3,7 +3,6 @@ package com.adam.server.ops;
 import com.adam.server.persistence.FeatureFlagEntity;
 import com.adam.server.persistence.FeatureFlagRepository;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 
 import java.util.List;
 import java.util.Optional;
@@ -19,28 +18,24 @@ class FeatureFlagsTest {
 
     private final FeatureFlagRepository repo = mock(FeatureFlagRepository.class);
 
-    private FeatureFlags flags(String... props) {
-        MockEnvironment env = new MockEnvironment();
-        for (int i = 0; i + 1 < props.length; i += 2) {
-            env.setProperty(props[i], props[i + 1]);
-        }
+    /** sddScan, sddExec, swingScan, swingExec, htsScan, htsExec, htsLiveExec, htsMonitor. */
+    private FeatureFlags flags(boolean sddScan, boolean htsExec) {
         when(repo.findAll()).thenReturn(List.of());
-        return new FeatureFlags(repo, env);
+        return new FeatureFlags(repo, sddScan, false, true, false, true, htsExec, false, true);
     }
 
     @Test
     void withNoDbRowTheEnvDefaultApplies() {
-        FeatureFlags f = flags("app.hts.execution-enabled", "true", "app.scan.enabled", "false");
+        FeatureFlags f = flags(false, true); // sdd.scan=false, hts.execution=true
         assertThat(f.enabled("hts.execution")).isTrue();
         assertThat(f.enabled("sdd.scan")).isFalse();
-        // missing property -> hard-coded fallback
         assertThat(f.enabled("hts.monitor")).isTrue();
         assertThat(f.enabled("sdd.execution")).isFalse();
     }
 
     @Test
     void setOverridesTheEnvDefaultAndPersists() {
-        FeatureFlags f = flags("app.hts.execution-enabled", "false");
+        FeatureFlags f = flags(true, false); // hts.execution env default = false
         when(repo.findByName("hts.execution")).thenReturn(Optional.empty());
 
         f.set("hts.execution", true, "adam");
@@ -51,7 +46,7 @@ class FeatureFlagsTest {
 
     @Test
     void resetDropsTheOverride() {
-        FeatureFlags f = flags("app.hts.monitor-enabled", "true");
+        FeatureFlags f = flags(true, false);
         f.set("hts.monitor", false, "adam");
         assertThat(f.enabled("hts.monitor")).isFalse();
 
@@ -63,7 +58,7 @@ class FeatureFlagsTest {
 
     @Test
     void refreshLoadsOverridesFromTheDb() {
-        FeatureFlags f = flags("app.hts.execution-enabled", "false");
+        FeatureFlags f = flags(true, false);
         FeatureFlagEntity row = new FeatureFlagEntity();
         row.setName("hts.execution");
         row.setEnabled(true);
@@ -76,7 +71,7 @@ class FeatureFlagsTest {
 
     @Test
     void unknownFlagIsRejected() {
-        FeatureFlags f = flags();
+        FeatureFlags f = flags(true, false);
         assertThatThrownBy(() -> f.set("bogus.flag", true, "adam"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(f.isKnown("hts.execution")).isTrue();
@@ -85,7 +80,7 @@ class FeatureFlagsTest {
 
     @Test
     void listCoversEveryKnownFlagWithItsSource() {
-        FeatureFlags f = flags("app.hts.execution-enabled", "false");
+        FeatureFlags f = flags(true, false);
         FeatureFlagEntity saved = new FeatureFlagEntity();
         saved.setName("hts.execution");
         saved.setEnabled(true);
