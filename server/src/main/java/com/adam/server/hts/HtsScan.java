@@ -9,6 +9,7 @@ import java.time.Instant;
  * closes back beyond the fast RMA band, with the fast band clear of the slow
  * band on both the execution and the higher timeframe.
  *
+ * @param variant    which timeframe model produced it (CORE H4/M15, SWING D1/H1, FAST H1/M5)
  * @param timestamp  execution-TF bar close that triggered the entry
  * @param symbol     instrument code (GER40, XAU, …)
  * @param epic       Capital.com epic
@@ -19,6 +20,7 @@ import java.time.Instant;
  * @param htfUp      HTF fast band above the HTF slow band at decision time
  */
 public record HtsScan(
+        HtsVariant variant,
         Instant timestamp,
         String symbol,
         String epic,

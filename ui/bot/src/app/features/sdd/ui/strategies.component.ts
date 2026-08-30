@@ -29,7 +29,7 @@ interface StrategyCard {
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
       <h2 class="h4 mb-0">Strategie</h2>
       <span class="small text-muted">
-        3 strategie, 3 konta demo Capital.com. HTS — backtest, jeszcze nie handluje.
+        Wrzesień: forward-test HTS na 3 kontach demo (3 modele TF). SDD — archiwalne, nie handluje.
       </span>
     </div>
 
@@ -81,60 +81,56 @@ export class StrategiesComponent implements OnInit {
   }
 
   private build(h: HealthInfo | null): StrategyCard[] {
-    const m15On = !!h?.executionEnabled;
+    const htsOn = !!h?.htsConfigured;
     return [
+      {
+        name: 'HTS (wstęgi)',
+        tag: '3 modele',
+        headerClass: 'bg-dark text-white',
+        account: 'CORE → Account m15 · SWING → Account H1 · FAST → Account m5 (demo) · CORE_LIVE → bot trading konto (REALNE, 1%)',
+        status: htsOn ? 'FORWARD-TEST (wrzesień)' : 'nieskonfigurowane',
+        statusClass: htsOn ? 'text-bg-success' : 'text-bg-secondary',
+        rows: [
+          { label: 'Modele TF', value: 'CORE H4/M15 (Account m15, demo) · SWING D1/H1 (Account H1, demo) · FAST H1/M5 (Account m5, demo) · CORE_LIVE H4/M15 (bot trading konto, REALNE 1%)' },
+          { label: 'Skan', value: 'co 5 min (cron 0 */5 * * * *) — modele naraz, dedup per świeca (FAST co 5, CORE/CORE_LIVE co 15, SWING co 60)' },
+          { label: 'Uniwersum', value: 'tydzień: GER40 / XAU / US100 / EURUSD / BTC · weekend: tylko BTC' },
+          { label: 'Wstęgi', value: 'RMA(high) / RMA(low) — szybka 33, wolna 144' },
+          { label: 'Trend', value: 'szybka wstęga cała nad/pod wolną (LTF i HTF) · brak wejść w konsolidacji' },
+          { label: 'Wejście', value: 'cofnięcie do szybkiej wstęgi + reclaim ciałem · ADX off (permit opcjonalnie)' },
+          { label: 'Stop', value: 'strukturalny — krawędź szybkiej wstęgi + bufor 0.25× szer.' },
+          { label: 'Egzekucja', value: 'TP1 = 1:2 RR (połowa) → runner: stop na zablokowany zysk → trail wstęgi → close ciałem za wolną wstęgą' },
+          { label: 'Ryzyko', value: 'sizing = ryzyko$ / dystans stopu · 1 ticket na sygnał na koncie danego modelu' },
+          { label: 'Mail', value: 'nota analityczna na każdy sygnał (D1/H1 obraz wstęg, ADX, ATR) → adam.mendak@gmail.com' },
+          { label: 'Status', value: 'żywy forward-test na 3 kontach demo (HTS_EXECUTION_ENABLED=true)' },
+        ],
+      },
       {
         name: 'SDD-M15',
         tag: 'M15',
-        headerClass: 'bg-primary text-white',
-        account: 'Account m15 (demo) + bot trading konto (live)',
-        status: m15On ? 'EXECUTION ON' : 'execution off',
-        statusClass: m15On ? 'text-bg-danger' : 'text-bg-secondary',
+        headerClass: 'bg-secondary text-white',
+        account: 'Account m15 (demo) + bot trading konto (live) — przejęte przez HTS CORE',
+        status: 'ARCHIWALNE',
+        statusClass: 'text-bg-secondary',
         rows: [
-          { label: 'Interwały', value: 'egzekucja M15 · kontekst H1 · nota H4' },
-          { label: 'Skan', value: 'co M15 close (cron 0 1,16,31,46 * * * *)' },
+          { label: 'Stan', value: 'kod zostaje, skan i egzekucja wyłączone (SCAN_ENABLED=false, EXECUTION_ENABLED=false)' },
           { label: 'Wejście', value: 'HA flip M15 + RMA33>RMA133 (M15) + H1 zgodne + PP (BTC pomija)' },
           { label: '1R / stop', value: '1R = 1× H1 ATR14 · stop = 2.5× ATR' },
-          { label: 'Egzekucja', value: '2 tickety: A = twardy TP 1R · B = runner, stop 2.5×ATR H1-trail, nigdy do BE' },
-          { label: 'Ryzyko', value: 'demo ~10 PLN · live 1% · halt −30/−50 (demo), −18 (live)' },
-          { label: 'Inne', value: 'max 4 nazwy, bez piramidy · news blackout T±30' },
+          { label: 'Egzekucja', value: '2 tickety: A = twardy TP 1R · B = runner, stop 2.5×ATR H1-trail' },
+          { label: 'Uwaga', value: 'BTC 0W/11L na demo i live · brak stabilnego edge w backteście' },
         ],
       },
       {
         name: 'SDD-SWING',
         tag: 'H1',
-        headerClass: 'bg-info text-dark',
-        account: 'Account H1 (demo)',
-        status: h?.swingConfigured ? 'skonfigurowane' : 'nieskonfigurowane',
-        statusClass: h?.swingConfigured ? 'text-bg-success' : 'text-bg-secondary',
+        headerClass: 'bg-secondary text-white',
+        account: 'Account H1 (demo) — przejęte przez HTS SWING',
+        status: 'ARCHIWALNE',
+        statusClass: 'text-bg-secondary',
         rows: [
-          { label: 'Interwały', value: 'egzekucja H1 · kontekst H4' },
-          { label: 'Skan', value: 'co H1 close (cron 0 1 * * * *)' },
-          { label: 'Wejście', value: 'HA flip H1 + RMA33>RMA133 (H1) + PP + trend H4 (twardy filtr kierunku)' },
+          { label: 'Stan', value: 'kod zostaje, skan i egzekucja wyłączone (SWING_ENABLED=false, SWING_EXECUTION_ENABLED=false)' },
+          { label: 'Wejście', value: 'HA flip H1 + RMA33>RMA133 (H1) + PP + trend H4 (twardy filtr)' },
           { label: '1R / stop', value: '1R = 1× H4 ATR14 · stop = 2.5× ATR H4' },
-          { label: 'Egzekucja', value: '1 ticket · stały TP 1R · bez runnera' },
-          { label: 'Mail', value: 'notatka analityczna na każdy sygnał → adam.mendak@gmail.com' },
           { label: 'Uwaga', value: 'R:R 0.4:1 na całej pozycji — brak stabilnego edge w backteście' },
-        ],
-      },
-      {
-        name: 'HTS (wstęgi)',
-        tag: 'band',
-        headerClass: 'bg-dark text-white',
-        account: 'Account m5 (demo)',
-        status: 'backtest',
-        statusClass: 'text-bg-warning',
-        rows: [
-          { label: 'Typ', value: 'system swingowy — trzymanie pozycji przez dni' },
-          { label: 'Modele TF', value: 'priorytet: D1/H1 (główny) + H4/M15 (core) · H1/M5 = 3. wariant później' },
-          { label: 'Wstęgi', value: 'RMA(high) / RMA(low) — szybka 33, wolna 144' },
-          { label: 'Trend', value: 'szybka wstęga cała nad/pod wolną · brak wejść w konsolidacji' },
-          { label: 'Wejście', value: 'cofnięcie do szybkiej wstęgi + reclaim ciałem · HTF wstęga w trendzie · ADX = permisja (nie filtr)' },
-          { label: 'Stop', value: 'strukturalny — krawędź szybkiej wstęgi + bufor 0.25× szer. wstęgi ("delikatnie dalej")' },
-          { label: 'Target', value: 'TP1 = 1:2 RR (połowa) · alt: pivoty R1/R2/R3 (1/3 każdy, BE po TP1)' },
-          { label: 'Runner', value: 'druga połowa: po TP1 stop na zablokowany zysk → trail pod szybką wstęgą → wyjście dopiero na close ciałem za wolną wstęgą' },
-          { label: 'Ryzyko', value: '≤1% łącznie · 2 straty pod rząd → stop dnia · twardy DD 20% → close-all' },
-          { label: 'Status', value: 'silnik + backtest (T1–T5) · żywa egzekucja: T9' },
         ],
       },
     ];

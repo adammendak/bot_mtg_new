@@ -15,4 +15,5 @@
     <include file="changes/009-swing-signals.xml" relativeToChangelogFile="true"/>
     <include file="changes/010-hts-book.xml" relativeToChangelogFile="true"/>
     <include file="changes/011-hts-signals.xml" relativeToChangelogFile="true"/>
+    <include file="changes/012-hts-signal-variant.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
