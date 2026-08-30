@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      2026-08-30: between v122 (FeatureFlags fix armed execution) and v123
+      (confirm + order shaping), HtsExecutionGate placed orders Capital rejected
+      on confirm but still wrote OPEN rows with deal_id = null, and the monitor
+      NPE'd every cycle so they never reconciled. Close those phantom rows.
+      Anything real always has a deal_id — this WHERE matches nothing else.
+    -->
+    <changeSet id="019-purge-phantom-hts-trades" author="amendak">
+        <update tableName="hts_trades">
+            <column name="status" value="CLOSED"/>
+            <column name="close_reason" value="PHANTOM"/>
+            <column name="exit_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <where>status = 'OPEN' and deal_id is null</where>
+        </update>
+    </changeSet>
+</databaseChangeLog>
