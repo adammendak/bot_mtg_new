@@ -48,11 +48,43 @@ export class AuthService {
     }
   }
 
-  login(username: string, password: string): Observable<boolean> {
+  private mfaToken: string | null = null;
+
+  /** 'ok' = logged in; 'mfa' = TOTP code required next; 'fail' = bad credentials. */
+  login(username: string, password: string): Observable<'ok' | 'mfa' | 'fail'> {
     return this.http
-      .post<{ token: string; user: PortalUser }>('/api/auth/login', { username, password })
+      .post<{ token?: string; user?: PortalUser; mfaRequired?: boolean; mfaToken?: string }>(
+        '/api/auth/login',
+        { username, password },
+      )
       .pipe(
-        tap((r) => this.setSession(r.token, r.user)),
+        map((r) => {
+          if (r.mfaRequired && r.mfaToken) {
+            this.mfaToken = r.mfaToken;
+            return 'mfa' as const;
+          }
+          if (r.token && r.user) {
+            this.setSession(r.token, r.user);
+            return 'ok' as const;
+          }
+          return 'fail' as const;
+        }),
+        catchError(() => of('fail' as const)),
+      );
+  }
+
+  /** Second factor — a 6-digit TOTP code or a one-time backup code. */
+  loginTotp(code: string): Observable<boolean> {
+    if (!this.mfaToken) {
+      return of(false);
+    }
+    return this.http
+      .post<{ token: string; user: PortalUser }>('/api/auth/login/totp', { mfaToken: this.mfaToken, code })
+      .pipe(
+        tap((r) => {
+          this.setSession(r.token, r.user);
+          this.mfaToken = null;
+        }),
         map(() => true),
         catchError(() => of(false)),
       );

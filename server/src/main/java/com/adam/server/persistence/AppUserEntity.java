@@ -37,6 +37,17 @@ public class AppUserEntity {
     @Column(nullable = false, length = 16)
     private UserRole role;
 
+    /** Active TOTP secret (base32) — set once {@link #totpEnabled} is true. */
+    @Column(name = "totp_secret", length = 64)
+    private String totpSecret;
+
+    /** Secret staged during enrolment, before the first verified code. */
+    @Column(name = "totp_pending_secret", length = 64)
+    private String totpPendingSecret;
+
+    @Column(name = "totp_enabled", nullable = false)
+    private boolean totpEnabled;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 }
