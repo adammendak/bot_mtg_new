@@ -45,13 +45,43 @@ class HtsExportTest {
     private HtsBacktestService.Params params(Resolution htf, Resolution ltf, int days, int off,
                                              Adx adx, double stopBuf, boolean pivots, int split,
                                              int pyramidMax, boolean stTrail, boolean wtFilter) {
+        return params(htf, ltf, days, off, adx, stopBuf, pivots, split, pyramidMax, stTrail, wtFilter, false);
+    }
+
+    private HtsBacktestService.Params params(Resolution htf, Resolution ltf, int days, int off,
+                                             Adx adx, double stopBuf, boolean pivots, int split,
+                                             int pyramidMax, boolean stTrail, boolean wtFilter, boolean breakout) {
         return new HtsBacktestService.Params(htf, ltf, days, off, RR, /*runner*/ true,
                 /*adxFilter*/ adx != Adx.OFF, /*adxThreshold*/ 20.0, /*skipConsolidation*/ true,
                 /*pivotTargets*/ pivots, /*maxNames*/ 4,
                 /*stopBufferFrac*/ stopBuf, /*adxPermit*/ adx == Adx.PERMIT, /*runnerLockR*/ 1.0,
                 /*splitEntries*/ split,
                 /*pyramidMax*/ pyramidMax, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
-                /*supertrendTrail*/ stTrail, /*waveTrendFilter*/ wtFilter);
+                /*supertrendTrail*/ stTrail, /*waveTrendFilter*/ wtFilter, /*breakoutEntry*/ breakout);
+    }
+
+    /**
+     * Breakout vs pullback entry, HTF supporting, on the settled config (ADX-permit,
+     * buf 0.25, runner-lock). D1/H1 and H4/M15, both windows. Own fresh session.
+     */
+    @Test
+    void breakoutEntry() throws Exception {
+        Files.createDirectories(OUT);
+        Resolution[][] pairs = {{Resolution.D1, Resolution.H1}, {Resolution.H4, Resolution.M15}};
+        String[] pairName = {"d1h1", "h4m15"};
+        int[][] windows = {{30, 30}, {30, 0}};
+        String[] wn = {"m2back", "recent"};
+        for (int pi = 0; pi < pairs.length; pi++) {
+            for (int w = 0; w < windows.length; w++) {
+                run(pairName[pi] + "_" + wn[w] + "_pullback",
+                        params(pairs[pi][0], pairs[pi][1], windows[w][0], windows[w][1],
+                                Adx.PERMIT, 0.25, false, 1, 0, false, false, false));
+                run(pairName[pi] + "_" + wn[w] + "_breakout",
+                        params(pairs[pi][0], pairs[pi][1], windows[w][0], windows[w][1],
+                                Adx.PERMIT, 0.25, false, 1, 0, false, false, true));
+            }
+        }
+        System.out.println("CSV dir: " + OUT);
     }
 
     /**

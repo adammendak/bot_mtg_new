@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { SddService } from '../service/sdd.service';
-import { BookId, OverviewView, Position } from '../model/sdd.model';
+import { BookId, HtsSignal, OverviewView, Position } from '../model/sdd.model';
 
 /**
  * Konta — the app home page: every book in one table (kind badge, HTS timeframe
@@ -133,47 +133,52 @@ import { BookId, OverviewView, Position } from '../model/sdd.model';
     </div>
 
     <div class="card shadow-sm mt-3">
-      <div class="card-header">Otwarte pozycje</div>
-      <div class="card-body p-0">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Otwarte pozycje</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reloadHts()">Odśwież</button>
+      </div>
+      <div class="card-body p-2">
         @if (sdd.positionsError()) {
-          <div class="alert alert-danger m-2 py-2 mb-0">{{ sdd.positionsError() }}</div>
+          <div class="alert alert-danger py-2 mb-2">{{ sdd.positionsError() }}</div>
         }
-        <div class="table-responsive">
-          <table class="table table-sm table-striped mb-0">
-            <thead>
-              <tr>
-                <th>Book</th>
-                <th>Epic</th>
-                <th>Kier.</th>
-                <th class="text-end">Size</th>
-                <th class="text-end">Level</th>
-                <th class="text-end">Stop</th>
-                <th class="text-end">uP/L</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (p of allPositions(); track p.book + p.pos.dealId) {
-                <tr>
-                  <td><span class="badge text-bg-secondary">{{ p.book }}</span></td>
-                  <td>{{ p.pos.epic }}</td>
-                  <td>
-                    <span class="badge" [class]="p.pos.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
-                      {{ p.pos.direction }}
-                    </span>
-                  </td>
-                  <td class="text-end">{{ p.pos.size }}</td>
-                  <td class="text-end">{{ fmt(p.pos.level) }}</td>
-                  <td class="text-end" [class.text-danger]="p.pos.stopLevel == null">
-                    {{ p.pos.stopLevel == null ? 'brak' : fmt(p.pos.stopLevel) }}
-                  </td>
-                  <td class="text-end" [class]="pnlClass(p.pos.unrealizedPnl)">{{ fmt(p.pos.unrealizedPnl) }}</td>
-                </tr>
-              } @empty {
-                <tr><td colspan="7" class="text-muted text-center py-3">Brak otwartych pozycji.</td></tr>
-              }
-            </tbody>
-          </table>
-        </div>
+        @for (g of positionGroups(); track g.book) {
+          <details class="mb-1" [open]="g.book === 'demo' || g.book === 'swing' || g.book === 'hts' || g.book === 'live'">
+            <summary class="d-flex justify-content-between align-items-center px-2 py-1 bg-body-tertiary rounded" style="cursor: pointer">
+              <span><span class="badge text-bg-secondary me-2">{{ bookLabel(g.book) }}</span>{{ g.rows.length }} poz.</span>
+              <span [class]="pnlClass(g.pnl)">Σ uP/L {{ fmt(g.pnl) }}</span>
+            </summary>
+            <div class="table-responsive">
+              <table class="table table-sm table-striped mb-2">
+                <thead>
+                  <tr>
+                    <th>Epic</th><th>Kier.</th><th class="text-end">Size</th>
+                    <th class="text-end">Level</th><th class="text-end">Stop</th><th class="text-end">uP/L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (p of g.rows; track p.dealId) {
+                    <tr>
+                      <td>{{ p.epic }}</td>
+                      <td>
+                        <span class="badge" [class]="p.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
+                          {{ p.direction }}
+                        </span>
+                      </td>
+                      <td class="text-end">{{ p.size }}</td>
+                      <td class="text-end">{{ fmt(p.level) }}</td>
+                      <td class="text-end" [class.text-danger]="p.stopLevel == null">
+                        {{ p.stopLevel == null ? 'brak' : fmt(p.stopLevel) }}
+                      </td>
+                      <td class="text-end" [class]="pnlClass(p.unrealizedPnl)">{{ fmt(p.unrealizedPnl) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </details>
+        } @empty {
+          <div class="text-muted text-center py-3">Brak otwartych pozycji.</div>
+        }
       </div>
     </div>
 
@@ -182,48 +187,47 @@ import { BookId, OverviewView, Position } from '../model/sdd.model';
         <span>Sygnały HTS (wstęgi) — ostatnie</span>
         <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reloadHts()">Odśwież</button>
       </div>
-      <div class="card-body p-0">
+      <div class="card-body p-2">
         @if (sdd.htsError()) {
-          <div class="alert alert-danger m-2 py-2 mb-0">{{ sdd.htsError() }}</div>
+          <div class="alert alert-danger py-2 mb-2">{{ sdd.htsError() }}</div>
         }
-        <div class="table-responsive">
-          <table class="table table-sm table-striped mb-0">
-            <thead>
-              <tr>
-                <th>Czas</th>
-                <th>Model</th>
-                <th>Symbol</th>
-                <th>Kier.</th>
-                <th class="text-end">Entry</th>
-                <th class="text-end">Stop</th>
-                <th class="text-end">TP1</th>
-                <th>HTF</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (s of sdd.htsSignals(); track s.id) {
-                <tr>
-                  <td class="text-nowrap small">{{ htsTime(s.scannedAt) }}</td>
-                  <td><span class="badge" [class]="variantClass(s.variant)">{{ s.variant || '—' }}</span></td>
-                  <td>{{ s.symbol }}</td>
-                  <td>
-                    <span class="badge" [class]="s.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
-                      {{ s.direction || '—' }}
-                    </span>
-                  </td>
-                  <td class="text-end">{{ fmt(s.entry) }}</td>
-                  <td class="text-end">{{ fmt(s.stopLevel) }}</td>
-                  <td class="text-end">{{ fmt(s.targetLevel) }}</td>
-                  <td class="small text-muted">{{ s.htfUp == null ? '—' : (s.htfUp ? 'up' : 'down') }}</td>
-                </tr>
-              } @empty {
-                <tr>
-                  <td colspan="8" class="text-muted text-center py-3">Brak sygnałów HTS.</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
+        @for (g of htsSignalGroups(); track g.variant) {
+          <details class="mb-1" open>
+            <summary class="d-flex justify-content-between align-items-center px-2 py-1 bg-body-tertiary rounded" style="cursor: pointer">
+              <span><span class="badge" [class]="variantClass(g.variant)">{{ variantLabel(g.variant) }}</span></span>
+              <span class="text-muted small">{{ g.rows.length }} syg.</span>
+            </summary>
+            <div class="table-responsive">
+              <table class="table table-sm table-striped mb-2">
+                <thead>
+                  <tr>
+                    <th>Czas</th><th>Symbol</th><th>Kier.</th>
+                    <th class="text-end">Entry</th><th class="text-end">Stop</th><th class="text-end">TP1</th><th>HTF</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (s of g.rows; track s.id) {
+                    <tr>
+                      <td class="text-nowrap small">{{ htsTime(s.scannedAt) }}</td>
+                      <td>{{ s.symbol }}</td>
+                      <td>
+                        <span class="badge" [class]="s.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
+                          {{ s.direction || '—' }}
+                        </span>
+                      </td>
+                      <td class="text-end">{{ fmt(s.entry) }}</td>
+                      <td class="text-end">{{ fmt(s.stopLevel) }}</td>
+                      <td class="text-end">{{ fmt(s.targetLevel) }}</td>
+                      <td class="small text-muted">{{ s.htfUp == null ? '—' : (s.htfUp ? 'up' : 'down') }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </details>
+        } @empty {
+          <div class="text-muted text-center py-3">Brak sygnałów HTS.</div>
+        }
       </div>
     </div>
   `,
@@ -252,15 +256,66 @@ export class OverviewComponent implements OnInit {
     this.sdd.triggerHtsScan();
   }
 
-  allPositions(): { book: string; pos: Position }[] {
+  positionGroups(): { book: string; rows: Position[]; pnl: number }[] {
     const by = this.sdd.positions();
-    const out: { book: string; pos: Position }[] = [];
+    const out: { book: string; rows: Position[]; pnl: number }[] = [];
     for (const book of ['demo', 'live', 'swing', 'hts', 'glowne'] as BookId[]) {
-      for (const pos of by[book] ?? []) {
-        out.push({ book, pos });
+      const rows = by[book] ?? [];
+      if (rows.length === 0) {
+        continue;
       }
+      out.push({ book, rows, pnl: rows.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0) });
     }
     return out;
+  }
+
+  htsSignalGroups(): { variant: string; rows: HtsSignal[] }[] {
+    const order = ['CORE', 'SWING', 'FAST', 'CORE_LIVE'];
+    const map = new Map<string, HtsSignal[]>();
+    for (const s of this.sdd.htsSignals()) {
+      const v = s.variant || '—';
+      let arr = map.get(v);
+      if (!arr) {
+        arr = [];
+        map.set(v, arr);
+      }
+      arr.push(s);
+    }
+    return [...map.entries()]
+      .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+      .map(([variant, rows]) => ({ variant, rows }));
+  }
+
+  bookLabel(book: string): string {
+    switch (book) {
+      case 'demo':
+        return 'Account m15 · CORE H4/M15';
+      case 'live':
+        return 'bot trading konto · CORE_LIVE';
+      case 'swing':
+        return 'Account H1 · SWING D1/H1';
+      case 'hts':
+        return 'Account m5 · FAST H1/M5';
+      case 'glowne':
+        return 'Główne';
+      default:
+        return book;
+    }
+  }
+
+  variantLabel(v: string): string {
+    switch (v) {
+      case 'CORE':
+        return 'CORE · H4/M15';
+      case 'SWING':
+        return 'SWING · D1/H1';
+      case 'FAST':
+        return 'FAST · H1/M5';
+      case 'CORE_LIVE':
+        return 'CORE_LIVE · H4/M15 (realne)';
+      default:
+        return v;
+    }
   }
 
   htsTime(iso: string | null | undefined): string {
