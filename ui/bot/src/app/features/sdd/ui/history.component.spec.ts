@@ -96,6 +96,30 @@ describe('HistoryComponent', () => {
     expect(el.textContent).toContain('0.50%');
   });
 
+  it('computes the underwater (drawdown-from-peak) series', async () => {
+    const { fixture } = await setup(h({
+      currency: 'PLN',
+      connected: true,
+      points: [
+        { date: '2026-08-01', equity: 1000, dayPnl: 0, pctChange: 0 },
+        { date: '2026-08-02', equity: 1100, dayPnl: 100, pctChange: 10 }, // new peak -> dd 0
+        { date: '2026-08-03', equity: 990, dayPnl: -110, pctChange: -10 }, // (990-1100)/1100 = -0.1
+        { date: '2026-08-04', equity: 1100, dayPnl: 110, pctChange: 11 }, // back to peak -> dd 0
+      ],
+    }));
+    const comp = fixture.componentInstance;
+    const dd = comp.ddSeries().map((d) => +d.dd.toFixed(4));
+    expect(dd).toEqual([0, 0, -0.1, 0]);
+    expect(comp.underMaxPct()).toBeCloseTo(10, 5);
+    // path is a closed area anchored on the underTop baseline
+    const path = comp.ddPath();
+    expect(path.startsWith('M')).toBe(true);
+    expect(path.endsWith('Z')).toBe(true);
+    // one month of data -> one heatmap cell
+    expect(comp.monthlyPnl().length).toBe(1);
+    expect(comp.monthlyPnl()[0].pnl).toBeCloseTo(100, 5);
+  });
+
   it('filters the chart and table by the custom date range and clears it', async () => {
     const { fixture } = await setup(h({
       currency: 'PLN',

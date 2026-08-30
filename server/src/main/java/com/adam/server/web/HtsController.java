@@ -12,6 +12,7 @@ import com.adam.server.persistence.HtsSignalEntity;
 import com.adam.server.persistence.HtsSignalRepository;
 import com.adam.server.persistence.HtsTradeEntity;
 import com.adam.server.sdd.Adx;
+import com.adam.server.web.dto.HtsJournal;
 import com.adam.server.web.dto.HtsScorecardRow;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.springframework.data.domain.PageRequest;
@@ -159,6 +160,40 @@ public class HtsController {
             return List.of();
         }
         return htsTrades.scorecard();
+    }
+
+    /**
+     * HTS trade journal (E-8). {@code GET /api/hts/journal?variant=&symbol=&from=&to=}
+     * — closed trades sliced into a per-day series, an R histogram and
+     * per-reason / per-symbol groups. {@code from}/{@code to} are ISO instants.
+     */
+    @GetMapping(value = "/api/hts/journal", produces = MediaType.APPLICATION_JSON_VALUE)
+    public HtsJournal journal(
+            @RequestParam(name = "variant", required = false) String variant,
+            @RequestParam(name = "symbol", required = false) String symbol,
+            @RequestParam(name = "from", required = false) String from,
+            @RequestParam(name = "to", required = false) String to,
+            Authentication authentication
+    ) {
+        if (denied(authentication)) {
+            return new HtsJournal(0, 0, 0, 0, 0, List.of(), List.of(), List.of(), List.of());
+        }
+        return htsTrades.journal(variant, symbol, parseInstant(from), parseInstant(to));
+    }
+
+    private static java.time.Instant parseInstant(String s) {
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        try {
+            return java.time.Instant.parse(s.trim());
+        } catch (RuntimeException e) {
+            try {
+                return java.time.LocalDate.parse(s.trim()).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+            } catch (RuntimeException e2) {
+                return null;
+            }
+        }
     }
 
     /** Manual scan trigger (also a Scheduler backup). */
