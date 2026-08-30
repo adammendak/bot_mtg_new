@@ -23,10 +23,10 @@ import java.time.Duration;
  */
 public enum HtsVariant {
 
-    CORE(Resolution.H4, Resolution.M15, Books.DEMO, Duration.ofDays(140), Duration.ofDays(12), 15, false),
-    SWING(Resolution.D1, Resolution.H1, Books.SWING, Duration.ofDays(260), Duration.ofDays(30), 60, false),
-    FAST(Resolution.H1, Resolution.M5, Books.HTS, Duration.ofDays(30), Duration.ofDays(4), 5, false),
-    CORE_LIVE(Resolution.H4, Resolution.M15, Books.LIVE, Duration.ofDays(140), Duration.ofDays(12), 15, true);
+    CORE(Resolution.H4, Resolution.M15, Books.DEMO, Duration.ofDays(80), Duration.ofDays(10), 15, false),
+    SWING(Resolution.D1, Resolution.H1, Books.SWING, Duration.ofDays(240), Duration.ofDays(28), 60, false),
+    FAST(Resolution.H1, Resolution.M5, Books.HTS, Duration.ofDays(28), Duration.ofDays(6), 5, false),
+    CORE_LIVE(Resolution.H4, Resolution.M15, Books.LIVE, Duration.ofDays(80), Duration.ofDays(10), 15, true);
 
     private final Resolution htf;
     private final Resolution ltf;

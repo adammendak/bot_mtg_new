@@ -712,39 +712,8 @@ public class HtsBacktestService {
         };
     }
 
-    private static int dailyChunk(Resolution res) {
-        return switch (res) {
-            case M5 -> 3;
-            case M15 -> 10;
-            case H1 -> 30;
-            case H4 -> 60;
-            case D1 -> 365;
-        };
-    }
-
     private static List<Candle> chunked(BrokerClient market, String epic, Resolution res, Instant from, Instant to) {
-        List<Candle> all = new ArrayList<>();
-        long chunk = (long) dailyChunk(res) * 86400L;
-        Instant chunkTo = to;
-        int guard = 0;
-        while (chunkTo.isAfter(from) && guard++ < 500) {
-            Instant chunkFrom = chunkTo.minusSeconds(chunk);
-            if (chunkFrom.isBefore(from)) {
-                chunkFrom = from;
-            }
-            all.addAll(market.candles(epic, res, chunkFrom, chunkTo, 1000));
-            chunkTo = chunkFrom;
-        }
-        all.sort(Comparator.comparing(Candle::time));
-        List<Candle> out = new ArrayList<>();
-        Instant prev = null;
-        for (Candle cc : all) {
-            if (prev == null || !cc.time().equals(prev)) {
-                out.add(cc);
-                prev = cc.time();
-            }
-        }
-        return out;
+        return HtsCandles.fetch(market, epic, res, from, to);
     }
 
     private static String iso(Instant t) {
