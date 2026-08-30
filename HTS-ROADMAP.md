@@ -510,14 +510,15 @@ token rotation bumpuje `sessionAt`. ~10–15 przypadków.
   szczytu, czerwony obszar), miesięczna heatmapa P/L (CSS grid), gradient 0.28→0.10,
   kropki ukryte > 60 punktów.
 
-### E-12 — Cotygodniowy przegląd AI mailem  ← TIER 3
-**Po co:** rozszerzenie `MailHtsNotifier` (nota analityczna per sygnał) na
-podsumowanie tygodnia: co zagrało, co nie, czy któryś wariant/instrument
-systematycznie odstaje — liczone z `hts_trades` + `sdd_execution_entries`.
-**Zakres:** `@Scheduled` (pon rano) → zbierz tydzień → prompt do Anthropic API
-(`claude-sonnet-5`; wzorzec wywołań jest w `tools/`) → mail. `AI_REVIEW_ENABLED`
-+ `ANTHROPIC_API_KEY`, no-op gdy brak.
-**Rozmiar:** M. Sensowne dopiero gdy uzbiera się kilka tygodni danych.
+### E-12 — Cotygodniowy przegląd AI mailem  ← zrobione (PR #78)
+`AiWeeklyReview` — `@Scheduled` poniedziałek 07:30 Europe/Warsaw (`AI_REVIEW_CRON`).
+Zbiera 7 dni z `HtsTradeService.journal(...)` + `scorecard()`, buduje prompt (co
+zagrało / co nie / który wariant odstaje / wzorzec w powodach zamknięć / hipotezy
+na kolejny tydzień; „obserwacja inżynierska, nie porada") → `POST api.anthropic.com
+/v1/messages` (`claude-sonnet-5`) → mail przez `Mailer`. Brak zamkniętych tradów →
+krótka notka bez wywołania API. Opt-in: `AI_REVIEW_ENABLED=true` + `ANTHROPIC_API_KEY`
+(bez klucza = no-op). Endpoint wstrzykiwalny (`anthropic.endpoint`) — test z
+`MockWebServer`.
 
 ### E-13 — Web Push na istniejącym service workerze  ← TIER 3
 `manifest.webmanifest` + `sw.js` (PWA) już są. Web Push API → alerty bez maila/
