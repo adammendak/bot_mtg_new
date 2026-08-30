@@ -61,6 +61,18 @@ public interface BrokerClient {
         return List.of();
     }
 
+    /**
+     * As {@link #transactionHistory(java.time.Instant, java.time.Instant)} but the
+     * adapter must stop walking once {@code budget} of wall-clock time has
+     * elapsed and return whatever it has gathered so far. Lets an HTTP-triggered
+     * sync bound its own latency (Heroku's 30 s router timeout) when the broker
+     * is rate-limiting. Default: ignore the budget.
+     */
+    default List<BrokerTransaction> transactionHistory(java.time.Instant from, java.time.Instant to,
+                                                       java.time.Duration budget) {
+        return transactionHistory(from, to);
+    }
+
     /** demo or live. */
     default String book() {
         return "demo";

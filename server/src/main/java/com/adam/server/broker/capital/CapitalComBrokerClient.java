@@ -340,15 +340,30 @@ public class CapitalComBrokerClient implements BrokerClient {
 
     @Override
     public List<BrokerTransaction> transactionHistory(Instant from, Instant to) {
+        return transactionHistory(from, to, (java.time.Duration) null);
+    }
+
+    @Override
+    public List<BrokerTransaction> transactionHistory(Instant from, Instant to, java.time.Duration budget) {
         // Capital.com caps a single broad query to ~100 newest rows and can echo
         // duplicates when paging. So the FULL range (from..to) is walked in
         // 7-day chunks: every chunk returns complete data, and together the
         // chunks cover the whole history, not just the last 7 days.
+        //
+        // When a budget is given (HTTP-triggered sync), stop walking once it is
+        // spent and return what we have — a rate-limiting broker must not make
+        // the request outlast Heroku's 30 s router timeout.
+        long deadline = budget == null ? Long.MAX_VALUE : System.nanoTime() + budget.toNanos();
         List<BrokerTransaction> out = new ArrayList<>();
         java.time.ZonedDateTime cursor = java.time.ZonedDateTime.ofInstant(from, java.time.ZoneOffset.UTC);
         java.time.ZonedDateTime end = java.time.ZonedDateTime.ofInstant(to, java.time.ZoneOffset.UTC);
         int guard = 0;
         while (!cursor.isAfter(end) && guard < 4000) {
+            if (System.nanoTime() > deadline) {
+                log.warn("Capital.com {} transactions: {} budget spent at {} ({} rows so far); stopping walk",
+                        book, budget, cursor.toLocalDate(), out.size());
+                break;
+            }
             java.time.ZonedDateTime next = cursor.plusDays(7);
             java.time.ZonedDateTime toDay = next.isAfter(end) ? end : next;
             List<BrokerTransaction> window;

@@ -64,6 +64,16 @@ public class EquityHistoryService {
     @Value("${app.history-sync.max-lookback-days:400}")
     private long maxLookbackDays;
 
+    /**
+     * Wall-clock cap on the per-book transaction walk. Capital.com rate-limits
+     * the 7-day-window paging hard; without a cap a 429 storm makes the walk
+     * outlast Heroku's 30 s router timeout and the whole request 503s. When the
+     * budget is spent the walk returns what it has and the sync writes those
+     * days; the next run continues from the same start and fills in more.
+     */
+    @Value("${app.history-sync.walk-budget-seconds:18}")
+    private long walkBudgetSeconds;
+
     public EquityHistoryService(
             BrokerBooks books,
             BrokerSnapshotRepository snapshots,
@@ -105,7 +115,8 @@ public class EquityHistoryService {
 
         List<BrokerTransaction> tx;
         try {
-            tx = client.transactionHistory(earliest, to);
+            tx = client.transactionHistory(earliest, to,
+                    java.time.Duration.ofSeconds(Math.max(1, walkBudgetSeconds)));
         } catch (Exception e) {
             log.warn("EquityHistory sync failed to fetch transactions for {}: {}", book, e.getMessage());
             return SyncResult.failed("transaction fetch failed: " + e.getClass().getSimpleName());
