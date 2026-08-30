@@ -93,7 +93,7 @@ export class StrategiesComponent implements OnInit {
         rows: [
           { label: 'Modele TF', value: 'CORE H4/M15 (Account m15) · SWING D1/H1 (Account H1) · FAST H1/M5 (Account m5)' },
           { label: 'Skan', value: 'co 5 min (cron 0 */5 * * * *) — 3 modele naraz, dedup per świeca' },
-          { label: 'Uniwersum', value: 'tydzień: GER40 / XAU / US100 / EURUSD (bez BTC) · weekend: tylko BTC' },
+          { label: 'Uniwersum', value: 'tydzień: GER40 / XAU / US100 / EURUSD / BTC · weekend: tylko BTC' },
           { label: 'Wstęgi', value: 'RMA(high) / RMA(low) — szybka 33, wolna 144' },
           { label: 'Trend', value: 'szybka wstęga cała nad/pod wolną (LTF i HTF) · brak wejść w konsolidacji' },
           { label: 'Wejście', value: 'cofnięcie do szybkiej wstęgi + reclaim ciałem · ADX off (permit opcjonalnie)' },

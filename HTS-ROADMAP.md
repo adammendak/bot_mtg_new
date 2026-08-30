@@ -12,7 +12,7 @@
 >
 > `HtsScanService` puszcza wszystkie 3 co **5 min** (`HTS_CRON=0 */5 * * * *`) — FAST działa na
 > close M5, CORE/SWING re-sprawdzają ostatnią zamkniętą świecę, gate dedupuje per świeca.
-> Uniwersum: **tydzień = GER40/XAU/US100/EURUSD (bez BTC), weekend = tylko BTC**
+> Uniwersum: **tydzień = GER40/XAU/US100/EURUSD/BTC, weekend = tylko BTC**
 > (`SddSymbol.htsUniverseFor`). Egzekucja: `HTS_EXECUTION_ENABLED=true`, 1 ticket na sygnał na
 > koncie danego wariantu (`HtsExecutionGate` routuje po `variant.book()`). Sygnały do `hts_signals`
 > z kolumną `variant` (changeset 012).

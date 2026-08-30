@@ -64,12 +64,10 @@ public enum SddSymbol {
     }
 
     /**
-     * HTS scan universe for {@code now} in {@code zone}: the September forward
-     * test trades the index / metal / FX names on weekdays and holds BTC for the
-     * weekend only.
+     * HTS scan universe for {@code now} in {@code zone}, September forward test:
      * <ul>
-     *   <li>Monday–Friday: GER40, XAU, US100, EURUSD (everything <b>except</b> BTC).</li>
-     *   <li>Saturday and Sunday: BTC only.</li>
+     *   <li>Monday–Friday: GER40, XAU, US100, EURUSD <b>and BTC</b>.</li>
+     *   <li>Saturday and Sunday: BTC only (the rest are closed).</li>
      * </ul>
      */
     public static List<SddSymbol> htsUniverseFor(Instant now, ZoneId zone) {
@@ -77,6 +75,6 @@ public enum SddSymbol {
         if (day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY) {
             return List.of(BTC);
         }
-        return List.of(GER40, XAU, US100, EURUSD);
+        return universe();
     }
 }
