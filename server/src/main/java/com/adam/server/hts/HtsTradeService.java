@@ -9,16 +9,20 @@ import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import com.adam.server.persistence.HtsTradeEntity;
 import com.adam.server.persistence.HtsTradeRepository;
+import com.adam.server.web.dto.HtsScorecardRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -103,6 +107,7 @@ public class HtsTradeService {
         BrokerClient market = books.marketData();
         Map<String, Set<String>> liveDealsByBook = new HashMap<>();
         Map<String, List<BrokerTransaction>> txByBook = new HashMap<>();
+        Map<String, List<Candle>> candleCache = new HashMap<>(); // epic|LTF within this cycle
         int touched = 0;
         for (HtsTradeEntity t : open) {
             Set<String> liveDeals = liveDealsByBook.computeIfAbsent(t.getBook(), this::openDealIds);
@@ -116,16 +121,32 @@ public class HtsTradeService {
                 touched++;
                 continue;
             }
-            if (manageRunner(t, market)) {
+            if (t.getTp1At() != null && t.getTp1Pnl() == null
+                    && fillTp1Pnl(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx))) {
+                touched++;
+            }
+            if (manageRunner(t, market, candleCache)) {
                 touched++;
             }
         }
         return touched;
     }
 
+    /** Backfill the realised cash of the TP1 half from the transaction feed. */
+    private boolean fillTp1Pnl(HtsTradeEntity t, List<BrokerTransaction> tx) {
+        Double cash = matchTp1Pnl(t, tx);
+        if (cash == null) {
+            return false;
+        }
+        t.setTp1Pnl(cash);
+        trades.save(t);
+        log.info("HTS runner [{}] {} TP1 realised {} {}", t.getVariant(), t.getSymbol(), round(cash), t.getPnlCcy());
+        return true;
+    }
+
     // ---- runner management on the still-open position ----
 
-    private boolean manageRunner(HtsTradeEntity t, BrokerClient market) {
+    private boolean manageRunner(HtsTradeEntity t, BrokerClient market, Map<String, List<Candle>> candleCache) {
         HtsVariant v;
         try {
             v = HtsVariant.valueOf(t.getVariant());
@@ -142,13 +163,18 @@ public class HtsTradeService {
             return false;
         }
 
-        List<Candle> ltf;
-        try {
-            Instant now = Instant.now();
-            ltf = HtsCandles.fetch(market, t.getEpic(), v.ltf(), now.minus(v.ltfLookback()), now);
-        } catch (Exception e) {
-            log.warn("HTS runner [{}] {}: candle fetch failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
-            return false;
+        // One candle fetch per epic+LTF per cycle — several open trades share it.
+        String cacheKey = t.getEpic() + "|" + v.ltf().name();
+        List<Candle> ltf = candleCache.get(cacheKey);
+        if (ltf == null) {
+            try {
+                Instant now = Instant.now();
+                ltf = HtsCandles.fetch(market, t.getEpic(), v.ltf(), now.minus(v.ltfLookback()), now);
+            } catch (Exception e) {
+                log.warn("HTS runner [{}] {}: candle fetch failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+                return false;
+            }
+            candleCache.put(cacheKey, ltf);
         }
         HtsEngine.RunnerRead r = engine.runnerRead(ltf, buy);
         if (r == null) {
@@ -224,6 +250,9 @@ public class HtsTradeService {
     private void applyClose(HtsTradeEntity t, List<BrokerTransaction> tx) {
         t.setStatus("CLOSED");
         t.setExitAt(Instant.now());
+        if (t.getTp1At() != null && t.getTp1Pnl() == null) {
+            t.setTp1Pnl(matchTp1Pnl(t, tx)); // last chance to attribute the partial
+        }
         Double settle = matchPnl(t, tx);
         double leg = t.getEntry() != null && t.getStopLevel() != null
                 ? Math.abs(t.getEntry() - t.getStopLevel()) : 0.0;
@@ -251,6 +280,108 @@ public class HtsTradeService {
         } else {
             t.setCloseReason("UNKNOWN");
         }
+    }
+
+    // ---- read side (E-3 / E-4) ----
+
+    /** Persisted HTS trades, newest first; {@code status} null = all. */
+    public List<HtsTradeEntity> recent(String status, int limit) {
+        int capped = Math.min(Math.max(limit, 1), 500);
+        if (status != null && !status.isBlank()) {
+            return trades.findByStatusOrderByIdDesc(status.trim().toUpperCase()).stream().limit(capped).toList();
+        }
+        return trades.findAllByOrderByIdDesc(PageRequest.of(0, capped));
+    }
+
+    /**
+     * Forward-test scorecard (E-4): one row per {@link HtsVariant}, aggregated
+     * from {@code hts_trades}. Every variant is emitted even with no trades, so
+     * the September board is complete.
+     */
+    public List<HtsScorecardRow> scorecard() {
+        Map<String, List<HtsTradeEntity>> byVariant = new LinkedHashMap<>();
+        for (HtsVariant v : HtsVariant.values()) {
+            byVariant.put(v.name(), new ArrayList<>());
+        }
+        for (HtsTradeEntity t : trades.findAllByOrderByIdAsc()) {
+            byVariant.computeIfAbsent(t.getVariant() == null ? "?" : t.getVariant(), k -> new ArrayList<>()).add(t);
+        }
+        List<HtsScorecardRow> out = new ArrayList<>();
+        for (Map.Entry<String, List<HtsTradeEntity>> e : byVariant.entrySet()) {
+            out.add(aggregate(e.getKey(), e.getValue()));
+        }
+        return out;
+    }
+
+    private HtsScorecardRow aggregate(String variant, List<HtsTradeEntity> rows) {
+        String htf = null;
+        String ltf = null;
+        String book = null;
+        try {
+            HtsVariant v = HtsVariant.valueOf(variant);
+            htf = v.htf().name();
+            ltf = v.ltf().name();
+            book = v.book();
+        } catch (RuntimeException ignored) {
+            // free-text variant — leave the timeframe columns null
+        }
+        int open = 0;
+        int wins = 0;
+        int losses = 0;
+        double sumR = 0;
+        Double realised = null;
+        String ccy = null;
+        Instant last = null;
+
+        List<HtsTradeEntity> closed = new ArrayList<>();
+        for (HtsTradeEntity t : rows) {
+            if (t.getOpenedAt() != null && (last == null || t.getOpenedAt().isAfter(last))) {
+                last = t.getOpenedAt();
+            }
+            if ("OPEN".equalsIgnoreCase(t.getStatus())) {
+                open++;
+            } else if ("CLOSED".equalsIgnoreCase(t.getStatus()) && t.getRMultiple() != null) {
+                closed.add(t);
+                double r = t.getRMultiple();
+                sumR += r;
+                if (r > 0) {
+                    wins++;
+                } else {
+                    losses++;
+                }
+                if (t.getPnl() != null) {
+                    realised = (realised == null ? 0.0 : realised) + t.getPnl();
+                    if (ccy == null) {
+                        ccy = t.getPnlCcy();
+                    }
+                }
+            }
+        }
+        int n = closed.size();
+        double avgR = n == 0 ? 0.0 : sumR / n;
+        double winRate = n == 0 ? 0.0 : (double) wins / n;
+
+        // Max drawdown of the cumulative-R curve, closed trades in exit order.
+        closed.sort((a, b) -> {
+            Instant ta = a.getExitAt() != null ? a.getExitAt() : a.getOpenedAt();
+            Instant tb = b.getExitAt() != null ? b.getExitAt() : b.getOpenedAt();
+            if (ta == null || tb == null) {
+                return 0;
+            }
+            return ta.compareTo(tb);
+        });
+        double cum = 0;
+        double peak = 0;
+        double maxDd = 0;
+        for (HtsTradeEntity t : closed) {
+            cum += t.getRMultiple();
+            peak = Math.max(peak, cum);
+            maxDd = Math.max(maxDd, peak - cum);
+        }
+
+        return new HtsScorecardRow(variant, htf, ltf, book, open, n, wins, losses,
+                round(winRate), round(avgR), round(sumR), round(avgR),
+                round(maxDd), realised == null ? null : round(realised), ccy, last);
     }
 
     /** Realised P/L for a book since {@code since} — for the live day-halt. */
@@ -307,22 +438,54 @@ public class HtsTradeService {
         }
     }
 
+    private static boolean refHit(HtsTradeEntity t, BrokerTransaction b) {
+        return "TRADE".equalsIgnoreCase(b.type()) && b.reference() != null
+                && (b.reference().equals(t.getDealId()) || b.reference().equals(t.getDealReference()));
+    }
+
+    /**
+     * The <b>latest</b> TRADE settlement for this deal — the final close. When the
+     * runner was split at TP1 there are two settlements on the same reference; the
+     * partial is the earlier one ({@link #matchTp1Pnl}), so the last one is the
+     * runner's exit.
+     */
     private static Double matchPnl(HtsTradeEntity t, List<BrokerTransaction> tx) {
         if (tx == null) {
             return null;
         }
+        BrokerTransaction latest = null;
         for (BrokerTransaction b : tx) {
-            if (!"TRADE".equalsIgnoreCase(b.type())) {
+            if (!refHit(t, b)) {
                 continue;
             }
-            boolean refHit = b.reference() != null
-                    && (b.reference().equals(t.getDealId()) || b.reference().equals(t.getDealReference()));
             boolean afterOpen = t.getOpenedAt() == null || b.time() == null || !b.time().isBefore(t.getOpenedAt());
-            if (refHit && afterOpen) {
-                return b.amount();
+            if (!afterOpen) {
+                continue;
+            }
+            if (latest == null || latest.time() == null
+                    || (b.time() != null && b.time().isAfter(latest.time()))) {
+                latest = b;
             }
         }
-        return null;
+        return latest == null ? null : latest.amount();
+    }
+
+    /** The <b>earliest</b> TRADE settlement at/after TP1 — the partial-close cash. */
+    private static Double matchTp1Pnl(HtsTradeEntity t, List<BrokerTransaction> tx) {
+        if (tx == null || t.getTp1At() == null) {
+            return null;
+        }
+        Instant floor = t.getTp1At().minusSeconds(120);
+        BrokerTransaction earliest = null;
+        for (BrokerTransaction b : tx) {
+            if (!refHit(t, b) || b.time() == null || b.time().isBefore(floor)) {
+                continue;
+            }
+            if (earliest == null || earliest.time() == null || b.time().isBefore(earliest.time())) {
+                earliest = b;
+            }
+        }
+        return earliest == null ? null : earliest.amount();
     }
 
     private void fan(java.util.function.Consumer<HtsTradeSink> call) {

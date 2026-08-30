@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { SddService } from '../service/sdd.service';
-import { BookId, HtsSignal, OverviewView, Position } from '../model/sdd.model';
+import { BookId, HtsSignal, HtsTrade, OverviewView, Position } from '../model/sdd.model';
 
 /**
  * Konta — the app home page: every book in one table (kind badge, HTS timeframe
@@ -184,6 +184,66 @@ import { BookId, HtsSignal, OverviewView, Position } from '../model/sdd.model';
 
     <div class="card shadow-sm mt-3">
       <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Pozycje HTS — cykl życia (bot)</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reloadHts()">Odśwież</button>
+      </div>
+      <div class="card-body p-2">
+        @if (sdd.htsTradesError()) {
+          <div class="alert alert-danger py-2 mb-2">{{ sdd.htsTradesError() }}</div>
+        }
+        @for (g of htsTradeGroups(); track g.variant) {
+          <details class="mb-1" open>
+            <summary class="d-flex justify-content-between align-items-center px-2 py-1 bg-body-tertiary rounded" style="cursor: pointer">
+              <span><span class="badge" [class]="variantClass(g.variant)">{{ variantLabel(g.variant) }}</span></span>
+              <span class="text-muted small">{{ g.rows.length }} poz.</span>
+            </summary>
+            <div class="table-responsive">
+              <table class="table table-sm table-striped mb-2">
+                <thead>
+                  <tr>
+                    <th>Symbol</th><th>Kier.</th>
+                    <th class="text-end">Entry</th><th class="text-end">Stop</th><th class="text-end">TP1</th>
+                    <th class="text-end">Size</th><th>Stan</th><th>Otwarto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (t of g.rows; track t.id) {
+                    <tr>
+                      <td>{{ t.symbol }}</td>
+                      <td>
+                        <span class="badge" [class]="t.direction === 'BUY' ? 'text-bg-success' : 'text-bg-danger'">
+                          {{ t.direction || '—' }}
+                        </span>
+                      </td>
+                      <td class="text-end">{{ fmt(t.entry) }}</td>
+                      <td class="text-end">{{ fmt(t.tp1At ? t.runnerStop : t.stopLevel) }}</td>
+                      <td class="text-end">{{ fmt(t.targetLevel) }}</td>
+                      <td class="text-end">
+                        {{ fmt(t.tp1At ? t.remainingSize : t.size) }}
+                        @if (t.tp1At) { <span class="text-muted small">/ {{ fmt(t.size) }}</span> }
+                      </td>
+                      <td>
+                        @if (t.tp1At) {
+                          <span class="badge text-bg-success" title="Połowa zamknięta na TP1, reszta na trailingu">runner · trailing</span>
+                        } @else {
+                          <span class="badge text-bg-secondary" title="Czeka na TP1 (1:2 RR)">przed TP1</span>
+                        }
+                      </td>
+                      <td class="text-nowrap small text-muted">{{ htsTime(t.openedAt) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </details>
+        } @empty {
+          <div class="text-muted text-center py-3">Brak otwartych pozycji HTS.</div>
+        }
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
         <span>Sygnały HTS (wstęgi) — ostatnie</span>
         <button type="button" class="btn btn-outline-secondary btn-sm" (click)="reloadHts()">Odśwież</button>
       </div>
@@ -241,6 +301,7 @@ export class OverviewComponent implements OnInit {
     this.load();
     this.sdd.loadHtsSignals();
     this.sdd.loadPositions();
+    this.sdd.loadHtsTrades('OPEN');
     this.closeSse = this.sdd.liveOverview((rows) => {
       if (Array.isArray(rows) && rows.length > 0) {
         this.sdd.overview.set(rows);
@@ -250,6 +311,7 @@ export class OverviewComponent implements OnInit {
 
   reloadHts(): void {
     this.sdd.loadHtsSignals();
+    this.sdd.loadHtsTrades('OPEN');
   }
 
   scanHts(): void {
@@ -280,6 +342,26 @@ export class OverviewComponent implements OnInit {
         map.set(v, arr);
       }
       arr.push(s);
+    }
+    return [...map.entries()]
+      .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+      .map(([variant, rows]) => ({ variant, rows }));
+  }
+
+  htsTradeGroups(): { variant: string; rows: HtsTrade[] }[] {
+    const order = ['CORE', 'SWING', 'FAST', 'CORE_LIVE'];
+    const map = new Map<string, HtsTrade[]>();
+    for (const t of this.sdd.htsTrades()) {
+      if ((t.status || '').toUpperCase() !== 'OPEN') {
+        continue;
+      }
+      const v = t.variant || '—';
+      let arr = map.get(v);
+      if (!arr) {
+        arr = [];
+        map.set(v, arr);
+      }
+      arr.push(t);
     }
     return [...map.entries()]
       .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))

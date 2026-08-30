@@ -7,11 +7,12 @@ import com.adam.server.broker.Resolution;
 import com.adam.server.hts.HtsBacktestService;
 import com.adam.server.hts.HtsScan;
 import com.adam.server.hts.HtsScanService;
+import com.adam.server.hts.HtsTradeService;
 import com.adam.server.persistence.HtsSignalEntity;
 import com.adam.server.persistence.HtsSignalRepository;
 import com.adam.server.persistence.HtsTradeEntity;
-import com.adam.server.persistence.HtsTradeRepository;
 import com.adam.server.sdd.Adx;
+import com.adam.server.web.dto.HtsScorecardRow;
 import com.adam.server.web.dto.SwingTradeRow;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
@@ -37,10 +38,10 @@ public class HtsController {
     private final HtsBacktestService backtest;
     private final HtsScanService scan;
     private final HtsSignalRepository signals;
-    private final HtsTradeRepository htsTrades;
+    private final HtsTradeService htsTrades;
 
     public HtsController(HtsBacktestService backtest, HtsScanService scan, HtsSignalRepository signals,
-                         HtsTradeRepository htsTrades) {
+                         HtsTradeService htsTrades) {
         this.backtest = backtest;
         this.scan = scan;
         this.signals = signals;
@@ -131,7 +132,7 @@ public class HtsController {
     }
 
     /**
-     * HTS trade lifecycle (E-1). {@code GET /api/hts/trades?status=OPEN&limit=100}
+     * HTS trade lifecycle (E-1 / E-3). {@code GET /api/hts/trades?status=OPEN&limit=100}
      * — persisted entries per variant/timeframe, newest first. Omit {@code status}
      * for all.
      */
@@ -144,11 +145,20 @@ public class HtsController {
         if (denied(authentication)) {
             return List.of();
         }
-        int capped = Math.min(Math.max(limit, 1), 500);
-        if (status != null && !status.isBlank()) {
-            return htsTrades.findByStatusOrderByIdDesc(status.toUpperCase()).stream().limit(capped).toList();
+        return htsTrades.recent(status, limit);
+    }
+
+    /**
+     * HTS forward-test scorecard (E-4). {@code GET /api/hts/scorecard} — one row
+     * per timeframe model (win rate, avg R, ΣR, max DD in R, realised P/L),
+     * aggregated from {@code hts_trades}. Feeds the September keep/drop call.
+     */
+    @GetMapping(value = "/api/hts/scorecard", produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<HtsScorecardRow> scorecard(Authentication authentication) {
+        if (denied(authentication)) {
+            return List.of();
         }
-        return htsTrades.findAllByOrderByIdDesc(PageRequest.of(0, capped));
+        return htsTrades.scorecard();
     }
 
     /** Manual scan trigger (also a Scheduler backup). */

@@ -10,6 +10,7 @@ import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import com.adam.server.persistence.HtsTradeEntity;
 import com.adam.server.persistence.HtsTradeRepository;
+import com.adam.server.web.dto.HtsScorecardRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -222,7 +224,87 @@ class HtsTradeServiceTest {
         verify(broker).closePosition("d1", 0.5);
     }
 
+    // ---- manage(): TP1 partial P/L backfill + candle cache ----
+
+    @Test
+    void manageBackfillsTheTp1PartialPnlFromTheFeed() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
+        t.setTp1At(bar.plusSeconds(600));
+        t.setRemainingSize(0.5);
+        t.setRunnerStop(101.0);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of(pos("d1", Direction.BUY)));
+        when(broker.transactionHistory(any(), any(), any(Duration.class)))
+                .thenReturn(List.of(new BrokerTransaction(bar.plusSeconds(660), "TRADE", "DE40",
+                        24.0, "d1", "partial close")));
+        when(engine.runnerRead(any(), eq(true)))
+                .thenReturn(new HtsEngine.RunnerRead(103.0, 101.5, false)); // trail, no exit
+
+        service.manage();
+
+        assertThat(t.getTp1Pnl()).isEqualTo(24.0);
+    }
+
+    @Test
+    void manageFetchesCandlesOncePerEpicPerCycle() {
+        HtsTradeEntity a = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
+        HtsTradeEntity b = open("d2", Direction.BUY, 100.0, 99.0, 1.0);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(a, b));
+        when(broker.openPositions()).thenReturn(List.of(pos("d1", Direction.BUY), pos("d2", Direction.BUY)));
+        when(engine.runnerRead(any(), eq(true)))
+                .thenReturn(new HtsEngine.RunnerRead(100.5, 99.5, false)); // below TP1, nothing to do
+
+        service.manage();
+
+        verify(market, times(1)).candles(anyString(), any(), any(), any(), anyInt());
+    }
+
+    // ---- scorecard (E-4) ----
+
+    @Test
+    void scorecardAggregatesPerVariant() {
+        HtsTradeEntity w1 = closed("CORE", 2.0, 40.0, bar.plusSeconds(100));
+        HtsTradeEntity l1 = closed("CORE", -1.0, -20.0, bar.plusSeconds(200));
+        HtsTradeEntity w2 = closed("CORE", 2.0, 40.0, bar.plusSeconds(300));
+        HtsTradeEntity openOne = open("dX", Direction.BUY, 100.0, 99.0, 1.0);
+        openOne.setVariant("CORE");
+        when(repo.findAllByOrderByIdAsc()).thenReturn(List.of(w1, l1, w2, openOne));
+
+        List<HtsScorecardRow> board = service.scorecard();
+
+        HtsScorecardRow core = board.stream().filter(r -> r.variant().equals("CORE")).findFirst().orElseThrow();
+        assertThat(core.htf()).isEqualTo("H4");
+        assertThat(core.ltf()).isEqualTo("M15");
+        assertThat(core.openTrades()).isEqualTo(1);
+        assertThat(core.closedTrades()).isEqualTo(3);
+        assertThat(core.wins()).isEqualTo(2);
+        assertThat(core.losses()).isEqualTo(1);
+        assertThat(core.sumR()).isEqualTo(3.0);
+        assertThat(core.avgR()).isEqualTo(1.0);
+        assertThat(core.winRate()).isEqualTo(0.67);
+        assertThat(core.maxDrawdownR()).isEqualTo(1.0); // cum 2 → 1 → 3, peak 2, trough 1
+        assertThat(core.realisedPnl()).isEqualTo(60.0);
+        // every variant present even with no trades
+        assertThat(board.stream().map(HtsScorecardRow::variant))
+                .contains("CORE", "SWING", "FAST", "CORE_LIVE");
+        HtsScorecardRow fast = board.stream().filter(r -> r.variant().equals("FAST")).findFirst().orElseThrow();
+        assertThat(fast.closedTrades()).isZero();
+    }
+
     // ---- helpers ----
+
+    private HtsTradeEntity closed(String variant, double r, double pnl, Instant exitAt) {
+        HtsTradeEntity t = new HtsTradeEntity();
+        t.setVariant(variant);
+        t.setSymbol("GER40");
+        t.setStatus("CLOSED");
+        t.setRMultiple(r);
+        t.setPnl(pnl);
+        t.setPnlCcy("PLN");
+        t.setOpenedAt(exitAt.minusSeconds(3600));
+        t.setExitAt(exitAt);
+        return t;
+    }
 
     private HtsTradeEntity open(String dealId, Direction dir, double entry, double stop, double size) {
         HtsTradeEntity t = new HtsTradeEntity();

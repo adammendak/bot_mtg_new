@@ -31,6 +31,51 @@ import { BookId, BOOK_TABS } from '../model/sdd.model';
       <div class="alert alert-info py-2">{{ m }}</div>
     }
 
+    @if (canSeeHts) {
+      <div class="card shadow-sm mb-3">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+          <span>HTS forward-test — scorecard (z realnych tradów)</span>
+          <button type="button" class="btn btn-outline-light btn-sm" (click)="sdd.loadHtsScorecard()">Odśwież</button>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover mb-0">
+              <thead class="table-dark">
+                <tr>
+                  <th>Wariant</th><th>Otwarte</th><th>Zamknięte</th><th>Win rate</th>
+                  <th>Avg R</th><th>Σ R</th><th>Max DD (R)</th><th>Realized P/L</th><th>Ostatni</th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (sdd.htsScorecardError()) {
+                  <tr><td colspan="9" class="text-danger text-center">{{ sdd.htsScorecardError() }}</td></tr>
+                } @else if (sdd.htsScorecard().length === 0) {
+                  <tr><td colspan="9" class="text-muted text-center">Brak danych — pojawią się po pierwszych zamkniętych tradach HTS.</td></tr>
+                } @else {
+                  @for (r of sdd.htsScorecard(); track r.variant) {
+                    <tr>
+                      <td>
+                        <span class="badge text-bg-info">{{ r.variant }}</span>
+                        <span class="text-muted small">{{ r.htf }}/{{ r.ltf }}</span>
+                      </td>
+                      <td>{{ r.openTrades }}</td>
+                      <td>{{ r.closedTrades }} <span class="text-muted small">({{ r.wins }}W/{{ r.losses }}L)</span></td>
+                      <td [class]="winClass(r.winRate)">{{ r.closedTrades ? ((r.winRate * 100) | number: '1.0-0') + '%' : '–' }}</td>
+                      <td [class]="pnlClass(r.avgR)">{{ r.closedTrades ? (r.avgR | number: '1.2-2') : '–' }}</td>
+                      <td [class]="pnlClass(r.sumR)">{{ r.closedTrades ? (r.sumR | number: '1.2-2') : '–' }}</td>
+                      <td [class]="r.maxDrawdownR > 0 ? 'text-danger fw-semibold' : ''">{{ r.closedTrades ? (r.maxDrawdownR | number: '1.2-2') : '–' }}</td>
+                      <td [class]="pnlClass(r.realisedPnl ?? 0)">{{ r.realisedPnl == null ? '–' : (r.realisedPnl | number: '1.2-2') }} {{ r.pnlCcy || '' }}</td>
+                      <td class="small text-muted text-nowrap">{{ htsTime(r.lastTradeAt) }}</td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    }
+
     <div class="row g-3">
       <div class="col-lg-6">
         <div class="card shadow-sm">
@@ -114,6 +159,7 @@ export class AnalyticsComponent implements OnInit {
   readonly sdd = inject(SddService);
   private readonly auth = inject(AuthService);
   readonly visibleBooks = BOOK_TABS.filter((b) => this.auth.canSeeBook(b.id));
+  readonly canSeeHts = this.auth.canSeeBook('hts');
   private current: BookId = this.visibleBooks[0]?.id ?? 'demo';
 
   book(): string {
@@ -122,6 +168,19 @@ export class AnalyticsComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
+    if (this.canSeeHts) {
+      this.sdd.loadHtsScorecard();
+    }
+  }
+
+  htsTime(iso: string | null | undefined): string {
+    if (!iso) {
+      return '—';
+    }
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? String(iso)
+      : d.toLocaleString('pl-PL', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   setBook(book: BookId): void {

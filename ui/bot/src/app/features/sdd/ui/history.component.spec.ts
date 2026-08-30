@@ -71,7 +71,7 @@ describe('HistoryComponent', () => {
     }));
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('svg.chart')).not.toBeNull();
-    expect(el.querySelectorAll('table tbody tr').length).toBe(2);
+    expect(el.querySelectorAll('table.daily-equity tbody tr').length).toBe(2);
     expect(el.textContent).toContain('2026-08-01');
     expect(el.textContent).toContain('2026-08-02');
     expect(el.textContent).toContain('-1.00%');
@@ -109,14 +109,14 @@ describe('HistoryComponent', () => {
     const el = fixture.nativeElement as HTMLElement;
     const comp = fixture.componentInstance;
     // no range yet -> all 3 rows
-    expect(el.querySelectorAll('table tbody tr').length).toBe(3);
+    expect(el.querySelectorAll('table.daily-equity tbody tr').length).toBe(3);
     expect(comp.rangeActive()).toBe(false);
 
     // narrow to one day
     comp.fromDate.set('2026-08-03');
     comp.toDate.set('2026-08-03');
     fixture.detectChanges();
-    expect(el.querySelectorAll('table tbody tr').length).toBe(1);
+    expect(el.querySelectorAll('table.daily-equity tbody tr').length).toBe(1);
     expect(el.textContent).toContain('2026-08-03');
     expect(comp.rangeActive()).toBe(true);
     expect(el.querySelector('button[class*="outline-danger"]')).not.toBeNull();
@@ -124,7 +124,7 @@ describe('HistoryComponent', () => {
     // clear -> all rows back
     comp.clearRange();
     fixture.detectChanges();
-    expect(el.querySelectorAll('table tbody tr').length).toBe(3);
+    expect(el.querySelectorAll('table.daily-equity tbody tr').length).toBe(3);
     expect(comp.rangeActive()).toBe(false);
   });
 });

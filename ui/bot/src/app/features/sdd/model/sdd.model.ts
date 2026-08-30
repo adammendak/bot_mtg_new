@@ -219,6 +219,60 @@ export interface HtsSignal {
   htfUp: boolean | null;
 }
 
+/**
+ * One persisted HTS trade (E-1 lifecycle). `status` OPEN → the position monitor
+ * owns it: `tp1At` set means half is off and the rest trails at `runnerStop`.
+ * `status` CLOSED → outcome fields (`exitPrice`, `rMultiple`, `pnl`, `closeReason`).
+ */
+export interface HtsTrade {
+  id: number;
+  variant: string | null;
+  htf: string | null;
+  ltf: string | null;
+  book: string | null;
+  accountName: string | null;
+  symbol: string;
+  epic: string | null;
+  direction: 'BUY' | 'SELL' | null;
+  entry: number | null;
+  stopLevel: number | null;
+  targetLevel: number | null;
+  size: number | null;
+  remainingSize: number | null;
+  tp1At: string | null;
+  tp1Pnl: number | null;
+  runnerStop: number | null;
+  openedAt: string | null;
+  status: string;
+  exitPrice: number | null;
+  exitAt: string | null;
+  rMultiple: number | null;
+  pnl: number | null;
+  pnlCcy: string | null;
+  closeReason: string | null;
+  barTime: string | null;
+}
+
+/** One row of the HTS forward-test scorecard (E-4) — per timeframe model. */
+export interface HtsScorecardRow {
+  variant: string;
+  htf: string | null;
+  ltf: string | null;
+  book: string | null;
+  openTrades: number;
+  closedTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  avgR: number;
+  sumR: number;
+  expectancyR: number;
+  maxDrawdownR: number;
+  realisedPnl: number | null;
+  pnlCcy: string | null;
+  lastTradeAt: string | null;
+}
+
 export interface AuditEvent {
   at: string;
   book: string;
