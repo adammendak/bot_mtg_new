@@ -164,7 +164,10 @@ rzadkie duże trendy — nie polowanie na wielkie RR kosztem WR.
   sizowanych własnym (ciaśniejszym) stopem tak, że pełne wypełnienie = pełne 1R — to model z T7‑style
   księgowaniem, odłożony.
 
-### T7 — Piramidowanie (rozpisane)
+### T7 — Piramidowanie  ← kod w backteście zrobiony (PR #64), grid w toku
+
+`replayPyramid` w `HtsBacktestService` implementuje poniższy model. `HtsExportTest#pyramidAndIndicators`
+puszcza `pyramidMax ∈ {0,1,2,3}` na D1/H1 i H4/M15, oba okna. Wyniki niżej.
 
 **Idea (z filmów):** po TP1, gdy trend trwa, dokładasz kolejne jednostki na każdym powrocie
 ceny do szybkiej wstęgi (ten sam setup pullback+reclaim co wejście bazowe). Równe loty, nie
@@ -220,10 +223,14 @@ Niezmiennik: **łączne ryzyko otwartego stosu ≤ 1R bazowego** w każdym momen
 - Konflikt z `ExecutionGate` SDD-M15 („NO pyramid") nie dotyczy — to osobny gate/book.
 - **Wejdzie za flagą** `HTS_PYRAMID_ENABLED` (domyślnie false), niezależną od `HTS_EXECUTION_ENABLED`.
 
-### T8 — Supertrend / WaveTrend jako opcje
-- Runner‑trail: Supertrend vs linia RMA133 vs „close pod wolną wstęgą" — A/B.
-- WaveTrend: timing OB/OS jako dodatkowy filtr wejścia (extreme → czekaj na reclaim).
-- Wskaźniki już w kodzie (`com.adam.server.sdd.Supertrend`, `WaveTrend`).
+### T8 — Supertrend / WaveTrend jako opcje  ← zrobione w backteście (PR #64)
+- **`supertrendTrail`** (`?supertrendTrail=`): trailing stop runnera podąża za linią Supertrend
+  zamiast za krawędzią szybkiej wstęgi (funkcja `trailEdge`). A/B vs domyślny band‑trail.
+- **`waveTrendFilter`** (`?waveTrendFilter=`): weto wejścia gdy WaveTrend LTF jest już rozciągnięty
+  w naszą stronę (long przy `wt1 ≥ OVERBOUGHT`, short przy `wt1 ≤ OVERSOLD`). Oversold na longu =
+  OK (to nasz pullback).
+- Wskaźniki: `com.adam.server.sdd.Supertrend`, `WaveTrend` (wyliczane per‑symbol w `collect`).
+- Grid: `HtsExportTest#pyramidAndIndicators` — st‑trail on/off, wt‑filter on/off. Wyniki niżej.
 
 ### T9 — Live: 3. book `hts` + 3. konto Capital  ← zrobione (egzekucja domyślnie OFF)
 - **Plumbing:** `Books.HTS` + `BrokerBooks.hts()` + bean `htsBroker` (`CAPITAL_HTS_*`),
