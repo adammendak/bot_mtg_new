@@ -74,7 +74,6 @@ public class ExecutionGate {
     private final TelegramNotifier telegram;
     private final MonitoringService monitor;
     private final Mailer mailer;
-    private final com.adam.server.ops.FeatureFlags flags;
     private final Map<String, String> epicToSddName;
 
     public ExecutionGate(
@@ -85,8 +84,7 @@ public class ExecutionGate {
             SignalWebhookPublisher webhooks,
             TelegramNotifier telegram,
             MonitoringService monitor,
-            Mailer mailer,
-            com.adam.server.ops.FeatureFlags flags
+            Mailer mailer
     ) {
         this.properties = properties;
         this.books = books;
@@ -96,7 +94,6 @@ public class ExecutionGate {
         this.telegram = telegram;
         this.monitor = monitor;
         this.mailer = mailer;
-        this.flags = flags;
         this.epicToSddName = new LinkedHashMap<>();
         for (SddSymbol symbol : SddSymbol.universe()) {
             epicToSddName.put(symbol.epic(properties).toUpperCase(), symbol.code());
@@ -132,7 +129,7 @@ public class ExecutionGate {
      * detection, runner H1-trail), then new fullStack signals are considered.
      */
     public void executeBook(String book, List<SddScan> symbols, AccountView view, boolean newsBlackout) {
-        if (!flags.enabled("sdd.execution")) {
+        if (!properties.isExecutionEnabled()) {
             return;
         }
         BrokerClient client = books.forBook(book);
