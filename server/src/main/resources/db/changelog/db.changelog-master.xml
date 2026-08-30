@@ -22,4 +22,5 @@
     <include file="changes/016-feature-flags.xml" relativeToChangelogFile="true"/>
     <include file="changes/017-user-totp.xml" relativeToChangelogFile="true"/>
     <include file="changes/018-drop-sdd-feature-flags.xml" relativeToChangelogFile="true"/>
+    <include file="changes/019-purge-phantom-hts-trades.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
