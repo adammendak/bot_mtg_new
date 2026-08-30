@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      HTS trade lifecycle (E-1). One row per executed HTS entry, tagged with the
+      timeframe model (variant + htf/ltf) and the account it ran on. The
+      position monitor flips it OPEN -> CLOSED and fills the outcome (exit,
+      r_multiple, pnl) once the broker no longer reports the deal open. Sinks
+      (log, and later Notion / mail) fan out on open and on close.
+    -->
+    <changeSet id="014-hts-trades" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="hts_trades"/></not>
+        </preConditions>
+        <createTable tableName="hts_trades">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="variant" type="VARCHAR(16)"><constraints nullable="false"/></column>
+            <column name="htf" type="VARCHAR(8)"/>
+            <column name="ltf" type="VARCHAR(8)"/>
+            <column name="book" type="VARCHAR(16)"/>
+            <column name="account_name" type="VARCHAR(64)"/>
+            <column name="symbol" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="epic" type="VARCHAR(64)"/>
+            <column name="direction" type="VARCHAR(8)"/>
+            <column name="entry" type="DOUBLE"/>
+            <column name="stop_level" type="DOUBLE"/>
+            <column name="target_level" type="DOUBLE"/>
+            <column name="size" type="DOUBLE"/>
+            <column name="deal_id" type="VARCHAR(64)"/>
+            <column name="deal_reference" type="VARCHAR(64)"/>
+            <column name="bar_time" type="TIMESTAMP"/>
+            <column name="opened_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="status" type="VARCHAR(16)"><constraints nullable="false"/></column>
+            <!-- runner management (one position, partial close at TP1, then trail) -->
+            <column name="remaining_size" type="DOUBLE"/>
+            <column name="tp1_at" type="TIMESTAMP"/>
+            <column name="tp1_pnl" type="DOUBLE"/>
+            <column name="runner_stop" type="DOUBLE"/>
+            <column name="exit_price" type="DOUBLE"/>
+            <column name="exit_at" type="TIMESTAMP"/>
+            <column name="r_multiple" type="DOUBLE"/>
+            <column name="pnl" type="DOUBLE"/>
+            <column name="pnl_ccy" type="VARCHAR(8)"/>
+            <column name="close_reason" type="VARCHAR(32)"/>
+            <column name="notion_page_id" type="VARCHAR(64)"/>
+            <column name="created_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="hts_trades" indexName="idx_hts_trades_status">
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="hts_trades" indexName="idx_hts_trades_variant_opened">
+            <column name="variant"/>
+            <column name="opened_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

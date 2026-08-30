@@ -17,4 +17,5 @@
     <include file="changes/011-hts-signals.xml" relativeToChangelogFile="true"/>
     <include file="changes/012-hts-signal-variant.xml" relativeToChangelogFile="true"/>
     <include file="changes/013-purge-mislabeled-snapshots.xml" relativeToChangelogFile="true"/>
+    <include file="changes/014-hts-trades.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
