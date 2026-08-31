@@ -63,15 +63,30 @@ class CapitalComBrokerClientHttpTest {
     }
 
     @Test
-    void a429OnLoginMapsToBrokerExceptionWithoutLeakingThePassword() {
-        server.enqueue(new MockResponse().setResponseCode(429)
-                .setBody("{\"errorCode\":\"error.too-many.requests\"}"));
+    void a429OnLoginIsRetriedAndThenMapsToBrokerExceptionWithoutLeakingThePassword() {
+        // login() retries a 429 a few times before giving up; enqueue enough
+        // that every attempt is rate-limited.
+        for (int i = 0; i < 6; i++) {
+            server.enqueue(new MockResponse().setResponseCode(429)
+                    .setBody("{\"errorCode\":\"error.too-many.requests\"}"));
+        }
 
         assertThatThrownBy(() -> client.login())
                 .isInstanceOf(BrokerException.class)
                 .hasMessageContaining("login failed")
                 .hasMessageNotContaining("s3cr3t-pw");
         assertThat(client.isSessionOpen()).isFalse();
+    }
+
+    @Test
+    void aTransient429OnLoginIsRetriedThenSucceeds() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(429)
+                .setBody("{\"errorCode\":\"error.too-many.requests\"}"));
+        server.enqueue(session("cst-1", "tok-1"));
+
+        client.login();
+
+        assertThat(client.isSessionOpen()).isTrue();
     }
 
     @Test
