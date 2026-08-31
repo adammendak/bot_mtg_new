@@ -96,35 +96,61 @@ public class CapitalComBrokerClient implements BrokerClient {
         return endpoint.credentialsPresent();
     }
 
+    /**
+     * How long a session is reused before a proactive re-login. Capital.com keeps
+     * a session valid while it is used (each authed call refreshes it) and
+     * rate-limits {@code POST /session} hard. The old 9-minute cap re-logged
+     * every scan × 5 books ≈ 30–60 sessions/h → intermittent 429 that aborted
+     * the whole scan. The active books are hit every ≤5 min, so 40 min is safe.
+     */
+    private static final long SESSION_TTL_SECONDS = 2400;
+
     @Override
     public synchronized void login() {
         if (!endpoint.credentialsPresent()) {
             throw new BrokerException(missingCredsMessage);
         }
-        try {
-            ResponseEntity<String> entity = restClient.post()
-                    .uri("/api/v1/session")
-                    .header("X-CAP-API-KEY", endpoint.getApiKey())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(new CapitalJson.SessionRequest(endpoint.getEmail(), endpoint.getPassword(), false))
-                    .retrieve()
-                    .toEntity(String.class);
-            this.cst = firstHeader(entity, "CST");
-            this.securityToken = firstHeader(entity, "X-SECURITY-TOKEN");
-            if (cst == null || securityToken == null) {
-                throw new BrokerException("Capital.com session did not return CST / X-SECURITY-TOKEN");
+        RestClientResponseException last = null;
+        for (int attempt = 0; attempt <= TX_RATE_LIMIT_RETRIES; attempt++) {
+            try {
+                ResponseEntity<String> entity = restClient.post()
+                        .uri("/api/v1/session")
+                        .header("X-CAP-API-KEY", endpoint.getApiKey())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(new CapitalJson.SessionRequest(endpoint.getEmail(), endpoint.getPassword(), false))
+                        .retrieve()
+                        .toEntity(String.class);
+                this.cst = firstHeader(entity, "CST");
+                this.securityToken = firstHeader(entity, "X-SECURITY-TOKEN");
+                if (cst == null || securityToken == null) {
+                    throw new BrokerException("Capital.com session did not return CST / X-SECURITY-TOKEN");
+                }
+                this.sessionAt = Instant.now();
+                log.info("Capital.com {} session opened against {}", book, endpoint.getHost());
+                return;
+            } catch (RestClientResponseException e) {
+                last = e;
+                int code = e.getStatusCode().value();
+                // 429 / 503 on POST /session clears on a short backoff — don't
+                // abort the whole scan for a transient rate-limit.
+                if ((code == 429 || code == 503) && attempt < TX_RATE_LIMIT_RETRIES) {
+                    log.warn("Capital.com {} login rate-limited (HTTP {}), retry {}/{}",
+                            book, code, attempt + 1, TX_RATE_LIMIT_RETRIES);
+                    if (backoff(attempt)) {
+                        continue;
+                    }
+                }
+                log.warn("Capital.com {} login failed: HTTP {}", book, code);
+                throw new BrokerException("Capital.com " + book + " login failed", e);
             }
-            this.sessionAt = Instant.now();
-            log.info("Capital.com {} session opened against {}", book, endpoint.getHost());
-        } catch (RestClientResponseException e) {
-            log.warn("Capital.com {} login failed: HTTP {}", book, e.getStatusCode().value());
-            throw new BrokerException("Capital.com " + book + " login failed", e);
         }
+        throw new BrokerException("Capital.com " + book + " login failed", last);
     }
 
     @Override
     public boolean isSessionOpen() {
-        return cst != null && securityToken != null && sessionAt.plusSeconds(9 * 60).isAfter(Instant.now());
+        return cst != null && securityToken != null
+                && sessionAt.plusSeconds(SESSION_TTL_SECONDS).isAfter(Instant.now());
     }
 
     @Override
