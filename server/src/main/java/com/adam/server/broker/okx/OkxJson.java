@@ -151,6 +151,33 @@ final class OkxJson {
         return stringOf(first(root).get("ctType"));
     }
 
+    /** One dated-future contract from {@code /public/instruments?instType=FUTURES&uly=...}. */
+    record FutureInst(String instId, String alias, long expiryMs, String state) {
+    }
+
+    /** All FUTURES contracts for an underlying, oldest expiry first. */
+    static List<FutureInst> futures(JsonNode root) {
+        List<FutureInst> out = new ArrayList<>();
+        for (JsonNode n : data(root)) {
+            String id = stringOf(n.get("instId"));
+            if (id == null) {
+                continue;
+            }
+            long exp = 0;
+            try {
+                String e = stringOf(n.get("expTime"));
+                if (e != null && !e.isBlank()) {
+                    exp = Long.parseLong(e);
+                }
+            } catch (NumberFormatException ignored) {
+                // leave 0
+            }
+            out.add(new FutureInst(id, stringOf(n.get("alias")), exp, stringOf(n.get("state"))));
+        }
+        out.sort((a, b) -> Long.compare(a.expiryMs(), b.expiryMs()));
+        return out;
+    }
+
     // ---- positions ----
     // data[]: posId, instId, pos (signed, + long / − short), avgPx, upl, ccy, uTime ...
 

@@ -129,6 +129,35 @@ class OkxBrokerClientHttpTest {
     }
 
     @Test
+    void resolveEpicPicksTheFrontQuarterWithRunway() throws Exception {
+        long soon = System.currentTimeMillis() + 3L * 86_400_000L;   // 3d — inside the roll window
+        long far = System.currentTimeMillis() + 80L * 86_400_000L;   // ~quarter out
+        long farther = System.currentTimeMillis() + 170L * 86_400_000L;
+        enqueue("{\"code\":\"0\",\"msg\":\"\",\"data\":["
+                + "{\"instId\":\"BTC-USDT-A\",\"alias\":\"this_week\",\"state\":\"live\",\"expTime\":\"" + soon + "\"},"
+                + "{\"instId\":\"BTC-USDT-B\",\"alias\":\"quarter\",\"state\":\"live\",\"expTime\":\"" + far + "\"},"
+                + "{\"instId\":\"BTC-USDT-C\",\"alias\":\"next_quarter\",\"state\":\"live\",\"expTime\":\"" + farther + "\"}"
+                + "]}");
+
+        assertThat(client.resolveEpic("BTC-USDT")).isEqualTo("BTC-USDT-B");
+        // second call is served from cache — no second request enqueued
+        assertThat(client.resolveEpic("BTC-USDT")).isEqualTo("BTC-USDT-B");
+    }
+
+    @Test
+    void resolveEpicLeavesAConcreteContractUntouched() {
+        assertThat(client.resolveEpic("BTC-USDT-251226")).isEqualTo("BTC-USDT-251226");
+    }
+
+    @Test
+    void daysToExpiryParsesTheYymmddSuffix() {
+        String next = java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusDays(20)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd"));
+        assertThat(OkxBrokerClient.daysToExpiry("BTC-USDT-" + next)).isBetween(19L, 21L);
+        assertThat(OkxBrokerClient.daysToExpiry("BTC-USDT-SWAP")).isEqualTo(-1);
+    }
+
+    @Test
     void marketRulesMapContractValues() throws Exception {
         enqueue("{\"code\":\"0\",\"msg\":\"\",\"data\":[{"
                 + "\"instId\":\"BTC-USDT-SWAP\",\"tickSz\":\"0.1\",\"lotSz\":\"1\","
