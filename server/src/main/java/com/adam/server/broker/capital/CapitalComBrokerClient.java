@@ -201,23 +201,35 @@ public class CapitalComBrokerClient implements BrokerClient {
             case D1 -> "DAY";
         };
         CapitalJson.PricesResponse body;
-        try {
-            body = authed()
-                    .get()
-                    .uri(uri -> uri.path("/api/v1/prices/{epic}")
-                            .queryParam("resolution", capRes)
-                            .queryParam("max", Math.min(Math.max(max, 1), 1000))
-                            .queryParam("from", CAPITAL_TIME.format(LocalDateTime.ofInstant(from, ZoneOffset.UTC)))
-                            .queryParam("to", CAPITAL_TIME.format(LocalDateTime.ofInstant(to, ZoneOffset.UTC)))
-                            .build(epic))
-                    .retrieve()
-                    .body(CapitalJson.PricesResponse.class);
-        } catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() == 404 || CapitalJson.isNotFoundEpic(e.getResponseBodyAsString())) {
-                log.warn("Capital.com {} candles 404 for epic {}", book, epic);
-                throw new BrokerException("Capital.com epic not found: " + epic, e);
+        for (int attempt = 0; ; attempt++) {
+            try {
+                body = authed()
+                        .get()
+                        .uri(uri -> uri.path("/api/v1/prices/{epic}")
+                                .queryParam("resolution", capRes)
+                                .queryParam("max", Math.min(Math.max(max, 1), 1000))
+                                .queryParam("from", CAPITAL_TIME.format(LocalDateTime.ofInstant(from, ZoneOffset.UTC)))
+                                .queryParam("to", CAPITAL_TIME.format(LocalDateTime.ofInstant(to, ZoneOffset.UTC)))
+                                .build(epic))
+                        .retrieve()
+                        .body(CapitalJson.PricesResponse.class);
+                break;
+            } catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() == 404 || CapitalJson.isNotFoundEpic(e.getResponseBodyAsString())) {
+                    log.warn("Capital.com {} candles 404 for epic {}", book, epic);
+                    throw new BrokerException("Capital.com epic not found: " + epic, e);
+                }
+                // Capital rate-limits the price feed hard; a bare 429 was skipping
+                // the symbol for the whole scan. Back off and retry a few times.
+                if (e.getStatusCode().value() == 429 && attempt < TX_RATE_LIMIT_RETRIES) {
+                    log.warn("Capital.com {} candles {} rate-limited (429), retry {}/{}",
+                            book, epic, attempt + 1, TX_RATE_LIMIT_RETRIES);
+                    if (backoff(attempt)) {
+                        continue;
+                    }
+                }
+                throw wrap("candles " + epic, e);
             }
-            throw wrap("candles " + epic, e);
         }
         if (body == null || body.prices() == null) {
             return List.of();
@@ -287,6 +299,49 @@ public class CapitalComBrokerClient implements BrokerClient {
         }
     }
 
+    /** pair (e.g. "EURPLN") -> [rate, epochSecond fetched]. FX barely moves for margin sizing. */
+    private final Map<String, double[]> fxCache = new ConcurrentHashMap<>();
+    private static final long FX_TTL_SECONDS = 6 * 3600L;
+
+    @Override
+    public double fxRate(String from, String to) {
+        if (from == null || to == null || from.equalsIgnoreCase(to)) {
+            return 1.0;
+        }
+        String pair = (from + to).toUpperCase();
+        double[] c = fxCache.get(pair);
+        if (c != null && Instant.now().getEpochSecond() - (long) c[1] < FX_TTL_SECONDS) {
+            return c[0];
+        }
+        try {
+            String raw = authed().get().uri("/api/v1/markets/{epic}", pair).retrieve().body(String.class);
+            CapitalJson.MarketResponse body = CapitalJson.parseMarket(raw);
+            double mid = body != null && body.snapshot() != null
+                    ? (nz(body.snapshot().bid()) + nz(body.snapshot().askOrOffer())) / 2.0 : 0;
+            if (mid > 0) {
+                fxCache.put(pair, new double[]{mid, Instant.now().getEpochSecond()});
+                return mid;
+            }
+        } catch (Exception e) {
+            log.warn("Capital.com {} fx {} unavailable ({}) — using fallback", book, pair, e.getClass().getSimpleName());
+        }
+        return fallbackFx(from, to);
+    }
+
+    /** Rough rates so the margin cap still bites when the FX lookup is rate-limited. */
+    private static double fallbackFx(String from, String to) {
+        if ("PLN".equalsIgnoreCase(to)) {
+            return switch (from.toUpperCase()) {
+                case "EUR" -> 4.3;
+                case "USD" -> 4.0;
+                case "GBP" -> 5.1;
+                case "CHF" -> 4.5;
+                default -> 1.0;
+            };
+        }
+        return 1.0;
+    }
+
     private static MarketRules toRules(String epic, CapitalJson.MarketResponse body) {
         if (body == null) {
             return MarketRules.permissive(epic);
@@ -309,7 +364,16 @@ public class CapitalComBrokerClient implements BrokerClient {
         // tradeable so we never block execution on a parsing gap (fail-open).
         String status = body.snapshot() == null ? null : body.snapshot().marketStatus();
         boolean tradeable = status == null || "TRADEABLE".equalsIgnoreCase(status);
-        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable);
+        CapitalJson.InstrumentJson inst = body.instrument();
+        String currency = inst == null ? null : inst.currency();
+        double marginFactor = 0;
+        if (inst != null && inst.marginFactor() != null && inst.marginFactor() > 0) {
+            // Capital gives e.g. marginFactor=5, marginFactorUnit=PERCENTAGE => 0.05.
+            marginFactor = "PERCENTAGE".equalsIgnoreCase(inst.marginFactorUnit())
+                    ? inst.marginFactor() / 100.0
+                    : inst.marginFactor();
+        }
+        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable, marginFactor, currency);
     }
 
     /** Capital {unit,value} → price points ({@code PERCENTAGE} needs the price). */
@@ -613,12 +677,16 @@ public class CapitalComBrokerClient implements BrokerClient {
             log.warn("Capital.com {} deal {} not accepted — raw confirm: {}", book, dealReference, raw);
         }
         Direction direction = body.direction() == null ? null : Direction.valueOf(body.direction());
+        // Capital puts the machine-readable cause in `rejectReason` (e.g.
+        // RISK_CHECK, MARKET_CLOSED); `reason` is usually null. Prefer whichever
+        // is present so the gate log and the alert e-mail actually say why.
+        String cause = body.reason() != null ? body.reason() : body.rejectReason();
         return new Confirmation(
                 body.dealReference(),
                 body.dealId(),
                 body.status(),
                 body.dealStatus(),
-                body.reason(),
+                cause,
                 body.epic(),
                 direction,
                 body.level(),

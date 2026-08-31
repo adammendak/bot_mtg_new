@@ -75,6 +75,7 @@ class HtsExecutionGateTest {
         when(risk.sizeFor(anyDouble(), anyDouble(), anyDouble())).thenReturn(0.05);
         when(broker.marketRules(anyString()))
                 .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 0, 0));
+        when(broker.fxRate(anyString(), anyString())).thenReturn(1.0);
         when(broker.placeMarketOrder(any())).thenReturn(new OrderAck("ref1", null, "SUBMITTED"));
         gate = new HtsExecutionGate(books, risk, props, trades,
                 FeatureFlags.forTest(), mailer, errorLog);
@@ -161,6 +162,40 @@ class HtsExecutionGateTest {
         verify(broker, never()).placeMarketOrder(any());
         verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
         verify(mailer).sendThrottled(eq("exec-hts-closed-FAST"), anyString(), anyString());
+    }
+
+    @Test
+    void capsSizeToWhatTheAccountCanMargin() {
+        // 1R sizing wants 0.5 lots; account has 1000 PLN and DE40-style margin
+        // is 5% of a USD notional at ~4.0 PLN/USD -> only ~0.05 lots fit.
+        when(risk.sizeFor(anyDouble(), anyDouble(), anyDouble())).thenReturn(0.5);
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 0, 0, true, 0.05, "USD"));
+        when(broker.fxRate("USD", "PLN")).thenReturn(4.0);
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(broker).placeMarketOrder(req.capture());
+        assertThat(req.getValue().size()).isLessThan(0.1).isGreaterThan(0.0);
+    }
+
+    @Test
+    void skipsWhenFreeMarginCannotCoverTheMinimumDeal() {
+        Account small = new Account("acc1", "Account m5", "PLN", 100, 100, 0, true);
+        when(broker.accounts()).thenReturn(List.of(small));
+        when(risk.pickForBook(eq(book), any())).thenReturn(small);
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("BTCUSD", 0.1, 1, 0, 0, true, 0.05, "USD"));
+        when(broker.fxRate("USD", "PLN")).thenReturn(4.0);
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        verify(broker, never()).placeMarketOrder(any());
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+        verify(mailer).sendThrottled(eq("exec-hts-margin-FAST"), anyString(), anyString());
     }
 
     @Test

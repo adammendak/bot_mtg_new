@@ -225,9 +225,47 @@ public class HtsExecutionGate {
                 placed.remove(key);
                 return;
             }
-            if (live && adjSize < properties.getMinDealSize()) {
+
+            double minSize = Math.max(rules.minDealSize(), live ? properties.getMinDealSize() : 0);
+
+            // Cap the size to what the account can actually margin. The 1R risk
+            // sizing can produce a notional the account can't cover — Capital then
+            // rejects the whole deal with RISK_CHECK and nothing opens. Shrink
+            // below 1R rather than over-leverage; skip if even the smallest deal
+            // won't fit.
+            double freeFunds = account.available() > 0 ? account.available() : account.balance();
+            if (rules.marginFactor() > 0 && freeFunds > 0) {
+                double fx = broker.fxRate(rules.currency(), account.currency());
+                double marginPerUnit = adjEntry * rules.marginFactor() * (fx > 0 ? fx : 1.0);
+                if (marginPerUnit > 0) {
+                    double maxSize = (freeFunds * properties.getHtsMarginBuffer()) / marginPerUnit;
+                    if (minSize > 0 && maxSize < minSize) {
+                        log.warn("HTS [{}] {} entry skipped — free margin {} {} covers < the minimum deal "
+                                        + "(margin/unit ~{} {}, buffer {}); account too small for this instrument",
+                                s.variant().name(), s.symbol(), freeFunds, account.currency(),
+                                marginPerUnit, account.currency(), properties.getHtsMarginBuffer());
+                        placed.remove(key);
+                        mailer.sendThrottled("exec-hts-margin-" + s.variant().name(),
+                                "HTS entry skipped — account too small for " + s.symbol(),
+                                s.variant().name() + " " + s.symbol() + " " + s.direction() + " signal fired but the "
+                                        + "account's free margin (" + freeFunds + " " + account.currency() + ") does not "
+                                        + "cover even the broker minimum deal size. No order was placed.\n\n"
+                                        + "(further skips within 30 min are suppressed)");
+                        return;
+                    }
+                    if (adjSize > maxSize) {
+                        double capped = rules.roundSize(maxSize);
+                        log.warn("HTS [{}] {} size capped by free margin: {} -> {} (free {} {}, margin/unit ~{} {})",
+                                s.variant().name(), s.symbol(), adjSize, capped,
+                                freeFunds, account.currency(), marginPerUnit, account.currency());
+                        adjSize = capped;
+                    }
+                }
+            }
+
+            if (adjSize <= 0 || (minSize > 0 && adjSize < minSize)) {
                 log.warn("HTS [{}] LIVE execution skipped {} — size {} below min deal {} after shaping",
-                        s.variant().name(), s.symbol(), adjSize, properties.getMinDealSize());
+                        s.variant().name(), s.symbol(), adjSize, minSize);
                 placed.remove(key);
                 return;
             }
