@@ -56,6 +56,12 @@ public class OkxBrokerClient implements BrokerClient {
     private static final DateTimeFormatter OKX_TS = DateTimeFormatter
             .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
     private static final long SESSION_TTL_MS = 10 * 60_000L;
+    /**
+     * Margin mode for every OKX order / close / SL amend. Isolated: a losing
+     * position can only lose the margin allocated to it, never the rest of the
+     * (small, real-money) account — no cross-position contagion.
+     */
+    private static final String MARGIN_MODE = "isolated";
     private static final int CANDLE_PAGE = 300;
     private static final int HISTORY_PAGE = 100;
     private static final long PAGE_SLEEP_MS = 150L;
@@ -300,7 +306,7 @@ public class OkxBrokerClient implements BrokerClient {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("instId", inst);
-        body.put("mgnMode", "cross");
+        body.put("mgnMode", MARGIN_MODE);
         body.put("posSide", "net");
         if (size > 0) {
             body.put("sz", fmt(size));
@@ -334,7 +340,7 @@ public class OkxBrokerClient implements BrokerClient {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("instId", inst);
-        body.put("tdMode", "cross");
+        body.put("tdMode", MARGIN_MODE);
         body.put("posSide", "net");
         body.put("ordType", "conditional");
         body.put("slTriggerPx", fmt(stopLevel));
@@ -492,7 +498,7 @@ public class OkxBrokerClient implements BrokerClient {
     private Map<String, Object> orderBody(OrderRequest request) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("instId", request.epic());
-        body.put("tdMode", "cross");
+        body.put("tdMode", MARGIN_MODE);
         body.put("side", request.direction() == Direction.SELL ? "sell" : "buy");
         body.put("sz", fmt(request.size()));
         return body;
