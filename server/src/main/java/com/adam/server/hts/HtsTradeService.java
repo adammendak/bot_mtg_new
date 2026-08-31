@@ -55,15 +55,42 @@ public class HtsTradeService {
     private final BrokerBooks books;
     private final HtsEngine engine;
     private final AppProperties properties;
+    private final com.adam.server.sdd.RiskPolicy risk;
     private final List<HtsTradeSink> sinks;
 
     public HtsTradeService(HtsTradeRepository trades, BrokerBooks books, HtsEngine engine,
-                           AppProperties properties, List<HtsTradeSink> sinks) {
+                           AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
+                           List<HtsTradeSink> sinks) {
         this.trades = trades;
         this.books = books;
         this.engine = engine;
         this.properties = properties;
+        this.risk = risk;
         this.sinks = sinks;
+    }
+
+    /**
+     * Point the book's Capital session at the account its trades live on. The
+     * dashboard's balance refresh re-selects accounts on a shared multi-account
+     * login every 30 s, so without this the monitor can read {@code openPositions()}
+     * for the wrong sub-account, see nothing, and force-close a still-open trade.
+     */
+    private void selectBookAccount(String book) {
+        try {
+            BrokerClient c = books.forBook(book);
+            if (c == null || !c.configured()) {
+                return;
+            }
+            if (!c.isSessionOpen()) {
+                c.login();
+            }
+            com.adam.server.broker.model.Account acc = risk.pickForBook(book, c.accounts());
+            if (acc != null && acc.id() != null) {
+                c.selectAccount(acc.id());
+            }
+        } catch (Exception e) {
+            log.warn("HTS reconcile: could not select account for {} ({})", book, e.getClass().getSimpleName());
+        }
     }
 
     /** True when this exact signal bar was already executed for this variant. */
@@ -214,6 +241,7 @@ public class HtsTradeService {
         if (r == null) {
             return false;
         }
+        selectBookAccount(t.getBook()); // amend / close must hit the trade's own sub-account
         BrokerClient broker = books.forBook(t.getBook());
 
         // ---- before TP1: close half + lock the runner's stop ----
@@ -591,6 +619,7 @@ public class HtsTradeService {
             if (!c.isSessionOpen()) {
                 c.login();
             }
+            selectBookAccount(book);
             Set<String> ids = new HashSet<>();
             Set<String> refs = new HashSet<>();
             for (Position p : c.openPositions()) {
