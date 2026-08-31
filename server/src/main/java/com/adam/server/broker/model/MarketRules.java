@@ -15,7 +15,8 @@ public record MarketRules(
         double maxStopDistancePoints, // 0 = unknown / no cap
         boolean tradeable,            // false only when the broker says the market is CLOSED / OFFLINE / etc.
         double marginFactor,          // fraction of notional required as margin (0.05 = 20:1); 0 = unknown
-        String currency               // the instrument's quote currency, e.g. "EUR"; null = unknown
+        String currency,              // the instrument's quote currency, e.g. "EUR"; null = unknown
+        double pointValue             // value of one price point per 1.0 size, in `currency`; 0 = unknown
 ) {
 
     /**
@@ -25,17 +26,25 @@ public record MarketRules(
      */
     public MarketRules(String epic, double minDealSize, int priceDecimalPlaces,
                        double minStopDistancePoints, double maxStopDistancePoints) {
-        this(epic, minDealSize, priceDecimalPlaces, minStopDistancePoints, maxStopDistancePoints, true, 0, null);
+        this(epic, minDealSize, priceDecimalPlaces, minStopDistancePoints, maxStopDistancePoints, true, 0, null, 0);
     }
 
-    /** Rules with a tradeable flag but no margin / currency info. */
+    /** Rules with a tradeable flag but no margin / currency / point-value info. */
     public MarketRules(String epic, double minDealSize, int priceDecimalPlaces,
                        double minStopDistancePoints, double maxStopDistancePoints, boolean tradeable) {
-        this(epic, minDealSize, priceDecimalPlaces, minStopDistancePoints, maxStopDistancePoints, tradeable, 0, null);
+        this(epic, minDealSize, priceDecimalPlaces, minStopDistancePoints, maxStopDistancePoints, tradeable, 0, null, 0);
+    }
+
+    /** Rules with margin + currency but no point value (defaults point value to 1). */
+    public MarketRules(String epic, double minDealSize, int priceDecimalPlaces,
+                       double minStopDistancePoints, double maxStopDistancePoints, boolean tradeable,
+                       double marginFactor, String currency) {
+        this(epic, minDealSize, priceDecimalPlaces, minStopDistancePoints, maxStopDistancePoints,
+                tradeable, marginFactor, currency, 0);
     }
 
     public static MarketRules permissive(String epic) {
-        return new MarketRules(epic, 0, -1, 0, 0, true, 0, null);
+        return new MarketRules(epic, 0, -1, 0, 0, true, 0, null, 0);
     }
 
     /** Round a price (stop / limit level) to the instrument precision. */
