@@ -46,6 +46,15 @@ public interface BrokerClient {
         return MarketRules.permissive(epic);
     }
 
+    /**
+     * Conversion rate FROM {@code from} currency TO {@code to} currency, used to
+     * express an instrument's margin requirement in the account currency.
+     * Default 1.0 (equal currencies, paper broker, or unknown — do not distort).
+     */
+    default double fxRate(String from, String to) {
+        return 1.0;
+    }
+
     OrderAck placeWorkingOrder(OrderRequest request);
 
     OrderAck amendWorkingOrder(String dealId, OrderRequest request);

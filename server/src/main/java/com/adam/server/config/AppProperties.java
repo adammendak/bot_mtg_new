@@ -29,6 +29,8 @@ public class AppProperties {
     private double hardHaltPln = -50;
     private double liveHaltPln = -18;
     private double minDealSize = 0.01;
+    /** HTS: cap a position so its broker margin ≤ this fraction of the account's free funds. */
+    private double htsMarginBuffer = 0.8;
     private int maxOpenNames = 4;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
@@ -221,6 +223,14 @@ public class AppProperties {
 
     public void setMinDealSize(double minDealSize) {
         this.minDealSize = minDealSize;
+    }
+
+    public double getHtsMarginBuffer() {
+        return htsMarginBuffer;
+    }
+
+    public void setHtsMarginBuffer(double htsMarginBuffer) {
+        this.htsMarginBuffer = htsMarginBuffer;
     }
 
     public int getMaxOpenNames() {

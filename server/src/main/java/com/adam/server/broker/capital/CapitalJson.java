@@ -296,7 +296,7 @@ final class CapitalJson {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record InstrumentJson(String epic) {
+    record InstrumentJson(String epic, String currency, Double marginFactor, String marginFactorUnit) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
