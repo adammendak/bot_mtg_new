@@ -147,7 +147,10 @@ public class BrokerConfiguration {
     BrokerClient okxBroker(RestClient.Builder builder, AppProperties properties) {
         AppProperties.Okx okx = properties.getOkx();
         if (okx.getHost() == null || okx.getHost().isBlank()) {
-            okx.setHost(okx.isDemo() ? "https://openapi.okx.com" : "https://www.okx.com");
+            // OKX v5 (live AND demo) is served from www.okx.com; demo is signalled
+            // per-request by the x-simulated-trading header, not a separate host.
+            // (openapi.okx.com is legacy v3 and does not serve /api/v5/*.)
+            okx.setHost("https://www.okx.com");
         }
         return new OkxBrokerClient(
                 builder,
