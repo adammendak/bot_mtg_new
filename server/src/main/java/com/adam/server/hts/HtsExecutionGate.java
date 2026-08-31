@@ -174,6 +174,22 @@ public class HtsExecutionGate {
             // this Capital returns a dealReference and then REJECTS the deal on
             // confirm, so no position ever opens.
             MarketRules rules = broker.marketRules(s.epic());
+            if (!rules.tradeable()) {
+                // Weekend / session break: prices still stream so the scan fires a
+                // signal, but Capital rejects every POST /positions with an empty
+                // reason. Skip cleanly instead of placing a doomed order and
+                // e-mailing a failure every cycle.
+                log.warn("HTS [{}] {} entry skipped — {} not tradeable right now (market closed / weekend)",
+                        s.variant().name(), s.symbol(), s.epic());
+                placed.remove(key);
+                mailer.sendThrottled("exec-hts-closed-" + s.variant().name(),
+                        "HTS entry skipped — market closed",
+                        s.variant().name() + " " + s.symbol() + " " + s.direction()
+                                + " signal fired but " + s.epic() + " is not tradeable right now "
+                                + "(weekend / market closed). No order was placed.\n\n"
+                                + "(further skips within 30 min are suppressed)");
+                return;
+            }
             boolean buy = s.direction() == Direction.BUY;
             double adjEntry = rules.roundPrice(s.entry());
             double adjStop = rules.roundPrice(s.stopLevel());
