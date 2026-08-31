@@ -3,8 +3,10 @@ package com.adam.server.hts;
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.BrokerException;
+import com.adam.server.broker.Books;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Candle;
+import com.adam.server.broker.okx.OkxSymbol;
 import com.adam.server.persistence.HtsSignalEntity;
 import com.adam.server.persistence.HtsSignalRepository;
 import com.adam.server.persistence.HtsTradeEntity;
@@ -93,19 +95,39 @@ public class HtsScanService {
     @Transactional
     public List<HtsScan> scan() {
         Instant now = clock.instant();
-        BrokerClient market = books.marketData();
+        ZoneId zone = ZoneId.of(properties.getTimezone());
         List<HtsScan> found = new ArrayList<>();
         try {
-            if (!market.configured()) {
-                throw new BrokerException("no market-data broker configured");
-            }
-            market.login();
-            ZoneId zone = ZoneId.of(properties.getTimezone());
-            List<SddSymbol> universe = SddSymbol.htsUniverseFor(now, zone);
             int minute = now.atZone(zone).getMinute();
             for (HtsVariant variant : HtsVariant.values()) {
-                if (variant.dueAtMinute(minute)) {
-                    scanVariant(variant, universe, market, now, found);
+                if (!variant.dueAtMinute(minute)) {
+                    continue;
+                }
+                // OKX variants scan crypto on the OKX book; Capital variants scan
+                // the shared market-data broker with the SDD universe.
+                BrokerClient market = variant.book().equals(Books.OKX)
+                        ? books.forBook(Books.OKX)
+                        : books.marketData();
+                if (market == null || !market.configured()) {
+                    log.warn("HTS [{}] scan skipped — no configured broker for book {}",
+                            variant.name(), variant.book());
+                    continue;
+                }
+                // Only (re)authenticate when the session is actually stale. This
+                // loop runs per due variant, and several variants share one
+                // broker — an unconditional login() here would hit Capital's
+                // rate-limited POST /session up to 4× per top-of-hour scan.
+                if (!market.isSessionOpen()) {
+                    market.login();
+                }
+                if (variant.book().equals(Books.OKX)) {
+                    scanVariant(variant, OkxSymbol.universe().stream()
+                                    .map(s -> new HtsInstrument(s.code(), s.instId())).toList(),
+                            market, now, found);
+                } else {
+                    scanVariant(variant, SddSymbol.htsUniverseFor(now, zone).stream()
+                                    .map(s -> new HtsInstrument(s.code(), s.epic(properties))).toList(),
+                            market, now, found);
                 }
             }
             lastError = null;
@@ -128,6 +150,10 @@ public class HtsScanService {
         return lastSignals;
     }
 
+    /** Instrument (short code + broker epic) fed to the scan loop. */
+    private record HtsInstrument(String code, String epic) {
+    }
+
     /**
      * Fire ONE synthetic HTS entry straight through the real execution gate — an
      * end-to-end live check of place → confirm → {@code recordOpen} against the
@@ -139,26 +165,47 @@ public class HtsScanService {
     @Transactional
     public Map<String, Object> testEntry(HtsVariant variant, String symbolCode, Direction direction) {
         Map<String, Object> out = new LinkedHashMap<>();
-        SddSymbol symbol = null;
-        for (SddSymbol s : SddSymbol.values()) {
-            if (s.code().equalsIgnoreCase(symbolCode)) {
-                symbol = s;
-                break;
+        boolean okxVariant = variant != null && Books.OKX.equalsIgnoreCase(variant.book());
+        String code;
+        String epic;
+        if (okxVariant) {
+            OkxSymbol symbol = null;
+            for (OkxSymbol s : OkxSymbol.universe()) {
+                if (s.code().equalsIgnoreCase(symbolCode)) {
+                    symbol = s;
+                    break;
+                }
             }
+            if (symbol == null) {
+                out.put("ok", false);
+                out.put("error", "unknown OKX symbol '" + symbolCode + "' (try one of BTC/ETH/SOL/XRP/DOGE/LTC)");
+                return out;
+            }
+            code = symbol.code();
+            epic = symbol.instId();
+        } else {
+            SddSymbol symbol = null;
+            for (SddSymbol s : SddSymbol.values()) {
+                if (s.code().equalsIgnoreCase(symbolCode)) {
+                    symbol = s;
+                    break;
+                }
+            }
+            if (symbol == null) {
+                out.put("ok", false);
+                out.put("error", "unknown symbol '" + symbolCode + "' (try one of GER40/XAU/US100/EURUSD/BTC)");
+                return out;
+            }
+            code = symbol.code();
+            epic = symbol.epic(properties);
         }
-        if (symbol == null) {
+        if (trades.hasOpenPosition(variant, code)) {
             out.put("ok", false);
-            out.put("error", "unknown symbol '" + symbolCode + "' (try one of GER40/XAU/US100/EURUSD/BTC)");
-            return out;
-        }
-        if (trades.hasOpenPosition(variant, symbol.code())) {
-            out.put("ok", false);
-            out.put("error", variant.name() + " already has an OPEN position for " + symbol.code()
+            out.put("error", variant.name() + " already has an OPEN position for " + code
                     + " — close it first, the gate will not stack.");
             return out;
         }
-        String epic = symbol.epic(properties);
-        BrokerClient market = books.marketData();
+        BrokerClient market = okxVariant ? books.forBook(Books.OKX) : books.marketData();
         double mid;
         try {
             market.login();
@@ -178,20 +225,20 @@ public class HtsScanService {
         double stop = buy ? mid - stopDist : mid + stopDist;
         double target = buy ? mid + 2 * stopDist : mid - 2 * stopDist;
         Instant now = clock.instant();
-        HtsScan signal = new HtsScan(variant, now, symbol.code(), epic, direction, mid, stop, target, buy);
+        HtsScan signal = new HtsScan(variant, now, code, epic, direction, mid, stop, target, buy);
 
-        log.info("HTS TEST entry: {} {} {} @ {} stop {} target {}", variant.name(), symbol.code(),
+        log.info("HTS TEST entry: {} {} {} @ {} stop {} target {}", variant.name(), code,
                 direction, mid, stop, target);
         execution.executeSignal(signal);
 
         out.put("signal", Map.of(
-                "variant", variant.name(), "symbol", symbol.code(), "epic", epic,
+                "variant", variant.name(), "symbol", code, "epic", epic,
                 "direction", direction.name(), "entry", mid, "stop", stop, "target", target));
 
         HtsTradeEntity saved = null;
         for (HtsTradeEntity t : trades.recent(null, 20)) {
             if (variant.name().equals(t.getVariant())
-                    && symbol.code().equalsIgnoreCase(t.getSymbol())
+                    && code.equalsIgnoreCase(t.getSymbol())
                     && t.getOpenedAt() != null
                     && t.getOpenedAt().isAfter(now.minusSeconds(180))) {
                 saved = t;
@@ -215,12 +262,12 @@ public class HtsScanService {
         return out;
     }
 
-    private void scanVariant(HtsVariant v, List<SddSymbol> universe, BrokerClient market,
+    private void scanVariant(HtsVariant v, List<HtsInstrument> universe, BrokerClient market,
                              Instant now, List<HtsScan> found) {
         Instant fromHtf = now.minus(v.htfLookback());
         Instant fromLtf = now.minus(v.ltfLookback());
-        for (SddSymbol symbol : universe) {
-            String epic = symbol.epic(properties);
+        for (HtsInstrument symbol : universe) {
+            String epic = symbol.epic();
             try {
                 List<Candle> ltf = HtsCandles.fetch(market, epic, v.ltf(), fromLtf, now);
                 List<Candle> htf = HtsCandles.fetch(market, epic, v.htf(), fromHtf, now);

@@ -195,12 +195,26 @@ public class RiskPolicy {
     }
 
     /**
+     * "OKX" book pick — OKX exposes a single unified trading account, so this
+     * returns the first account OKX reports (its only one).
+     */
+    public Account pickOkxAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        return accounts.get(0);
+    }
+
+    /**
      * The demo sub-account a book trades on: {@code demo} → "Account m15",
-     * {@code swing} → "Account H1", {@code hts} → "Account m5", anything else →
-     * the preferred demo account. Used by the HTS engine, which now runs one
-     * timeframe model per demo account.
+     * {@code swing} → "Account H1", {@code hts} → "Account m5", {@code okx} → the
+     * OKX unified account, anything else → the preferred demo account. Used by the
+     * HTS engine, which now runs one timeframe model per account.
      */
     public Account pickForBook(String book, List<Account> accounts) {
+        if (com.adam.server.broker.Books.OKX.equalsIgnoreCase(book)) {
+            return pickOkxAccount(accounts);
+        }
         if (com.adam.server.broker.Books.SWING.equalsIgnoreCase(book)) {
             return pickSwingAccount(accounts);
         }

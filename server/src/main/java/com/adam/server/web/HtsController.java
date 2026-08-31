@@ -306,7 +306,7 @@ public class HtsController {
             dir = Direction.valueOf(direction.trim().toUpperCase());
         } catch (RuntimeException e) {
             return Map.of("ok", false, "error",
-                    "variant must be CORE/SWING/FAST/CORE_LIVE and direction BUY/SELL");
+                    "variant must be CORE/SWING/FAST/CORE_LIVE/CORE_OKX/FAST_OKX and direction BUY/SELL");
         }
         return scan.testEntry(v, symbol, dir);
     }

@@ -2,6 +2,7 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.broker.Books;
 import com.adam.server.broker.Direction;
 import com.adam.server.config.AppProperties;
 import com.adam.server.broker.model.Account;
@@ -90,6 +91,17 @@ public class HtsExecutionGate {
             return;
         }
         String book = s.variant().book();
+        // OKX variants carry live=false (gated by the demo hts.execution flag), so a
+        // real-money OKX account (OKX_DEMO=false) would trade on the demo tier with
+        // no day-P/L halt. Require an explicit opt-in for that case.
+        if (Books.OKX.equalsIgnoreCase(book)
+                && !properties.getOkx().isDemo()
+                && !properties.getOkx().isLiveExecutionEnabled()) {
+            log.warn("HTS [{}] execution SKIPPED for {} {} — OKX is in REAL-money mode (OKX_DEMO=false) "
+                            + "but OKX_LIVE_EXECUTION_ENABLED is not set",
+                    s.variant().name(), s.symbol(), s.direction());
+            return;
+        }
         String key = s.variant().name() + "|" + s.symbol() + "|" + s.direction().name() + "|"
                 + (s.timestamp() == null ? 0 : s.timestamp().toEpochMilli());
         if (!placed.add(key)) {
@@ -140,6 +152,18 @@ public class HtsExecutionGate {
                 }
             } else {
                 account = risk.pickForBook(book, accounts);
+                // OKX runs real money (no demo), so give it the same day-P/L
+                // circuit breaker CORE_LIVE has. Halt threshold is app.live-halt-pln
+                // (a rough floor — OKX settles in USDT, not PLN).
+                if (Books.OKX.equalsIgnoreCase(book) && account != null) {
+                    double dayPnl = trades.realisedPnlSince(book, trades.startOfToday()) + account.profitLoss();
+                    if (dayPnl <= properties.getLiveHaltPln()) {
+                        log.warn("HTS [{}] OKX execution skipped {} — day P/L {} past halt {}",
+                                s.variant().name(), s.symbol(), dayPnl, properties.getLiveHaltPln());
+                        placed.remove(key);
+                        return;
+                    }
+                }
             }
             if (account == null) {
                 log.warn("HTS [{}] execution {}: no account on book {}", s.variant().name(), s.symbol(), book);

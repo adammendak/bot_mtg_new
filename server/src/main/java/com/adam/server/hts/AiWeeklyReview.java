@@ -92,7 +92,8 @@ public class AiWeeklyReview {
         String prompt = """
                 Jesteś asystentem tradera-programisty. Poniżej surowe wyniki tygodnia forward-testu \
                 strategii HTS ("wstęgi") — 3 warianty timeframe na kontach demo (CORE H4/M15, \
-                SWING D1/H1, FAST H1/M5) plus jeden wariant na koncie live (CORE_LIVE H4/M15).
+                SWING D1/H1, FAST H1/M5), jeden na koncie live (CORE_LIVE H4/M15) i 2 na OKX crypto \
+                (CORE_OKX H4/M15, FAST_OKX H1/M5).
 
                 Napisz zwięzłe podsumowanie po polsku (max ~250 słów):
                 - co zagrało, co nie,

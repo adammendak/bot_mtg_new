@@ -43,7 +43,8 @@ class MonitoringServiceTest {
                 new UnavailableBrokerClient("live", "test"),
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
-                new UnavailableBrokerClient("hts", "test"));
+                new UnavailableBrokerClient("hts", "test"),
+                new UnavailableBrokerClient("okx", "test"));
         monitor = new MonitoringService(books, props, clock);
         when(demo.book()).thenReturn("demo");
         when(demo.id()).thenReturn("capital");

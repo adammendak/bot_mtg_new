@@ -6,7 +6,7 @@ import { formatHttpError } from '../sdd/service/sdd.service';
 import { AuthService } from '../auth/auth.service';
 import { AdminUser, FeatureFlag } from './admin.model';
 
-const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts'];
+const ALL_BOOKS = ['demo', 'live', 'glowne', 'swing', 'hts', 'okx'];
 
 /**
  * Admin panel: manage portal users, their role (ADMIN/USER) and which broker

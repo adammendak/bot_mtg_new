@@ -263,6 +263,8 @@ public class EquityHistoryService {
                 chosen = risk.pickSwingAccount(accounts);
             } else if (Books.HTS.equals(client.book())) {
                 chosen = risk.pickHtsAccount(accounts);
+            } else if (Books.OKX.equals(client.book())) {
+                chosen = risk.pickOkxAccount(accounts);
             } else {
                 chosen = risk.pickDemoAccount(accounts);
             }

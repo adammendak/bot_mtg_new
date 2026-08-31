@@ -59,7 +59,7 @@ export class SddService {
   readonly htsLabBusy = signal(false);
   readonly health = signal<HealthInfo | null>(null);
   readonly accounts = signal<AccountView[]>([]);
-  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [], hts: [] });
+  readonly positions = signal<PositionsByBook>({ demo: [], live: [], glowne: [], swing: [], hts: [], okx: [] });
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly history = signal<HistoryResponse | null>(null);
@@ -137,6 +137,7 @@ export class SddService {
           glowne: p.glowne ?? [],
           swing: p.swing ?? [],
           hts: p.hts ?? [],
+          okx: p.okx ?? [],
         }),
       error: (e) => this.positionsError.set(formatHttpError('/api/positions/risk', e)),
     });
@@ -329,6 +330,7 @@ export class SddService {
           glowne: p.glowne ?? [],
           swing: p.swing ?? [],
           hts: p.hts ?? [],
+          okx: p.okx ?? [],
         }),
       error: (e) => this.positionsError.set(formatHttpError('/api/positions/risk', e)),
     });
@@ -368,7 +370,9 @@ export class SddService {
         ? { htf: 'D1', ltf: 'H1' }
         : book === 'hts'
           ? { htf: 'H1', ltf: 'M5' }
-          : { htf: 'H4', ltf: 'M15' };
+          : book === 'okx'
+            ? { htf: 'H4', ltf: 'M15' }
+            : { htf: 'H4', ltf: 'M15' };
     this.backtestBusy.set(true);
     this.backtestError.set(null);
     this.http

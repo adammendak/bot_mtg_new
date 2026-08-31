@@ -16,6 +16,10 @@ import java.time.Duration;
  *   <li>{@link #CORE_LIVE} — H4 / M15 → {@code live} book ("bot trading konto"),
  *       <b>real money</b>, 1 % of account risk; gated by
  *       {@code HTS_LIVE_EXECUTION_ENABLED} (separate from the demo flag)</li>
+ *   <li>{@link #CORE_OKX} — H4 / M15 → {@code okx} book (OKX crypto, SWAP),
+ *       24/7; gated by {@code HTS_EXECUTION_ENABLED}</li>
+ *   <li>{@link #FAST_OKX} — H1 / M5 → {@code okx} book (OKX crypto, SWAP),
+ *       24/7; gated by {@code HTS_EXECUTION_ENABLED}</li>
  * </ul>
  *
  * Same {@link HtsEngine} for all (it is timeframe-generic); only the pair of
@@ -26,7 +30,9 @@ public enum HtsVariant {
     CORE(Resolution.H4, Resolution.M15, Books.DEMO, Duration.ofDays(80), Duration.ofDays(10), 15, false),
     SWING(Resolution.D1, Resolution.H1, Books.SWING, Duration.ofDays(240), Duration.ofDays(28), 60, false),
     FAST(Resolution.H1, Resolution.M5, Books.HTS, Duration.ofDays(28), Duration.ofDays(6), 5, false),
-    CORE_LIVE(Resolution.H4, Resolution.M15, Books.LIVE, Duration.ofDays(80), Duration.ofDays(10), 15, true);
+    CORE_LIVE(Resolution.H4, Resolution.M15, Books.LIVE, Duration.ofDays(80), Duration.ofDays(10), 15, true),
+    CORE_OKX(Resolution.H4, Resolution.M15, Books.OKX, Duration.ofDays(80), Duration.ofDays(10), 15, false),
+    FAST_OKX(Resolution.H1, Resolution.M5, Books.OKX, Duration.ofDays(28), Duration.ofDays(6), 5, false);
 
     private final Resolution htf;
     private final Resolution ltf;

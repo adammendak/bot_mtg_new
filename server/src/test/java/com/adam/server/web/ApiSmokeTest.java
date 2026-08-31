@@ -134,19 +134,20 @@ class ApiSmokeTest {
         mvc.perform(get("/api/broker").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.executionEnabled").value(false))
-                .andExpect(jsonPath("$.books", hasSize(5)))
+                .andExpect(jsonPath("$.books", hasSize(6)))
                 .andExpect(jsonPath("$.books[0].id").value("demo"))
                 .andExpect(jsonPath("$.books[1].id").value("live"))
                 .andExpect(jsonPath("$.books[2].id").value("glowne"))
                 .andExpect(jsonPath("$.books[3].id").value("swing"))
-                .andExpect(jsonPath("$.books[4].id").value("hts"));
+                .andExpect(jsonPath("$.books[4].id").value("hts"))
+                .andExpect(jsonPath("$.books[5].id").value("okx"));
     }
 
     @Test
     void accountsEndpointReturnsAllBooksForAdmin() throws Exception {
         mvc.perform(get("/api/accounts").header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(5)))
+                .andExpect(jsonPath("$", hasSize(6)))
                 .andExpect(jsonPath("$[0].id").value("demo"))
                 .andExpect(jsonPath("$[0].connected").value(true))
                 .andExpect(jsonPath("$[0].equity").value(1000))

@@ -29,7 +29,8 @@ public class BrokerInfoController {
         AppUser user = CurrentUser.of(authentication);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionEnabled", properties.isExecutionEnabled());
-        body.put("books", List.of(books.demo(), books.live(), books.glowne(), books.swing(), books.hts()).stream()
+        body.put("books", List.of(books.demo(), books.live(), books.glowne(),
+                        books.swing(), books.hts(), books.okx()).stream()
                 .filter(b -> user == null || user.canSeeBook(b.book()))
                 .map(BrokerInfoController::book)
                 .toList());

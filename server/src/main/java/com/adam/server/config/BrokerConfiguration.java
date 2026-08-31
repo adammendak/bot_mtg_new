@@ -3,6 +3,7 @@ package com.adam.server.config;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.UnavailableBrokerClient;
 import com.adam.server.broker.capital.CapitalComBrokerClient;
+import com.adam.server.broker.okx.OkxBrokerClient;
 import com.adam.server.broker.paper.PaperBrokerClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -134,5 +135,25 @@ public class BrokerConfiguration {
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperHtsPlaceholder() {
         return new UnavailableBrokerClient("hts", "HTS book is not wired in paper mode");
+    }
+
+    /**
+     * OKX (crypto) broker — always present so {@link BrokerBooks} resolves the
+     * {@code okx} book; {@code configured()} is false until OKX_API_KEY /
+     * OKX_SECRET / OKX_PASSPHRASE are set, so the dashboard shows it disconnected
+     * and HTS skips execution. Demo mode adds {@code x-simulated-trading: 1}.
+     */
+    @Bean("okxBroker")
+    BrokerClient okxBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Okx okx = properties.getOkx();
+        if (okx.getHost() == null || okx.getHost().isBlank()) {
+            okx.setHost(okx.isDemo() ? "https://openapi.okx.com" : "https://www.okx.com");
+        }
+        return new OkxBrokerClient(
+                builder,
+                "okx",
+                okx,
+                "OKX credentials are not set (OKX_API_KEY / OKX_SECRET / OKX_PASSPHRASE)"
+        );
     }
 }

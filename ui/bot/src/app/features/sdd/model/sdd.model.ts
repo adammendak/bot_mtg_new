@@ -85,9 +85,10 @@ export interface Position {
 
 /**
  * Broker book identifiers. `swing` = separate demo account for the SDD-SWING (H1)
- * strategy; `hts` = separate demo account for the HTS ("wstęgi") strategy.
+ * strategy; `hts` = separate demo account for the HTS ("wstęgi") strategy;
+ * `okx` = OKX crypto exchange account (HTS CORE_OKX / FAST_OKX).
  */
-export type BookId = 'demo' | 'live' | 'glowne' | 'swing' | 'hts';
+export type BookId = 'demo' | 'live' | 'glowne' | 'swing' | 'hts' | 'okx';
 
 /** All book tabs in dashboard order — filter by AuthService.canSeeBook() before rendering. */
 export const BOOK_TABS: { id: BookId; label: string }[] = [
@@ -96,6 +97,7 @@ export const BOOK_TABS: { id: BookId; label: string }[] = [
   { id: 'demo', label: 'Demo · m15 / CORE' },
   { id: 'swing', label: 'Demo · H1 / SWING' },
   { id: 'hts', label: 'Demo · m5 / FAST' },
+  { id: 'okx', label: 'OKX · crypto' },
 ];
 
 export interface PositionsByBook {
@@ -104,6 +106,7 @@ export interface PositionsByBook {
   glowne: Position[];
   swing: Position[];
   hts: Position[];
+  okx: Position[];
 }
 
 export interface AccountView {
