@@ -165,6 +165,26 @@ class HtsExecutionGateTest {
     }
 
     @Test
+    void sizesForThePointValueInAccountCurrency() {
+        // 1 point of this instrument is worth 1.0 of its own currency, and the FX
+        // to the PLN account is 4.0 — so 1R sizing must divide by stopDist*4, not
+        // stopDist (otherwise a "1%" trade risks ~4%).
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 0, 0, true, 0.05, "EUR", 1.0));
+        when(broker.fxRate("EUR", "PLN")).thenReturn(4.0);
+        when(risk.sizeFor(anyDouble(),
+                org.mockito.ArgumentMatchers.doubleThat(d -> d > 600), anyDouble())).thenReturn(0.02);
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.02));
+
+        gate.executeSignal(signal(78988.65, 78823.036)); // stopDist ~165 -> ~662 after point value
+
+        ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(broker).placeMarketOrder(req.capture());
+        assertThat(req.getValue().size()).isEqualTo(0.02);
+    }
+
+    @Test
     void capsSizeToWhatTheAccountCanMargin() {
         // 1R sizing wants 0.5 lots; account has 1000 PLN and DE40-style margin
         // is 5% of a USD notional at ~4.0 PLN/USD -> only ~0.05 lots fit.

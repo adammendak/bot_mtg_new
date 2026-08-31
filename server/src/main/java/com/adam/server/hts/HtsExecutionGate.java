@@ -152,22 +152,6 @@ public class HtsExecutionGate {
                 // already selected
             }
 
-            double stopDist = Math.abs(s.entry() - s.stopLevel());
-            double cash = risk.riskAmount(account, live);
-            double size = risk.sizeFor(cash, stopDist, 1.0);
-            if (size <= 0 || stopDist <= 0) {
-                log.warn("HTS [{}] execution {}: size/stop is zero (cash {}, stopDist {})",
-                        s.variant().name(), s.symbol(), cash, stopDist);
-                placed.remove(key);
-                return;
-            }
-            if (live && size < properties.getMinDealSize()) {
-                log.warn("HTS [{}] LIVE execution skipped {} — size {} below min deal {} (1R would risk too little)",
-                        s.variant().name(), s.symbol(), size, properties.getMinDealSize());
-                placed.remove(key);
-                return;
-            }
-
             // Shape the order so the broker actually accepts it: snap the size to
             // the instrument step, round the stop to instrument precision, and
             // widen a too-tight M5 band stop out to the broker minimum. Without
@@ -183,13 +167,39 @@ public class HtsExecutionGate {
                         s.variant().name(), s.symbol(), s.epic());
                 placed.remove(key);
                 mailer.sendThrottled("exec-hts-closed-" + s.variant().name(),
-                        "HTS entry skipped — market closed",
+                        mailTag(s) + " entry skipped — market closed",
                         s.variant().name() + " " + s.symbol() + " " + s.direction()
                                 + " signal fired but " + s.epic() + " is not tradeable right now "
                                 + "(weekend / market closed). No order was placed.\n\n"
                                 + "(further skips within 30 min are suppressed)");
                 return;
             }
+
+            double fx = broker.fxRate(rules.currency(), account.currency());
+            if (fx <= 0) {
+                fx = 1.0;
+            }
+            // Value of one price point in the account currency. 1R sizing divides
+            // by this — without it a €1/point index on a PLN account is sized
+            // ~fx times too big (a "1%" trade actually risked ~4%).
+            double pointValueAcct = rules.pointValue() > 0 ? rules.pointValue() * fx : 1.0;
+
+            double stopDist = Math.abs(s.entry() - s.stopLevel());
+            double cash = risk.riskAmount(account, live);
+            double size = risk.sizeFor(cash, stopDist * pointValueAcct, 1.0);
+            if (size <= 0 || stopDist <= 0) {
+                log.warn("HTS [{}] execution {}: size/stop is zero (cash {}, stopDist {}, pointValue {})",
+                        s.variant().name(), s.symbol(), cash, stopDist, pointValueAcct);
+                placed.remove(key);
+                return;
+            }
+            if (live && size < properties.getMinDealSize()) {
+                log.warn("HTS [{}] LIVE execution skipped {} — size {} below min deal {} (1R would risk too little)",
+                        s.variant().name(), s.symbol(), size, properties.getMinDealSize());
+                placed.remove(key);
+                return;
+            }
+
             boolean buy = s.direction() == Direction.BUY;
             double adjEntry = rules.roundPrice(s.entry());
             double adjStop = rules.roundPrice(s.stopLevel());
@@ -213,7 +223,7 @@ public class HtsExecutionGate {
             // distance so risk stays ~1R — otherwise a 165pt band stop widened to
             // a 500pt broker minimum would risk ~3× the intended amount.
             if (adjDist > stopDist * 1.0001) {
-                double resized = risk.sizeFor(cash, adjDist, 1.0);
+                double resized = risk.sizeFor(cash, adjDist * pointValueAcct, 1.0);
                 log.info("HTS [{}] {} re-sized after stop widen: {} -> {} (dist {} -> {})",
                         s.variant().name(), s.symbol(), size, resized, stopDist, adjDist);
                 size = resized;
@@ -235,8 +245,7 @@ public class HtsExecutionGate {
             // won't fit.
             double freeFunds = account.available() > 0 ? account.available() : account.balance();
             if (rules.marginFactor() > 0 && freeFunds > 0) {
-                double fx = broker.fxRate(rules.currency(), account.currency());
-                double marginPerUnit = adjEntry * rules.marginFactor() * (fx > 0 ? fx : 1.0);
+                double marginPerUnit = adjEntry * rules.marginFactor() * fx;
                 if (marginPerUnit > 0) {
                     double maxSize = (freeFunds * properties.getHtsMarginBuffer()) / marginPerUnit;
                     if (minSize > 0 && maxSize < minSize) {
@@ -246,7 +255,7 @@ public class HtsExecutionGate {
                                 marginPerUnit, account.currency(), properties.getHtsMarginBuffer());
                         placed.remove(key);
                         mailer.sendThrottled("exec-hts-margin-" + s.variant().name(),
-                                "HTS entry skipped — account too small for " + s.symbol(),
+                                mailTag(s) + " entry skipped — account too small for " + s.symbol(),
                                 s.variant().name() + " " + s.symbol() + " " + s.direction() + " signal fired but the "
                                         + "account's free margin (" + freeFunds + " " + account.currency() + ") does not "
                                         + "cover even the broker minimum deal size. No order was placed.\n\n"
@@ -299,8 +308,9 @@ public class HtsExecutionGate {
                 log.warn("HTS [{}] entry {} {} submitted (ref {}) but NOT confirmed open — not recording",
                         s.variant().name(), s.symbol(), s.direction(), ack.dealReference());
                 placed.remove(key);
-                mailer.sendThrottled("exec-hts-reject", "HTS entry not confirmed open",
-                        "An HTS entry for " + s.variant().name() + " " + s.symbol() + " " + s.direction()
+                mailer.sendThrottled("exec-hts-reject", mailTag(s) + " entry not confirmed open — " + s.symbol(),
+                        "An HTS entry for " + s.variant().name() + " (" + s.variant().htf() + "/" + s.variant().ltf()
+                                + ") " + s.symbol() + " " + s.direction()
                                 + " was submitted (ref " + ack.dealReference() + ") but the broker did not "
                                 + "confirm an open position. See the confirm reason in the logs.\n\n"
                                 + "(further failures within 30 min are suppressed)");
@@ -322,11 +332,19 @@ public class HtsExecutionGate {
                     e.getClass().getSimpleName());
             placed.remove(key);
             errorLog.record("hts-exec", s.variant().name(), s.symbol(), e);
-            mailer.sendThrottled("exec-hts", "HTS execution failed",
+            mailer.sendThrottled("exec-hts", mailTag(s) + " execution failed — " + s.symbol(),
                     "Placing an HTS entry failed for " + s.variant().name() + " " + s.symbol()
                             + " " + s.direction() + ":\n\n" + e.getClass().getSimpleName()
                             + "\n\n(further failures within 30 min are suppressed)");
         }
+    }
+
+    /** Mail subject prefix that names the model and its timeframe, e.g. "HTS [CORE H4/M15]". */
+    private static String mailTag(HtsScan s) {
+        if (s == null || s.variant() == null) {
+            return "HTS";
+        }
+        return "HTS [" + s.variant().name() + " " + s.variant().htf() + "/" + s.variant().ltf() + "]";
     }
 
     /**

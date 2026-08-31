@@ -48,6 +48,8 @@ public class HtsTradeService {
     private static final Logger log = LoggerFactory.getLogger(HtsTradeService.class);
     private static final double REASON_TOLERANCE = 0.15;   // fraction of the leg for STOP / TARGET labelling
     private static final double TRAIL_MIN_STEP = 0.10;     // only amend the stop if it moved this fraction of the leg
+    /** A just-placed position can lag in openPositions(); don't reconcile-close a row this young. */
+    private static final Duration RECONCILE_GRACE = Duration.ofSeconds(120);
 
     private final HtsTradeRepository trades;
     private final BrokerBooks books;
@@ -131,6 +133,14 @@ public class HtsTradeService {
                         (t.getDealId() != null && live.ids().contains(t.getDealId()))
                                 || (t.getDealReference() != null && live.refs().contains(t.getDealReference()));
                 if (!stillOpen) {
+                    // A fill can take a few seconds to show in openPositions(), and
+                    // a real early stop-out needs time to land in the transaction
+                    // feed so applyClose can classify it (STOP + pnl) instead of
+                    // UNKNOWN. Leave a young row for the next pass.
+                    if (t.getOpenedAt() != null
+                            && Duration.between(t.getOpenedAt(), Instant.now()).compareTo(RECONCILE_GRACE) < 0) {
+                        continue;
+                    }
                     applyClose(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx));
                     trades.save(t);
                     fan(sink -> sink.onClose(t));

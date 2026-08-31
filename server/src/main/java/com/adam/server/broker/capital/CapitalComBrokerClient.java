@@ -282,9 +282,17 @@ public class CapitalComBrokerClient implements BrokerClient {
             MarketRules r = toRules(epic, body);
             String marketStatus = body != null && body.snapshot() != null
                     ? body.snapshot().marketStatus() : null;
-            log.info("Capital.com {} rules {}: minDealSize={} priceDp={} minStop={} maxStop={} marketStatus={} tradeable={}",
+            log.info("Capital.com {} rules {}: minDealSize={} priceDp={} minStop={} maxStop={} marketStatus={} tradeable={} marginFactor={} ccy={}",
                     book, epic, r.minDealSize(), r.priceDecimalPlaces(),
-                    r.minStopDistancePoints(), r.maxStopDistancePoints(), marketStatus, r.tradeable());
+                    r.minStopDistancePoints(), r.maxStopDistancePoints(), marketStatus, r.tradeable(),
+                    r.marginFactor(), r.currency());
+            if (body != null) {
+                // The parsed values above have looked wrong for some epics; log the
+                // raw dealingRules + snapshot + instrument so the mapping / units
+                // can be verified against what Capital actually sends.
+                log.info("Capital.com {} raw market {}: dealingRules={} snapshot={} instrument={}",
+                        book, epic, body.dealingRules(), body.snapshot(), body.instrument());
+            }
             // Only cache once the market is open: dealing rules are static, but
             // marketStatus flips at the weekend / session boundary, and a cached
             // "not tradeable" would wrongly block every entry until the next deploy.
@@ -373,7 +381,22 @@ public class CapitalComBrokerClient implements BrokerClient {
                     ? inst.marginFactor() / 100.0
                     : inst.marginFactor();
         }
-        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable, marginFactor, currency);
+        // Cash value of one price point per 1.0 size, in the instrument currency
+        // (Capital's "valueOfOnePip", e.g. "1.00" for DE40). 1R sizing needs this
+        // × FX or a "1%" trade risks ~FX times too much on an EUR/USD instrument.
+        double pointValue = parseDouble(inst == null ? null : inst.valueOfOnePip());
+        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable, marginFactor, currency, pointValue);
+    }
+
+    private static double parseDouble(String s) {
+        if (s == null || s.isBlank()) {
+            return 0;
+        }
+        try {
+            return Double.parseDouble(s.trim().replace(",", ""));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** Capital {unit,value} → price points ({@code PERCENTAGE} needs the price). */
@@ -660,11 +683,29 @@ public class CapitalComBrokerClient implements BrokerClient {
 
     @Override
     public Confirmation confirm(String dealReference) {
-        String raw = authed()
-                .get()
-                .uri("/api/v1/confirms/{dealReference}", dealReference)
-                .retrieve()
-                .body(String.class);
+        String raw = null;
+        for (int attempt = 0; ; attempt++) {
+            try {
+                raw = authed()
+                        .get()
+                        .uri("/api/v1/confirms/{dealReference}", dealReference)
+                        .retrieve()
+                        .body(String.class);
+                break;
+            } catch (RestClientResponseException e) {
+                // Capital's confirm is not always ready the instant placeMarketOrder
+                // returns — a 404 (and sometimes a 429) clears on a short retry.
+                int code = e.getStatusCode().value();
+                if ((code == 404 || code == 429) && attempt < TX_RATE_LIMIT_RETRIES) {
+                    log.warn("Capital.com {} confirm {} not ready (HTTP {}), retry {}/{}",
+                            book, dealReference, code, attempt + 1, TX_RATE_LIMIT_RETRIES);
+                    if (backoff(attempt)) {
+                        continue;
+                    }
+                }
+                throw wrap("confirm", e);
+            }
+        }
         CapitalJson.ConfirmResponse body = CapitalJson.parseConfirm(raw);
         if (body == null) {
             throw new BrokerException("No confirmation for " + dealReference);
