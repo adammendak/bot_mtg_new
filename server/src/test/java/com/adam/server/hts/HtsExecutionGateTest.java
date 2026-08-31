@@ -218,6 +218,36 @@ class HtsExecutionGateTest {
         verify(mailer).sendThrottled(eq("exec-hts-margin-FAST"), anyString(), anyString());
     }
 
+    private HtsScan okxSignal() {
+        return new HtsScan(HtsVariant.CORE_OKX, Instant.parse("2026-08-30T19:00:00Z"),
+                "BTC", "BTC-USDT-SWAP", Direction.BUY, 100.0, 98.0, 104.0, true);
+    }
+
+    @Test
+    void skipsRealMoneyOkxUnlessExplicitlyArmed() {
+        props.getOkx().setDemo(false);            // real OKX account
+        props.getOkx().setLiveExecutionEnabled(false);
+
+        gate.executeSignal(okxSignal());
+
+        verify(broker, never()).placeMarketOrder(any());
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+    }
+
+    @Test
+    void allowsRealMoneyOkxWhenArmed() {
+        props.getOkx().setDemo(false);
+        props.getOkx().setLiveExecutionEnabled(true);
+        when(books.forBook(HtsVariant.CORE_OKX.book())).thenReturn(broker);
+        when(risk.pickForBook(eq(HtsVariant.CORE_OKX.book()), any())).thenReturn(account);
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTC-USDT-SWAP", Direction.BUY, 100.0, 0.05));
+
+        gate.executeSignal(okxSignal());
+
+        verify(broker).placeMarketOrder(any());
+    }
+
     @Test
     void neverStacksASecondPositionForAnOpenModelSymbol() {
         when(trades.hasOpenPosition(HtsVariant.FAST, "BTC")).thenReturn(true);

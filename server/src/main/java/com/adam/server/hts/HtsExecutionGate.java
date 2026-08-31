@@ -2,6 +2,7 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.broker.Books;
 import com.adam.server.broker.Direction;
 import com.adam.server.config.AppProperties;
 import com.adam.server.broker.model.Account;
@@ -90,6 +91,17 @@ public class HtsExecutionGate {
             return;
         }
         String book = s.variant().book();
+        // OKX variants carry live=false (gated by the demo hts.execution flag), so a
+        // real-money OKX account (OKX_DEMO=false) would trade on the demo tier with
+        // no day-P/L halt. Require an explicit opt-in for that case.
+        if (Books.OKX.equalsIgnoreCase(book)
+                && !properties.getOkx().isDemo()
+                && !properties.getOkx().isLiveExecutionEnabled()) {
+            log.warn("HTS [{}] execution SKIPPED for {} {} — OKX is in REAL-money mode (OKX_DEMO=false) "
+                            + "but OKX_LIVE_EXECUTION_ENABLED is not set",
+                    s.variant().name(), s.symbol(), s.direction());
+            return;
+        }
         String key = s.variant().name() + "|" + s.symbol() + "|" + s.direction().name() + "|"
                 + (s.timestamp() == null ? 0 : s.timestamp().toEpochMilli());
         if (!placed.add(key)) {

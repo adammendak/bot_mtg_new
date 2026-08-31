@@ -430,6 +430,8 @@ public class AppProperties {
         private String passphrase = "";
         private String host = "https://www.okx.com";
         private boolean demo = false;
+        /** Opt-in required to execute on a REAL-money OKX account (demo=false). */
+        private boolean liveExecutionEnabled = false;
 
         public String getApiKey() {
             return apiKey;
@@ -469,6 +471,14 @@ public class AppProperties {
 
         public void setDemo(boolean demo) {
             this.demo = demo;
+        }
+
+        public boolean isLiveExecutionEnabled() {
+            return liveExecutionEnabled;
+        }
+
+        public void setLiveExecutionEnabled(boolean liveExecutionEnabled) {
+            this.liveExecutionEnabled = liveExecutionEnabled;
         }
 
         public boolean credentialsPresent() {
