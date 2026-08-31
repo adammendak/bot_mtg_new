@@ -113,21 +113,33 @@ public class HtsScanService {
                             variant.name(), variant.book());
                     continue;
                 }
-                // Only (re)authenticate when the session is actually stale. This
-                // loop runs per due variant, and several variants share one
-                // broker — an unconditional login() here would hit Capital's
-                // rate-limited POST /session up to 4× per top-of-hour scan.
-                if (!market.isSessionOpen()) {
-                    market.login();
-                }
-                if (variant.book().equals(Books.OKX)) {
-                    scanVariant(variant, OkxSymbol.universe().stream()
-                                    .map(s -> new HtsInstrument(s.code(), s.instId())).toList(),
-                            market, now, found);
-                } else {
-                    scanVariant(variant, SddSymbol.htsUniverseFor(now, zone).stream()
-                                    .map(s -> new HtsInstrument(s.code(), s.epic(properties))).toList(),
-                            market, now, found);
+                try {
+                    // Only (re)authenticate when the session is actually stale.
+                    // This loop runs per due variant, and several variants share
+                    // one broker — an unconditional login() here would hit
+                    // Capital's rate-limited POST /session up to 4× per
+                    // top-of-hour scan.
+                    if (!market.isSessionOpen()) {
+                        market.login();
+                    }
+                    if (variant.book().equals(Books.OKX)) {
+                        scanVariant(variant, OkxSymbol.universe().stream()
+                                        .map(s -> new HtsInstrument(s.code(), s.instId())).toList(),
+                                market, now, found);
+                    } else {
+                        scanVariant(variant, SddSymbol.htsUniverseFor(now, zone).stream()
+                                        .map(s -> new HtsInstrument(s.code(), s.epic(properties))).toList(),
+                                market, now, found);
+                    }
+                } catch (BrokerException e) {
+                    // One broken book (e.g. OKX creds wrong) must not abort the
+                    // whole HTS scan. Alert once per book, then move on.
+                    log.warn("HTS [{}] scan skipped — {} book: {}",
+                            variant.name(), variant.book(), e.getMessage());
+                    mailer.sendThrottled("scan-hts-" + variant.book(),
+                            "HTS scan skipped — " + variant.book() + " book",
+                            "The HTS scan could not run the " + variant.book() + " book:\n\n"
+                                    + e.getMessage() + "\n\n(further failures within 30 min are suppressed)");
                 }
             }
             lastError = null;
