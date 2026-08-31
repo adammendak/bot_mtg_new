@@ -31,9 +31,18 @@ public enum OkxSymbol {
         return code;
     }
 
-    /** OKX underlying, e.g. {@code BTC-USDT} — resolved to a dated contract at run time. */
+    /** OKX underlying, e.g. {@code BTC-USDT}. */
     public String underlying() {
         return underlying;
+    }
+
+    /**
+     * The instrument to trade: the linear USDT perpetual ({@code BTC-USDT-SWAP}).
+     * OKX EEA lists these live; only the API key's market scope must include
+     * perpetuals. (EEA has no linear dated futures — those are inverse BTC-USD.)
+     */
+    public String instId() {
+        return underlying + "-SWAP";
     }
 
     public static List<OkxSymbol> universe() {

@@ -279,11 +279,15 @@ public class OkxBrokerClient implements BrokerClient {
         }
     }
 
+    private static String instTypeOf(String instId) {
+        return instId != null && instId.endsWith("-SWAP") ? "SWAP" : "FUTURES";
+    }
+
     @Override
     public MarketRules marketRules(String epic) {
         try {
             JsonNode root = get("/api/v5/public/instruments",
-                    Map.of("instType", "FUTURES", "instId", epic), false);
+                    Map.of("instType", instTypeOf(epic), "instId", epic), false);
             double tickSz = parse(OkxJson.instTickSz(root));
             double lotSz = parse(OkxJson.instLotSz(root));
             double minSz = parse(OkxJson.instMinSz(root));
@@ -514,7 +518,7 @@ public class OkxBrokerClient implements BrokerClient {
                 break;
             }
             Map<String, String> q = new LinkedHashMap<>();
-            q.put("instType", "FUTURES");
+            q.put("instType", "SWAP"); // the OKX book trades linear USDT perpetuals
             q.put("limit", "100");
             if (after != null) {
                 q.put("after", after);
