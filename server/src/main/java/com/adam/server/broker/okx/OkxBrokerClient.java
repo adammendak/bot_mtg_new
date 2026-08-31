@@ -65,11 +65,20 @@ public class OkxBrokerClient implements BrokerClient {
     private static final int CANDLE_PAGE = 300;
     private static final int HISTORY_PAGE = 100;
     private static final long PAGE_SLEEP_MS = 150L;
+    /** Roll the resolved contract to next-quarter once the front one is this close to expiry. */
+    private static final long ROLL_BEFORE_DAYS = 14;
+    /** How long a resolved front-quarter instId is reused before re-querying OKX. */
+    private static final long CONTRACT_TTL_MS = 60 * 60_000L;
+    /** Warn (via OkxRolloverWatcher) about an open position on a contract this close to expiry. */
+    public static final long ROLL_WARN_DAYS = 7;
 
     private final String book;
     private final AppProperties.Okx endpoint;
     private final RestClient rest;
     private final String missingCredsMessage;
+
+    /** underlying (BTC-USDT) → [resolved dated instId, resolvedAt epochMs]. */
+    private final Map<String, Object[]> contractCache = new ConcurrentHashMap<>();
 
     private volatile long validatedAt = 0;
 
@@ -198,11 +207,83 @@ public class OkxBrokerClient implements BrokerClient {
         return new MarketPrice(epic, bid, ask, Instant.ofEpochMilli(ts));
     }
 
+    /**
+     * An underlying ({@code BTC-USDT}) → the front-quarter dated future to trade
+     * now; rolls to next-quarter once the front one is within
+     * {@link #ROLL_BEFORE_DAYS} of expiry. A concrete {@code -YYMMDD} id is
+     * returned unchanged. Cached {@link #CONTRACT_TTL_MS}; on any lookup failure
+     * the (possibly stale) cached id is reused, else the input is returned.
+     */
+    @Override
+    public String resolveEpic(String symbolOrUnderlying) {
+        if (symbolOrUnderlying == null || symbolOrUnderlying.isBlank()
+                || symbolOrUnderlying.matches(".*-\\d{6}$")) {
+            return symbolOrUnderlying; // already a dated contract
+        }
+        String uly = symbolOrUnderlying;
+        Object[] cached = contractCache.get(uly);
+        if (cached != null && System.currentTimeMillis() - (long) cached[1] < CONTRACT_TTL_MS) {
+            return (String) cached[0];
+        }
+        try {
+            JsonNode root = get("/api/v5/public/instruments",
+                    Map.of("instType", "FUTURES", "uly", uly), false);
+            List<OkxJson.FutureInst> all = OkxJson.futures(root);
+            long rollCutoff = System.currentTimeMillis() + ROLL_BEFORE_DAYS * 86_400_000L;
+            OkxJson.FutureInst pick = null;
+            for (OkxJson.FutureInst f : all) {           // sorted oldest-expiry first
+                if (!"live".equalsIgnoreCase(f.state())) {
+                    continue;
+                }
+                pick = f;
+                if (f.expiryMs() > rollCutoff) {
+                    break;                              // first contract with enough runway
+                }
+            }
+            if (pick == null) {
+                throw new BrokerException("no live FUTURES contract for " + uly);
+            }
+            contractCache.put(uly, new Object[]{pick.instId(), System.currentTimeMillis()});
+            log.info("OKX {} contract for {}: {} (alias {}, {}d to expiry)",
+                    book, uly, pick.instId(), pick.alias(), daysToExpiry(pick.instId()));
+            return pick.instId();
+        } catch (Exception e) {
+            if (cached != null) {
+                log.warn("OKX {} contract lookup failed for {} ({}) — reusing {}",
+                        book, uly, e.getClass().getSimpleName(), cached[0]);
+                return (String) cached[0];
+            }
+            log.warn("OKX {} contract lookup failed for {} ({}) — no cached id",
+                    book, uly, e.getClass().getSimpleName());
+            return symbolOrUnderlying;
+        }
+    }
+
+    /** Days from now to the expiry encoded in a {@code ...-YYMMDD} instId; -1 if none. */
+    public static long daysToExpiry(String instId) {
+        if (instId == null) {
+            return -1;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("-(\\d{2})(\\d{2})(\\d{2})$").matcher(instId);
+        if (!m.find()) {
+            return -1;
+        }
+        try {
+            java.time.LocalDate exp = java.time.LocalDate.of(
+                    2000 + Integer.parseInt(m.group(1)),
+                    Integer.parseInt(m.group(2)),
+                    Integer.parseInt(m.group(3)));
+            return java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(java.time.ZoneOffset.UTC), exp);
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
     @Override
     public MarketRules marketRules(String epic) {
         try {
             JsonNode root = get("/api/v5/public/instruments",
-                    Map.of("instType", "SWAP", "instId", epic), false);
+                    Map.of("instType", "FUTURES", "instId", epic), false);
             double tickSz = parse(OkxJson.instTickSz(root));
             double lotSz = parse(OkxJson.instLotSz(root));
             double minSz = parse(OkxJson.instMinSz(root));
@@ -433,7 +514,7 @@ public class OkxBrokerClient implements BrokerClient {
                 break;
             }
             Map<String, String> q = new LinkedHashMap<>();
-            q.put("instType", "SWAP");
+            q.put("instType", "FUTURES");
             q.put("limit", "100");
             if (after != null) {
                 q.put("after", after);

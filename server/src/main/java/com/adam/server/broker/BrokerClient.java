@@ -55,6 +55,16 @@ public interface BrokerClient {
         return 1.0;
     }
 
+    /**
+     * Resolve a stable strategy symbol / underlying into the broker instrument id
+     * to actually trade this cycle. Default: identity (the symbol IS the epic —
+     * Capital, paper). OKX overrides it to pick the current front-quarter dated
+     * future for an underlying, so the scan and gate always use a live contract.
+     */
+    default String resolveEpic(String symbolOrUnderlying) {
+        return symbolOrUnderlying;
+    }
+
     OrderAck placeWorkingOrder(OrderRequest request);
 
     OrderAck amendWorkingOrder(String dealId, OrderRequest request);

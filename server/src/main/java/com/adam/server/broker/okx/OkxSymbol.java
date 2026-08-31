@@ -3,36 +3,37 @@ package com.adam.server.broker.okx;
 import java.util.List;
 
 /**
- * Crypto universe for the OKX book — OKX SWAP (perpetual) instrument ids, which
- * trade 24/7 (no weekend filtering, unlike the Capital.com SDD universe).
- *
- * <p>The HTS engine treats these as opaque epics, so the OKX instrument id
- * doubles as the epic. {@code code()} is the short symbol used in signals and
- * the UI (BTC, ETH, …), {@code instId()} is the broker instrument id.
+ * Crypto universe for the OKX book. The OKX EEA entity does not offer perpetual
+ * swaps to retail, so the bot trades <b>dated (quarterly) futures</b> instead:
+ * {@code code()} is the short symbol (BTC, ETH, …), {@code underlying()} is the
+ * OKX underlying ({@code BTC-USDT}), and the concrete contract id
+ * ({@code BTC-USDT-YYMMDD}) is resolved per cycle by
+ * {@link OkxBrokerClient#resolveEpic(String)} to the current front quarter.
  */
 public enum OkxSymbol {
 
-    BTC("BTC", "BTC-USDT-SWAP"),
-    ETH("ETH", "ETH-USDT-SWAP"),
-    SOL("SOL", "SOL-USDT-SWAP"),
-    XRP("XRP", "XRP-USDT-SWAP"),
-    DOGE("DOGE", "DOGE-USDT-SWAP"),
-    LTC("LTC", "LTC-USDT-SWAP");
+    BTC("BTC", "BTC-USDT"),
+    ETH("ETH", "ETH-USDT"),
+    SOL("SOL", "SOL-USDT"),
+    XRP("XRP", "XRP-USDT"),
+    DOGE("DOGE", "DOGE-USDT"),
+    LTC("LTC", "LTC-USDT");
 
     private final String code;
-    private final String instId;
+    private final String underlying;
 
-    OkxSymbol(String code, String instId) {
+    OkxSymbol(String code, String underlying) {
         this.code = code;
-        this.instId = instId;
+        this.underlying = underlying;
     }
 
     public String code() {
         return code;
     }
 
-    public String instId() {
-        return instId;
+    /** OKX underlying, e.g. {@code BTC-USDT} — resolved to a dated contract at run time. */
+    public String underlying() {
+        return underlying;
     }
 
     public static List<OkxSymbol> universe() {
