@@ -368,7 +368,9 @@ export class SddService {
         ? { htf: 'D1', ltf: 'H1' }
         : book === 'hts'
           ? { htf: 'H1', ltf: 'M5' }
-          : { htf: 'H4', ltf: 'M15' };
+          : book === 'okx'
+            ? { htf: 'H4', ltf: 'M15' }
+            : { htf: 'H4', ltf: 'M15' };
     this.backtestBusy.set(true);
     this.backtestError.set(null);
     this.http

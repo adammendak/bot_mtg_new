@@ -18,6 +18,7 @@ public class AppProperties {
     private String monitorSleepMinutes = "240";
     private final Scan scan = new Scan();
     private final Capital capital = new Capital();
+    private final Okx okx = new Okx();
     private String liveAccountName = "bot trading konto";
     private String glowneAccountName = "Glowne";
     private String swingAccountName = "Account H1";
@@ -135,6 +136,10 @@ public class AppProperties {
 
     public Capital getCapital() {
         return capital;
+    }
+
+    public Okx getOkx() {
+        return okx;
     }
 
     public String getLiveAccountName() {
@@ -410,6 +415,68 @@ public class AppProperties {
 
         public void setBtc(String btc) {
             this.btc = btc;
+        }
+    }
+
+    /**
+     * OKX (crypto exchange) credentials for the {@code okx} book. Auth is per
+     * request: API key + secret + passphrase, signed with HMAC-SHA256. The
+     * {@code demo} flag adds {@code x-simulated-trading: 1} so the same key
+     * shape works against the demo environment.
+     */
+    public static class Okx {
+        private String apiKey = "";
+        private String secret = "";
+        private String passphrase = "";
+        private String host = "https://www.okx.com";
+        private boolean demo = false;
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public void setSecret(String secret) {
+            this.secret = secret;
+        }
+
+        public String getPassphrase() {
+            return passphrase;
+        }
+
+        public void setPassphrase(String passphrase) {
+            this.passphrase = passphrase;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public boolean isDemo() {
+            return demo;
+        }
+
+        public void setDemo(boolean demo) {
+            this.demo = demo;
+        }
+
+        public boolean credentialsPresent() {
+            return notBlank(apiKey) && notBlank(secret) && notBlank(passphrase);
+        }
+
+        private static boolean notBlank(String s) {
+            return s != null && !s.isBlank();
         }
     }
 }

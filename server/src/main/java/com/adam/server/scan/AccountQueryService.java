@@ -55,14 +55,15 @@ public class AccountQueryService {
 
     public List<AccountView> list() {
         return List.of(view(books.demo()), view(books.live()), view(books.glowne()),
-                view(books.swing()), view(books.hts()));
+                view(books.swing()), view(books.hts()), view(books.okx()));
     }
 
     /** All books in one row each: account metrics + book kind + strategy + position tally. */
     public List<OverviewView> overview() {
         return List.of(
                 overview(books.demo()), overview(books.live()),
-                overview(books.glowne()), overview(books.swing()), overview(books.hts()));
+                overview(books.glowne()), overview(books.swing()), overview(books.hts()),
+                overview(books.okx()));
     }
 
     /** Overview filtered to the books the caller may see (non-admin users). */
@@ -143,6 +144,7 @@ public class AccountQueryService {
             case "glowne" -> "MAIN";
             case "swing" -> "SWING";
             case "hts" -> "HTS";
+            case "okx" -> "OKX";
             default -> "DEMO";
         };
     }
@@ -163,6 +165,7 @@ public class AccountQueryService {
             case "live" -> "HTS CORE_LIVE (H4/M15)";
             case "swing" -> "HTS SWING (D1/H1)";
             case "hts" -> "HTS FAST (H1/M5)";
+            case "okx" -> "HTS OKX (crypto)";
             case "glowne" -> "—";
             default -> "HTS";
         };
@@ -176,6 +179,7 @@ public class AccountQueryService {
                 case "glowne" -> "GLOWNE not configured (CAPITAL_GLOWNE_API_KEY / CAPITAL_GLOWNE_EMAIL / CAPITAL_GLOWNE_PASSWORD)";
                 case "swing" -> "SWING not configured (CAPITAL_SWING_API_KEY / CAPITAL_SWING_EMAIL / CAPITAL_SWING_PASSWORD)";
                 case "hts" -> "HTS not configured (CAPITAL_HTS_API_KEY / CAPITAL_HTS_EMAIL / CAPITAL_HTS_PASSWORD)";
+                case "okx" -> "OKX not configured (OKX_API_KEY / OKX_SECRET / OKX_PASSPHRASE)";
                 default -> "DEMO not configured (CAPITAL_API_KEY / CAPITAL_EMAIL / CAPITAL_API_PASSWORD)";
             });
         }
@@ -203,14 +207,8 @@ public class AccountQueryService {
                 trySelect(client, a.id());
                 return connected(client, a);
             }
-            // glowne / swing target their own named accounts; demo picks preferred/first.
-            Account picked = Books.GLOWNE.equals(client.book())
-                    ? risk.pickGlowneAccount(accounts)
-                    : Books.SWING.equals(client.book())
-                    ? risk.pickSwingAccount(accounts)
-                    : Books.HTS.equals(client.book())
-                    ? risk.pickHtsAccount(accounts)
-                    : risk.pickDemoAccount(accounts);
+            // glowne / swing / hts / okx target their own accounts; demo picks preferred/first.
+            Account picked = risk.pickForBook(client.book(), accounts);
             if (picked == null) {
                 return disconnected(client, "no account available");
             }
