@@ -152,6 +152,18 @@ public class HtsExecutionGate {
                 }
             } else {
                 account = risk.pickForBook(book, accounts);
+                // OKX runs real money (no demo), so give it the same day-P/L
+                // circuit breaker CORE_LIVE has. Halt threshold is app.live-halt-pln
+                // (a rough floor — OKX settles in USDT, not PLN).
+                if (Books.OKX.equalsIgnoreCase(book) && account != null) {
+                    double dayPnl = trades.realisedPnlSince(book, trades.startOfToday()) + account.profitLoss();
+                    if (dayPnl <= properties.getLiveHaltPln()) {
+                        log.warn("HTS [{}] OKX execution skipped {} — day P/L {} past halt {}",
+                                s.variant().name(), s.symbol(), dayPnl, properties.getLiveHaltPln());
+                        placed.remove(key);
+                        return;
+                    }
+                }
             }
             if (account == null) {
                 log.warn("HTS [{}] execution {}: no account on book {}", s.variant().name(), s.symbol(), book);
