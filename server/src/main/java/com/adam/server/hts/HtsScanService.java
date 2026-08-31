@@ -113,7 +113,13 @@ public class HtsScanService {
                             variant.name(), variant.book());
                     continue;
                 }
-                market.login();
+                // Only (re)authenticate when the session is actually stale. This
+                // loop runs per due variant, and several variants share one
+                // broker — an unconditional login() here would hit Capital's
+                // rate-limited POST /session up to 4× per top-of-hour scan.
+                if (!market.isSessionOpen()) {
+                    market.login();
+                }
                 if (variant.book().equals(Books.OKX)) {
                     scanVariant(variant, OkxSymbol.universe().stream()
                                     .map(s -> new HtsInstrument(s.code(), s.instId())).toList(),
