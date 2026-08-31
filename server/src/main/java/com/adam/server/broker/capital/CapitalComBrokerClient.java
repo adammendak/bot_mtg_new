@@ -388,9 +388,13 @@ public class CapitalComBrokerClient implements BrokerClient {
         double minSize = d == null ? 0 : ruleToPoints(d.minDealSize(), mid);
         double minStop = 0;
         double maxStop = 0;
+        double priceStep = 0;
         if (d != null) {
-            minStop = Math.max(ruleToPoints(d.minNormalStopOrLimitDistance(), mid),
-                    ruleToPoints(d.minStepDistance(), mid));
+            // minStepDistance is the price increment Capital accepts for stop /
+            // limit levels (e.g. 0.05 for BTC/USD). Used to snap prices; NOT a
+            // minimum stop distance, so it no longer feeds minStop.
+            priceStep = ruleToPoints(d.minStepDistance(), mid);
+            minStop = ruleToPoints(d.minNormalStopOrLimitDistance(), mid);
             maxStop = ruleToPoints(d.maxStopOrLimitDistance(), mid);
         }
         // Only "TRADEABLE" lets a new position open; CLOSED / OFFLINE / EDITS_ONLY /
@@ -411,7 +415,8 @@ public class CapitalComBrokerClient implements BrokerClient {
         // (Capital's "valueOfOnePip", e.g. "1.00" for DE40). 1R sizing needs this
         // × FX or a "1%" trade risks ~FX times too much on an EUR/USD instrument.
         double pointValue = parseDouble(inst == null ? null : inst.valueOfOnePip());
-        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable, marginFactor, currency, pointValue);
+        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable, marginFactor, currency,
+                pointValue, priceStep);
     }
 
     private static double parseDouble(String s) {

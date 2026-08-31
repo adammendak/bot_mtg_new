@@ -56,6 +56,8 @@ class HtsTradeServiceTest {
     HtsEngine engine;
     @Mock
     HtsTradeSink sink;
+    @Mock
+    com.adam.server.sdd.RiskPolicy risk;
 
     AppProperties props;
     BrokerBooks books;
@@ -78,7 +80,7 @@ class HtsTradeServiceTest {
                         new Candle(bar.minusSeconds(60), 100, 100, 100, 100, 0),
                         new Candle(bar, 100, 100, 100, 100, 0)));
         when(repo.save(any(HtsTradeEntity.class))).thenAnswer(i -> i.getArgument(0));
-        service = new HtsTradeService(repo, books, engine, props, List.of(sink));
+        service = new HtsTradeService(repo, books, engine, props, risk, List.of(sink));
     }
 
     // ---- recordOpen / idempotency / realised P/L ----
@@ -141,6 +143,21 @@ class HtsTradeServiceTest {
         assertThat(t.getRMultiple()).isEqualTo(-1.0);
         assertThat(t.getCloseReason()).isEqualTo("STOP");
         verify(sink).onClose(t);
+    }
+
+    @Test
+    void manageSelectsTheBooksAccountBeforeReadingPositions() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.accounts()).thenReturn(List.of(
+                new com.adam.server.broker.model.Account("acc-m5", "Account m5", "PLN", 1000, 1000, 0, true)));
+        when(risk.pickForBook(eq(book), any())).thenReturn(
+                new com.adam.server.broker.model.Account("acc-m5", "Account m5", "PLN", 1000, 1000, 0, true));
+        when(broker.openPositions()).thenReturn(List.of(pos("d1", Direction.BUY)));
+
+        service.manage();
+
+        verify(broker).selectAccount("acc-m5");
     }
 
     // ---- manage(): TP1 partial + lock ----

@@ -304,7 +304,7 @@ public class OkxBrokerClient implements BrokerClient {
             }
             log.info("OKX {} rules {}: minDeal={} dp={} ctVal={} lever={} state={} ccy={}",
                     book, epic, minDeal, dp, ctVal, lever, state, ccy);
-            return new MarketRules(epic, minDeal, dp, 0, 0, tradeable, marginFactor, ccy, ctVal);
+            return new MarketRules(epic, minDeal, dp, 0, 0, tradeable, marginFactor, ccy, ctVal, tickSz);
         } catch (Exception e) {
             log.warn("OKX {} market rules unavailable for {} ({}) — using permissive",
                     book, epic, e.getClass().getSimpleName());
