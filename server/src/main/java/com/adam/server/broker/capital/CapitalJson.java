@@ -23,6 +23,30 @@ final class CapitalJson {
     private CapitalJson() {
     }
 
+    /** Parse a {@code /confirms/{ref}} body; caller logs the raw string on reject. */
+    static ConfirmResponse parseConfirm(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return JSON.readValue(raw, ConfirmResponse.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Capital.com confirm JSON could not be parsed: " + raw, e);
+        }
+    }
+
+    /** Parse a {@code /markets/{epic}} body. */
+    static MarketResponse parseMarket(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return JSON.readValue(raw, MarketResponse.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Capital.com market JSON could not be parsed: " + raw, e);
+        }
+    }
+
     static List<Account> parseAccounts(String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();
@@ -277,7 +301,7 @@ final class CapitalJson {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SnapshotJson(Double bid, Double offer, Double ask, String updateTimeUTC,
-                        Integer decimalPlacesFactor, Double scalingFactor) {
+                        Integer decimalPlacesFactor, Double scalingFactor, String marketStatus) {
         Double askOrOffer() {
             return ask != null ? ask : offer;
         }

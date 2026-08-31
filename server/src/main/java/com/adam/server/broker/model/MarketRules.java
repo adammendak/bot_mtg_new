@@ -12,11 +12,22 @@ public record MarketRules(
         double minDealSize,           // also the size increment; 0 = unknown, do not adjust
         int priceDecimalPlaces,       // -1 = unknown, do not round
         double minStopDistancePoints, // 0 = unknown
-        double maxStopDistancePoints  // 0 = unknown / no cap
+        double maxStopDistancePoints, // 0 = unknown / no cap
+        boolean tradeable             // false only when the broker says the market is CLOSED / OFFLINE / etc.
 ) {
 
+    /**
+     * Rules without a market-status signal (paper broker, failed lookup, or a
+     * caller that only cares about size/precision) — assume tradeable so a
+     * missing status never blocks execution.
+     */
+    public MarketRules(String epic, double minDealSize, int priceDecimalPlaces,
+                       double minStopDistancePoints, double maxStopDistancePoints) {
+        this(epic, minDealSize, priceDecimalPlaces, minStopDistancePoints, maxStopDistancePoints, true);
+    }
+
     public static MarketRules permissive(String epic) {
-        return new MarketRules(epic, 0, -1, 0, 0);
+        return new MarketRules(epic, 0, -1, 0, 0, true);
     }
 
     /** Round a price (stop / limit level) to the instrument precision. */

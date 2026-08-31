@@ -261,16 +261,24 @@ public class CapitalComBrokerClient implements BrokerClient {
             return cached;
         }
         try {
-            CapitalJson.MarketResponse body = authed()
+            String raw = authed()
                     .get()
                     .uri("/api/v1/markets/{epic}", epic)
                     .retrieve()
-                    .body(CapitalJson.MarketResponse.class);
+                    .body(String.class);
+            CapitalJson.MarketResponse body = CapitalJson.parseMarket(raw);
             MarketRules r = toRules(epic, body);
-            rulesCache.put(epic, r);
-            log.info("Capital.com {} rules {}: minDealSize={} priceDp={} minStop={} maxStop={}",
+            String marketStatus = body != null && body.snapshot() != null
+                    ? body.snapshot().marketStatus() : null;
+            log.info("Capital.com {} rules {}: minDealSize={} priceDp={} minStop={} maxStop={} marketStatus={} tradeable={}",
                     book, epic, r.minDealSize(), r.priceDecimalPlaces(),
-                    r.minStopDistancePoints(), r.maxStopDistancePoints());
+                    r.minStopDistancePoints(), r.maxStopDistancePoints(), marketStatus, r.tradeable());
+            // Only cache once the market is open: dealing rules are static, but
+            // marketStatus flips at the weekend / session boundary, and a cached
+            // "not tradeable" would wrongly block every entry until the next deploy.
+            if (r.tradeable()) {
+                rulesCache.put(epic, r);
+            }
             return r;
         } catch (Exception e) {
             log.warn("Capital.com {} market rules unavailable for {} ({}) — using permissive",
@@ -296,7 +304,12 @@ public class CapitalComBrokerClient implements BrokerClient {
                     ruleToPoints(d.minStepDistance(), mid));
             maxStop = ruleToPoints(d.maxStopOrLimitDistance(), mid);
         }
-        return new MarketRules(epic, minSize, dp, minStop, maxStop);
+        // Only "TRADEABLE" lets a new position open; CLOSED / OFFLINE / EDITS_ONLY /
+        // ON_AUCTION / SUSPENDED all reject. A missing status is treated as
+        // tradeable so we never block execution on a parsing gap (fail-open).
+        String status = body.snapshot() == null ? null : body.snapshot().marketStatus();
+        boolean tradeable = status == null || "TRADEABLE".equalsIgnoreCase(status);
+        return new MarketRules(epic, minSize, dp, minStop, maxStop, tradeable);
     }
 
     /** Capital {unit,value} → price points ({@code PERCENTAGE} needs the price). */
@@ -583,13 +596,21 @@ public class CapitalComBrokerClient implements BrokerClient {
 
     @Override
     public Confirmation confirm(String dealReference) {
-        CapitalJson.ConfirmResponse body = authed()
+        String raw = authed()
                 .get()
                 .uri("/api/v1/confirms/{dealReference}", dealReference)
                 .retrieve()
-                .body(CapitalJson.ConfirmResponse.class);
+                .body(String.class);
+        CapitalJson.ConfirmResponse body = CapitalJson.parseConfirm(raw);
         if (body == null) {
             throw new BrokerException("No confirmation for " + dealReference);
+        }
+        boolean accepted = "ACCEPTED".equalsIgnoreCase(body.dealStatus())
+                || "OPEN".equalsIgnoreCase(body.status());
+        if (!accepted) {
+            // Capital often leaves `reason` null on an exchange-level reject, so
+            // the raw body is the only way to see WHY the deal did not open.
+            log.warn("Capital.com {} deal {} not accepted — raw confirm: {}", book, dealReference, raw);
         }
         Direction direction = body.direction() == null ? null : Direction.valueOf(body.direction());
         return new Confirmation(

@@ -150,6 +150,20 @@ class HtsExecutionGateTest {
     }
 
     @Test
+    void skipsEntryWhenTheMarketIsNotTradeable() {
+        // Weekend: prices stream, the scan fires a signal, but the instrument is
+        // CLOSED — the gate must not place a doomed order.
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 0, 0, false));
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        verify(broker, never()).placeMarketOrder(any());
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+        verify(mailer).sendThrottled(eq("exec-hts-closed-FAST"), anyString(), anyString());
+    }
+
+    @Test
     void neverStacksASecondPositionForAnOpenModelSymbol() {
         when(trades.hasOpenPosition(HtsVariant.FAST, "BTC")).thenReturn(true);
 
