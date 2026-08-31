@@ -359,6 +359,7 @@ final class CapitalJson {
             String status,
             String dealStatus,
             String reason,
+            String rejectReason,
             String epic,
             String dealReference,
             String dealId,

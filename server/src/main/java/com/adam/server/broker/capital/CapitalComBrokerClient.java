@@ -201,23 +201,35 @@ public class CapitalComBrokerClient implements BrokerClient {
             case D1 -> "DAY";
         };
         CapitalJson.PricesResponse body;
-        try {
-            body = authed()
-                    .get()
-                    .uri(uri -> uri.path("/api/v1/prices/{epic}")
-                            .queryParam("resolution", capRes)
-                            .queryParam("max", Math.min(Math.max(max, 1), 1000))
-                            .queryParam("from", CAPITAL_TIME.format(LocalDateTime.ofInstant(from, ZoneOffset.UTC)))
-                            .queryParam("to", CAPITAL_TIME.format(LocalDateTime.ofInstant(to, ZoneOffset.UTC)))
-                            .build(epic))
-                    .retrieve()
-                    .body(CapitalJson.PricesResponse.class);
-        } catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() == 404 || CapitalJson.isNotFoundEpic(e.getResponseBodyAsString())) {
-                log.warn("Capital.com {} candles 404 for epic {}", book, epic);
-                throw new BrokerException("Capital.com epic not found: " + epic, e);
+        for (int attempt = 0; ; attempt++) {
+            try {
+                body = authed()
+                        .get()
+                        .uri(uri -> uri.path("/api/v1/prices/{epic}")
+                                .queryParam("resolution", capRes)
+                                .queryParam("max", Math.min(Math.max(max, 1), 1000))
+                                .queryParam("from", CAPITAL_TIME.format(LocalDateTime.ofInstant(from, ZoneOffset.UTC)))
+                                .queryParam("to", CAPITAL_TIME.format(LocalDateTime.ofInstant(to, ZoneOffset.UTC)))
+                                .build(epic))
+                        .retrieve()
+                        .body(CapitalJson.PricesResponse.class);
+                break;
+            } catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() == 404 || CapitalJson.isNotFoundEpic(e.getResponseBodyAsString())) {
+                    log.warn("Capital.com {} candles 404 for epic {}", book, epic);
+                    throw new BrokerException("Capital.com epic not found: " + epic, e);
+                }
+                // Capital rate-limits the price feed hard; a bare 429 was skipping
+                // the symbol for the whole scan. Back off and retry a few times.
+                if (e.getStatusCode().value() == 429 && attempt < TX_RATE_LIMIT_RETRIES) {
+                    log.warn("Capital.com {} candles {} rate-limited (429), retry {}/{}",
+                            book, epic, attempt + 1, TX_RATE_LIMIT_RETRIES);
+                    if (backoff(attempt)) {
+                        continue;
+                    }
+                }
+                throw wrap("candles " + epic, e);
             }
-            throw wrap("candles " + epic, e);
         }
         if (body == null || body.prices() == null) {
             return List.of();
@@ -613,12 +625,16 @@ public class CapitalComBrokerClient implements BrokerClient {
             log.warn("Capital.com {} deal {} not accepted — raw confirm: {}", book, dealReference, raw);
         }
         Direction direction = body.direction() == null ? null : Direction.valueOf(body.direction());
+        // Capital puts the machine-readable cause in `rejectReason` (e.g.
+        // RISK_CHECK, MARKET_CLOSED); `reason` is usually null. Prefer whichever
+        // is present so the gate log and the alert e-mail actually say why.
+        String cause = body.reason() != null ? body.reason() : body.rejectReason();
         return new Confirmation(
                 body.dealReference(),
                 body.dealId(),
                 body.status(),
                 body.dealStatus(),
-                body.reason(),
+                cause,
                 body.epic(),
                 direction,
                 body.level(),
