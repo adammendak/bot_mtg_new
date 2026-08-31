@@ -35,3 +35,8 @@ application-local.properties
 
 # Local H2 file database (dev profile)
 data/
+
+# IDE + local research notes
+.idea/
+transkrypcja-*.txt
+stopDist
