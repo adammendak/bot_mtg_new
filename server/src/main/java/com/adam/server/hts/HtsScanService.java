@@ -125,7 +125,7 @@ public class HtsScanService {
                     if (variant.book().equals(Books.OKX)) {
                         BrokerClient okx = market;
                         scanVariant(variant, OkxSymbol.universe().stream()
-                                        .map(s -> new HtsInstrument(s.code(), okx.resolveEpic(s.underlying()))).toList(),
+                                        .map(s -> new HtsInstrument(s.code(), okx.resolveEpic(s.instId()))).toList(),
                                 market, now, found);
                     } else {
                         scanVariant(variant, SddSymbol.htsUniverseFor(now, zone).stream()
@@ -195,7 +195,7 @@ public class HtsScanService {
                 return out;
             }
             code = symbol.code();
-            epic = books.forBook(Books.OKX).resolveEpic(symbol.underlying());
+            epic = books.forBook(Books.OKX).resolveEpic(symbol.instId());
         } else {
             SddSymbol symbol = null;
             for (SddSymbol s : SddSymbol.values()) {
