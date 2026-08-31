@@ -1,53 +1,94 @@
 package com.adam.server.hts;
 
 import com.adam.server.scan.Mailer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
- * E-mails every HTS ("wstęgi") entry signal via the shared {@link Mailer}
- * (a no-op until SMTP + a recipient are configured). The body reads like an
- * analyst note: the band / ADX picture on both timeframes at the moment of the
- * signal, the trade geometry, and a one-paragraph rationale — not just
- * entry / stop / target.
+ * E-mails HTS ("wstęgi") entry signals via the shared {@link Mailer} (a no-op
+ * until SMTP + a recipient are configured). The body reads like an analyst note:
+ * the band / ADX picture on both timeframes at the moment of the signal, the
+ * trade geometry, and a one-paragraph rationale.
+ *
+ * <p>The scan re-emits the same signal every cycle while the setup persists, so
+ * one mail per {@code variant|symbol|direction} is sent and then suppressed for
+ * {@code app.hts.signal-mail-cooldown-minutes} (default 120) — otherwise a
+ * multi-hour trend floods the inbox with an identical mail every 5 minutes.
  */
 @Component
 public class MailHtsNotifier implements HtsNotifier {
 
     private final Mailer mailer;
+    private final Duration cooldown;
+    private final Map<String, Instant> lastMailed = new ConcurrentHashMap<>();
 
-    public MailHtsNotifier(Mailer mailer) {
+    public MailHtsNotifier(Mailer mailer,
+                           @Value("${app.hts.signal-mail-cooldown-minutes:120}") long cooldownMinutes) {
         this.mailer = mailer;
+        this.cooldown = Duration.ofMinutes(Math.max(0, cooldownMinutes));
     }
 
     @Override
     public void onHtsSignal(HtsScan s, HtsSignalContext ctx) {
-        String subject = "HTS " + s.direction() + " " + s.symbol()
+        String key = variantName(s) + "|" + s.symbol() + "|" + s.direction();
+        Instant now = Instant.now();
+        Instant prev = lastMailed.get(key);
+        if (prev != null && prev.plus(cooldown).isAfter(now)) {
+            return; // same setup, still within the cooldown — don't re-mail
+        }
+        lastMailed.put(key, now);
+
+        String subject = "HTS [" + variantLabel(s) + "] " + s.direction() + " " + s.symbol()
                 + " @ " + trim(s.entry()) + "  (HTF " + (s.htfUp() ? "up" : "down") + ")";
         mailer.send(subject, ctx == null ? brief(s) : full(s, ctx));
     }
 
+    private static String variantName(HtsScan s) {
+        return s.variant() == null ? "?" : s.variant().name();
+    }
+
+    private static String variantLabel(HtsScan s) {
+        if (s.variant() == null) {
+            return "HTS";
+        }
+        return s.variant().name() + " " + s.variant().htf() + "/" + s.variant().ltf();
+    }
+
+    private static String htf(HtsScan s) {
+        return s.variant() == null ? "HTF" : s.variant().htf().name();
+    }
+
+    private static String ltf(HtsScan s) {
+        return s.variant() == null ? "LTF" : s.variant().ltf().name();
+    }
+
     private static String brief(HtsScan s) {
-        return "HTS (wstęgi) entry signal\n\n"
+        return "HTS (wstęgi) entry signal — " + variantLabel(s) + "\n\n"
                 + "symbol    " + s.symbol() + " (" + s.epic() + ")\n"
                 + "direction " + s.direction() + "\n"
                 + "entry     " + s.entry() + "\n"
                 + "stop      " + s.stopLevel() + "\n"
                 + "target    " + s.targetLevel() + "  (TP1, 1:2)\n"
-                + "HTF band  " + (s.htfUp() ? "up" : "down") + "\n"
+                + htf(s) + " band  " + (s.htfUp() ? "up" : "down") + "\n"
                 + "time      " + s.timestamp() + "\n";
     }
 
     private static String full(HtsScan s, HtsSignalContext c) {
         boolean buy = "BUY".equals(String.valueOf(s.direction()));
         StringBuilder b = new StringBuilder();
-        b.append("HTS (wstęgi) entry signal — ").append(s.timestamp()).append('\n');
+        b.append("HTS (wstęgi) entry signal — ").append(variantLabel(s)).append(" — ").append(s.timestamp()).append('\n');
         b.append(s.direction()).append(' ').append(s.symbol()).append(" (").append(s.epic()).append(")\n");
 
-        b.append("\n── D1 (context) ──\n");
+        b.append("\n── ").append(htf(s)).append(" (context) ──\n");
         b.append("  band state   ").append(c.htfState()).append('\n');
         b.append("  slow slope   ").append(c.htfSlowSlope()).append('\n');
 
-        b.append("\n── H1 (execution) ──\n");
+        b.append("\n── ").append(ltf(s)).append(" (execution) ──\n");
         b.append("  fast vs slow ").append(trim(c.ltfBandGapAtr())).append("x slow-band width apart\n");
         b.append("  slow slope   ").append(c.ltfSlowSlope()).append('\n');
         b.append("  pulled back  ").append(c.pulledBackBars() < 0
@@ -77,8 +118,8 @@ public class MailHtsNotifier implements HtsNotifier {
         String dir = buy ? "up" : "down";
         StringBuilder w = new StringBuilder();
         w.append("Both timeframes are trending ").append(dir)
-                .append(": the D1 band is ").append(c.htfState())
-                .append(" and the H1 fast band sits clear of the slow band (")
+                .append(": the ").append(htf(s)).append(" band is ").append(c.htfState())
+                .append(" and the ").append(ltf(s)).append(" fast band sits clear of the slow band (")
                 .append(trim(c.ltfBandGapAtr())).append("x its width), slope ").append(c.ltfSlowSlope())
                 .append(". Price pulled back into the fast band ")
                 .append(c.pulledBackBars() < 0 ? "recently" : c.pulledBackBars() + " bar(s) ago")
