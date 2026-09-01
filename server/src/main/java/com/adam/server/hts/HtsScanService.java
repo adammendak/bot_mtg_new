@@ -129,6 +129,7 @@ public class HtsScanService {
                                 market, now, found);
                     } else {
                         scanVariant(variant, SddSymbol.htsUniverseFor(now, zone).stream()
+                                        .filter(s -> variant.tradesSymbol(s.code()))
                                         .map(s -> new HtsInstrument(s.code(), s.epic(properties))).toList(),
                                 market, now, found);
                     }
@@ -211,6 +212,11 @@ public class HtsScanService {
             }
             code = symbol.code();
             epic = symbol.epic(properties);
+        }
+        if (!variant.tradesSymbol(code)) {
+            out.put("ok", false);
+            out.put("error", variant.name() + " does not trade " + code + " (FAST skips BTC — M5 scalps it).");
+            return out;
         }
         if (trades.hasOpenPosition(variant, code)) {
             out.put("ok", false);

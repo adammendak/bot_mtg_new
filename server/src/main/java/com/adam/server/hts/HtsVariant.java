@@ -91,4 +91,15 @@ public enum HtsVariant {
     public String label() {
         return name() + " " + htf + "/" + ltf;
     }
+
+    /**
+     * Whether this model trades {@code symbolCode}. FAST acts on the M5 close and
+     * BTC's fast-band stop there is only ~0.15&nbsp;% of price, so it scalps and
+     * churns (stops out within minutes). BTC stays on the higher-timeframe models
+     * (CORE M15 / SWING H1); every other FAST symbol and every other model is
+     * unaffected.
+     */
+    public boolean tradesSymbol(String symbolCode) {
+        return !(this == FAST && "BTC".equalsIgnoreCase(symbolCode));
+    }
 }
