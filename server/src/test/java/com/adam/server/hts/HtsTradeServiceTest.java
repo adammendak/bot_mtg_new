@@ -127,7 +127,7 @@ class HtsTradeServiceTest {
     // ---- manage(): reconcile a vanished deal ----
 
     @Test
-    void manageClosesAVanishedDealWithItsOutcome() {
+    void manageClosesAVanishedDealWithItsOutcomeAfterTwoConsecutiveMisses() {
         HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
         when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
         when(broker.openPositions()).thenReturn(List.of()); // deal gone
@@ -135,6 +135,12 @@ class HtsTradeServiceTest {
                 .thenReturn(List.of(new BrokerTransaction(bar.plusSeconds(3600), "TRADE", "DE40",
                         -1.0, "d1", "stopped out")));
 
+        // first miss — deferred, not closed (could be the account-selection race)
+        assertThat(service.manage()).isEqualTo(0);
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+        verify(sink, never()).onClose(any());
+
+        // second consecutive miss — now force-closed with its outcome
         int touched = service.manage();
 
         assertThat(touched).isEqualTo(1);
@@ -143,6 +149,25 @@ class HtsTradeServiceTest {
         assertThat(t.getRMultiple()).isEqualTo(-1.0);
         assertThat(t.getCloseReason()).isEqualTo("STOP");
         verify(sink).onClose(t);
+    }
+
+    @Test
+    void manageDoesNotCloseWhenTheDealReappearsAfterOneMiss() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(
+                List.of(),                            // pass 1: absent (race)
+                List.of(pos("d1", Direction.BUY)),    // pass 2: back — streak resets
+                List.of());                           // pass 3: absent again — only the 1st miss of a new streak
+        when(engine.runnerRead(any(), eq(true)))
+                .thenReturn(new HtsEngine.RunnerRead(100.5, 99.5, false)); // below TP1, nothing to do
+
+        service.manage();
+        service.manage();
+        service.manage();
+
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+        verify(sink, never()).onClose(any());
     }
 
     @Test
@@ -325,6 +350,7 @@ class HtsTradeServiceTest {
 
     private HtsTradeEntity open(String dealId, Direction dir, double entry, double stop, double size) {
         HtsTradeEntity t = new HtsTradeEntity();
+        t.setId((long) dealId.hashCode()); // reconcile keys its miss-streak by id
         t.setVariant("CORE");
         t.setBook(book);
         t.setSymbol("GER40");
