@@ -94,12 +94,16 @@ public enum HtsVariant {
 
     /**
      * Whether this model trades {@code symbolCode}. FAST acts on the M5 close and
-     * BTC's fast-band stop there is only ~0.15&nbsp;% of price, so it scalps and
-     * churns (stops out within minutes). BTC stays on the higher-timeframe models
-     * (CORE M15 / SWING H1); every other FAST symbol and every other model is
-     * unaffected.
+     * on BTC and EURUSD the fast-band stop there is a tiny fraction of price
+     * (~0.15&nbsp;% for BTC, ~0.04&nbsp;% for EURUSD), so it scalps and churns
+     * (stops out within minutes, draining the m5 sub-account's free margin).
+     * Both stay on the higher-timeframe models (CORE M15 / SWING H1); every
+     * other FAST symbol and every other model is unaffected.
      */
     public boolean tradesSymbol(String symbolCode) {
-        return !(this == FAST && "BTC".equalsIgnoreCase(symbolCode));
+        if (this != FAST) {
+            return true;
+        }
+        return !("BTC".equalsIgnoreCase(symbolCode) || "EURUSD".equalsIgnoreCase(symbolCode));
     }
 }
