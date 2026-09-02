@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -84,6 +85,66 @@ class HtsExecutionGateTest {
     private HtsScan signal(double entry, double stop) {
         return new HtsScan(HtsVariant.FAST, Instant.parse("2026-08-30T19:00:00Z"),
                 "BTC", "BTCUSD", Direction.BUY, entry, stop, entry + 2 * (entry - stop), true);
+    }
+
+    private HtsScan fastSignal(Instant ts, Direction dir) {
+        double entry = 78988.65;
+        double stop = dir == Direction.BUY ? entry - 165 : entry + 165;
+        double target = dir == Direction.BUY ? entry + 330 : entry - 330;
+        return new HtsScan(HtsVariant.FAST, ts, "BTC", "BTCUSD", dir, entry, stop, target,
+                dir == Direction.BUY);
+    }
+
+    private void acceptConfirms() {
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+    }
+
+    @Test
+    void fastSkipsSameDirectionReentryWithinTheCooldown() {
+        acceptConfirms();
+        Instant t0 = Instant.parse("2026-09-02T09:00:00Z");
+
+        gate.executeSignal(fastSignal(t0, Direction.BUY));
+        gate.executeSignal(fastSignal(t0.plusSeconds(1800), Direction.BUY)); // +30 min, same dir
+
+        verify(broker, times(1)).placeMarketOrder(any());
+        verify(trades, times(1)).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+    }
+
+    @Test
+    void fastAllowsReentryWhenTheHtfDirectionFlips() {
+        acceptConfirms();
+        Instant t0 = Instant.parse("2026-09-02T09:00:00Z");
+
+        gate.executeSignal(fastSignal(t0, Direction.BUY));
+        gate.executeSignal(fastSignal(t0.plusSeconds(600), Direction.SELL)); // +10 min, flipped
+
+        verify(broker, times(2)).placeMarketOrder(any());
+    }
+
+    @Test
+    void fastAllowsReentryAfterTheCooldownElapses() {
+        acceptConfirms();
+        Instant t0 = Instant.parse("2026-09-02T09:00:00Z");
+
+        gate.executeSignal(fastSignal(t0, Direction.BUY));
+        gate.executeSignal(fastSignal(t0.plusSeconds(3660), Direction.BUY)); // +61 min, same dir
+
+        verify(broker, times(2)).placeMarketOrder(any());
+    }
+
+    @Test
+    void fastArmsTheReentryCooldownEvenWhenTheBrokerRejects() {
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", null, "DELETED", "REJECTED", "RC_NOT_ENOUGH_MARGIN", "BTCUSD", Direction.BUY, null, null));
+        Instant t0 = Instant.parse("2026-09-02T09:00:00Z");
+
+        gate.executeSignal(fastSignal(t0, Direction.BUY));                    // submitted, rejected
+        gate.executeSignal(fastSignal(t0.plusSeconds(300), Direction.BUY));   // +5 min, same dir
+
+        verify(broker, times(1)).placeMarketOrder(any()); // no re-submit every M5 bar
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
     }
 
     @Test

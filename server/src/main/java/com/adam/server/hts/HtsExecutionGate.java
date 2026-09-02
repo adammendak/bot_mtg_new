@@ -16,7 +16,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -58,6 +61,20 @@ public class HtsExecutionGate {
     private final com.adam.server.scan.Mailer mailer;
     private final com.adam.server.ops.ErrorLog errorLog;
     private final Set<String> placed = ConcurrentHashMap.newKeySet();
+
+    /**
+     * FAST re-entry guard. FAST acts on every M5 close, so after a stop-out (or a
+     * rejected order) it re-signals the same direction 5 minutes later and churns
+     * the m5 sub-account. Take one entry per HTF swing: block a same-direction
+     * re-entry for a symbol until the HTF direction flips, with a
+     * {@link #FAST_REENTRY_COOLDOWN} floor so a persistent HTF trend still lets a
+     * fresh entry through eventually. Key: {@code VARIANT|SYMBOL}.
+     */
+    private final Map<String, SwingEntry> lastFastEntry = new ConcurrentHashMap<>();
+    private static final Duration FAST_REENTRY_COOLDOWN = Duration.ofMinutes(60);
+
+    private record SwingEntry(Direction dir, Instant at) {
+    }
 
     public HtsExecutionGate(
             BrokerBooks books,
@@ -115,6 +132,13 @@ public class HtsExecutionGate {
             // every bar while the previous one is still open.
             log.info("HTS [{}] execution skipped {} {} — a position for this model/symbol is already open",
                     s.variant().name(), s.symbol(), s.direction());
+            placed.remove(key);
+            return;
+        }
+        if (s.variant() == HtsVariant.FAST && fastReentryBlocked(s)) {
+            log.info("HTS [FAST] execution skipped {} {} — one entry per HTF swing; same-direction "
+                    + "re-entry is on cooldown ({} min since the last entry, HTF not flipped)",
+                    s.symbol(), s.direction(), FAST_REENTRY_COOLDOWN.toMinutes());
             placed.remove(key);
             return;
         }
@@ -322,6 +346,10 @@ public class HtsExecutionGate {
                 placed.remove(key);
                 return;
             }
+            // An order went to the broker — arm the FAST re-entry cooldown now,
+            // whether it fills or gets rejected, so a REJECTED order does not
+            // re-submit every M5 bar.
+            noteFastEntry(s);
 
             // Capital's POST /positions only hands back a dealReference; the real
             // dealId (and whether the deal was actually accepted) comes from the
@@ -361,6 +389,29 @@ public class HtsExecutionGate {
                             + " " + s.direction() + ":\n\n" + e.getClass().getSimpleName()
                             + "\n\n(further failures within 30 min are suppressed)");
         }
+    }
+
+    /**
+     * True when FAST already entered this symbol in the same direction and the HTF
+     * has not flipped since, and less than {@link #FAST_REENTRY_COOLDOWN} has
+     * elapsed. A direction flip (new HTF swing) always clears the block.
+     */
+    private boolean fastReentryBlocked(HtsScan s) {
+        SwingEntry last = lastFastEntry.get(s.variant().name() + "|" + s.symbol());
+        if (last == null || last.dir() != s.direction()) {
+            return false;
+        }
+        Instant now = s.timestamp() != null ? s.timestamp() : Instant.now();
+        return Duration.between(last.at(), now).compareTo(FAST_REENTRY_COOLDOWN) < 0;
+    }
+
+    /** Record a FAST entry attempt so {@link #fastReentryBlocked} can gate the next one. */
+    private void noteFastEntry(HtsScan s) {
+        if (s.variant() != HtsVariant.FAST) {
+            return;
+        }
+        Instant at = s.timestamp() != null ? s.timestamp() : Instant.now();
+        lastFastEntry.put(s.variant().name() + "|" + s.symbol(), new SwingEntry(s.direction(), at));
     }
 
     /** Mail subject prefix that names the model and its timeframe, e.g. "HTS [CORE H4/M15]". */
