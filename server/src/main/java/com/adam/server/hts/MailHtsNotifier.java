@@ -12,6 +12,9 @@ import org.springframework.stereotype.Component;
  * sparse (~230/yr and ~75/yr) and each entry is a one-bar Heikin-Ashi flip, so
  * every signal is mailed with no cooldown. FAST (M5) and the OKX crypto variants
  * signal far too often to mail; CORE_LIVE fills are visible on the dashboard.
+ *
+ * <p>A short on a long-only variant is mailed too, marked
+ * <b>OBSERVE ONLY</b> — the scan does not execute it.
  */
 @Component
 public class MailHtsNotifier implements HtsNotifier {
@@ -27,16 +30,25 @@ public class MailHtsNotifier implements HtsNotifier {
         if (s.variant() == null || !s.variant().mailsSignals()) {
             return;
         }
+        boolean observeOnly = isObserveOnly(s);
         String subject = "HTS [" + s.variant().label() + "] " + s.direction() + " " + s.symbol()
-                + " @ " + trim(s.entry()) + "  (hunt " + (s.htfUp() ? "bull" : "bear") + ")";
-        mailer.send(subject, body(s));
+                + " @ " + trim(s.entry()) + "  (hunt " + (s.htfUp() ? "bull" : "bear") + ")"
+                + (observeOnly ? "  — OBSERVE ONLY" : "");
+        mailer.send(subject, body(s, observeOnly));
     }
 
-    private static String body(HtsScan s) {
+    /** Short on a long-only variant — mailed for visibility, not traded. */
+    private static boolean isObserveOnly(HtsScan s) {
+        return s.variant() != null && s.variant().longOnly()
+                && !"BUY".equals(String.valueOf(s.direction()));
+    }
+
+    private static String body(HtsScan s, boolean observeOnly) {
         double dist = Math.abs(s.entry() - s.stopLevel());
         double pct = s.entry() != 0 ? dist / s.entry() * 100.0 : Double.NaN;
         boolean buy = "BUY".equals(String.valueOf(s.direction()));
         return "HA-hunt cloud entry — " + s.variant().label() + " — " + s.timestamp() + "\n"
+                + (observeOnly ? "*** OBSERVE ONLY — short on a long-only variant, NOT executed ***\n" : "")
                 + s.direction() + ' ' + s.symbol() + " (" + s.epic() + ")\n\n"
                 + "  entry        " + trim(s.entry()) + '\n'
                 + "  stop         " + trim(s.stopLevel()) + "   (2.5xATR = 1R = " + trim(dist)

@@ -70,6 +70,42 @@ class HaHuntEngineTest {
         assertThat(s.htfUp()).isTrue();                            // hunt regime bull
     }
 
+    /** Mirror of the long helper: downtrend then a shallow bounce, then one hard down bar. */
+    private List<Candle> m15BounceThenFlipDown(int n, Instant end) {
+        List<Candle> out = new ArrayList<>(n);
+        double c = 400;
+        for (int i = 0; i < n; i++) {
+            double step;
+            if (i >= n - 6 && i < n - 1) {
+                step = 1.5;
+            } else if (i == n - 1) {
+                step = -12;
+            } else {
+                step = -1.0;
+            }
+            double open = c;
+            c += step;
+            double hi = Math.max(open, c) + 0.3;
+            double lo = Math.min(open, c) - 0.3;
+            out.add(new Candle(end.minusSeconds((n - i) * 900L), open, hi, lo, c, 0));
+        }
+        return out;
+    }
+
+    @Test
+    void emitsAShortSignalOnABounceFlipInsideABearHunt() {
+        Instant now = t0.plusSeconds(320 * 3600L);
+        List<Candle> h1Down = h1(320, 400, -1.0);              // downtrend → hunt bear, RMAs stacked short
+        List<Candle> m15 = m15BounceThenFlipDown(220, now);
+
+        HtsScan s = engine.evaluate(HtsVariant.HA4, "XAU", "GOLD", m15, h1Down, now, true);
+
+        assertThat(s).isNotNull();
+        assertThat(s.direction()).isEqualTo(Direction.SELL);   // engine no longer filters side
+        assertThat(s.stopLevel()).isGreaterThan(s.entry());    // short stop above entry
+        assertThat(s.htfUp()).isFalse();                       // hunt regime bear
+    }
+
     @Test
     void rejectsWhenTheHuntRegimeDisagreesWithTheEntryDirection() {
         Instant now = t0.plusSeconds(320 * 3600L);
