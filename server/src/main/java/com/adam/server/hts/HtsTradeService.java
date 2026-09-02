@@ -50,6 +50,8 @@ public class HtsTradeService {
     private static final double TRAIL_MIN_STEP = 0.10;     // only amend the stop if it moved this fraction of the leg
     /** A just-placed position can lag in openPositions(); don't reconcile-close a row this young. */
     private static final Duration RECONCILE_GRACE = Duration.ofSeconds(120);
+    /** Consecutive reconcile passes a trade must be absent from openPositions() before it is force-closed (guards the account-selection race). */
+    private static final int RECONCILE_MISS_THRESHOLD = 2;
 
     private final HtsTradeRepository trades;
     private final BrokerBooks books;
@@ -57,6 +59,8 @@ public class HtsTradeService {
     private final AppProperties properties;
     private final com.adam.server.sdd.RiskPolicy risk;
     private final List<HtsTradeSink> sinks;
+    /** trade id → consecutive reconcile passes it was missing from openPositions(); reset when seen live or closed. */
+    private final Map<Long, Integer> reconcileMisses = new java.util.concurrent.ConcurrentHashMap<>();
 
     public HtsTradeService(HtsTradeRepository trades, BrokerBooks books, HtsEngine engine,
                            AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
@@ -168,11 +172,30 @@ public class HtsTradeService {
                             && Duration.between(t.getOpenedAt(), Instant.now()).compareTo(RECONCILE_GRACE) < 0) {
                         continue;
                     }
+                    // One empty openPositions() read can be the account-selection
+                    // race (the dashboard re-selects the shared Capital login every
+                    // 30 s) rather than a real close. Require RECONCILE_MISS_THRESHOLD
+                    // consecutive misses before force-closing, so a transient
+                    // wrong-account read can't orphan a still-open position.
+                    Long id = t.getId();
+                    int misses = id == null ? RECONCILE_MISS_THRESHOLD
+                            : reconcileMisses.merge(id, 1, Integer::sum);
+                    if (misses < RECONCILE_MISS_THRESHOLD) {
+                        log.info("HTS reconcile: {} {} absent from openPositions() ({}/{}) — deferring close",
+                                t.getVariant(), t.getSymbol(), misses, RECONCILE_MISS_THRESHOLD);
+                        continue;
+                    }
+                    if (id != null) {
+                        reconcileMisses.remove(id);
+                    }
                     applyClose(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx));
                     trades.save(t);
                     fan(sink -> sink.onClose(t));
                     touched++;
                     continue;
+                }
+                if (t.getId() != null) {
+                    reconcileMisses.remove(t.getId()); // seen live this pass — reset the miss streak
                 }
                 if (t.getTp1At() != null && t.getTp1Pnl() == null
                         && fillTp1Pnl(t, txByBook.computeIfAbsent(t.getBook(), this::recentTx))) {
