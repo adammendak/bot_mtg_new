@@ -56,18 +56,20 @@ public class HtsTradeService {
     private final HtsTradeRepository trades;
     private final BrokerBooks books;
     private final HtsEngine engine;
+    private final HaHuntEngine haHunt;
     private final AppProperties properties;
     private final com.adam.server.sdd.RiskPolicy risk;
     private final List<HtsTradeSink> sinks;
     /** trade id → consecutive reconcile passes it was missing from openPositions(); reset when seen live or closed. */
     private final Map<Long, Integer> reconcileMisses = new java.util.concurrent.ConcurrentHashMap<>();
 
-    public HtsTradeService(HtsTradeRepository trades, BrokerBooks books, HtsEngine engine,
+    public HtsTradeService(HtsTradeRepository trades, BrokerBooks books, HtsEngine engine, HaHuntEngine haHunt,
                            AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
                            List<HtsTradeSink> sinks) {
         this.trades = trades;
         this.books = books;
         this.engine = engine;
+        this.haHunt = haHunt;
         this.properties = properties;
         this.risk = risk;
         this.sinks = sinks;
@@ -241,6 +243,9 @@ public class HtsTradeService {
             return false;
         }
         boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+        if (v.strategy() == HtsVariant.Strategy.HA_HUNT) {
+            return haHuntCloudExit(t, v, buy, market, candleCache);
+        }
         double entry = t.getEntry();
         double leg = Math.abs(entry - t.getStopLevel());
         if (leg <= 0) {
@@ -326,6 +331,47 @@ public class HtsTradeService {
             return true;
         } catch (Exception e) {
             log.warn("HTS runner [{}] {}: trail amend failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /**
+     * HA-hunt cloud-hold exit: no TP1 / runner / trail. The broker holds the
+     * fixed stop; here we only close the whole position when the last-closed
+     * hunt (H4/H12) Heikin-Ashi colour has flipped against it. The reconcile
+     * then marks the row CLOSED on the next pass.
+     */
+    private boolean haHuntCloudExit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
+                                    Map<String, List<Candle>> candleCache) {
+        if (t.getDealId() == null || t.getSize() == null) {
+            return false;
+        }
+        String cacheKey = t.getEpic() + "|H1";
+        List<Candle> h1 = candleCache.get(cacheKey);
+        if (h1 == null) {
+            try {
+                Instant now = Instant.now();
+                h1 = HtsCandles.fetch(market, t.getEpic(), com.adam.server.broker.Resolution.H1,
+                        now.minus(Duration.ofDays(45)), now);
+            } catch (Exception e) {
+                log.warn("HTS [{}] {}: H1 fetch for cloud exit failed ({})", v, t.getSymbol(),
+                        e.getClass().getSimpleName());
+                return false;
+            }
+            candleCache.put(cacheKey, h1);
+        }
+        if (!haHunt.cloudHoldExit(v, h1, buy, Instant.now())) {
+            return false;
+        }
+        selectBookAccount(t.getBook());
+        BrokerClient broker = books.forBook(t.getBook());
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        try {
+            broker.closePosition(t.getDealId(), remaining);
+            log.info("HTS [{}] {} cloud-hold exit — hunt Heikin-Ashi flipped against the position", v, t.getSymbol());
+            return true; // reconcile marks CLOSED next cycle
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: cloud-hold close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
             return false;
         }
     }

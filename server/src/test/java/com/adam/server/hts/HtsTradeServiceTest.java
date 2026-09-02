@@ -55,6 +55,8 @@ class HtsTradeServiceTest {
     @Mock
     HtsEngine engine;
     @Mock
+    HaHuntEngine haHunt;
+    @Mock
     HtsTradeSink sink;
     @Mock
     com.adam.server.sdd.RiskPolicy risk;
@@ -80,7 +82,7 @@ class HtsTradeServiceTest {
                         new Candle(bar.minusSeconds(60), 100, 100, 100, 100, 0),
                         new Candle(bar, 100, 100, 100, 100, 0)));
         when(repo.save(any(HtsTradeEntity.class))).thenAnswer(i -> i.getArgument(0));
-        service = new HtsTradeService(repo, books, engine, props, risk, List.of(sink));
+        service = new HtsTradeService(repo, books, engine, haHunt, props, risk, List.of(sink));
     }
 
     // ---- recordOpen / idempotency / realised P/L ----

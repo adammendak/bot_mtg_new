@@ -46,6 +46,7 @@ public class HtsScanService {
 
     private final BrokerBooks books;
     private final HtsEngine engine;
+    private final HaHuntEngine haHunt;
     private final HtsSignalRepository signals;
     private final com.adam.server.config.AppProperties properties;
     private final Clock clock;
@@ -61,6 +62,7 @@ public class HtsScanService {
     public HtsScanService(
             BrokerBooks books,
             HtsEngine engine,
+            HaHuntEngine haHunt,
             HtsSignalRepository signals,
             com.adam.server.config.AppProperties properties,
             Clock clock,
@@ -71,6 +73,7 @@ public class HtsScanService {
     ) {
         this.books = books;
         this.engine = engine;
+        this.haHunt = haHunt;
         this.signals = signals;
         this.properties = properties;
         this.clock = clock;
@@ -100,7 +103,7 @@ public class HtsScanService {
         try {
             int minute = now.atZone(zone).getMinute();
             for (HtsVariant variant : HtsVariant.values()) {
-                if (!variant.dueAtMinute(minute)) {
+                if (variant.parked() || !variant.dueAtMinute(minute)) {
                     continue;
                 }
                 // OKX variants scan crypto on the OKX book; Capital variants scan
@@ -122,7 +125,9 @@ public class HtsScanService {
                     if (!market.isSessionOpen()) {
                         market.login();
                     }
-                    if (variant.book().equals(Books.OKX)) {
+                    if (variant.strategy() == HtsVariant.Strategy.HA_HUNT) {
+                        scanHaHunt(variant, market, now, found);
+                    } else if (variant.book().equals(Books.OKX)) {
                         BrokerClient okx = market;
                         scanVariant(variant, OkxSymbol.universe().stream()
                                         .map(s -> new HtsInstrument(s.code(), okx.resolveEpic(s.instId()))).toList(),
@@ -279,6 +284,40 @@ public class HtsScanService {
                     + "or 'not confirmed open'.");
         }
         return out;
+    }
+
+    /** HA-hunt cloud scan: per-variant universe, entry TF from the broker, hunt/stop TFs resampled from H1. */
+    private void scanHaHunt(HtsVariant v, BrokerClient market, Instant now, List<HtsScan> found) {
+        Instant fromEntry = now.minus(v.ltfLookback());
+        Instant fromH1 = now.minus(java.time.Duration.ofDays(45));
+        for (String code : v.universe()) {
+            SddSymbol sym;
+            try {
+                sym = SddSymbol.valueOf(code);
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan: unknown symbol {}", v.name(), code);
+                continue;
+            }
+            String epic = sym.epic(properties);
+            try {
+                List<Candle> entryTf = HtsCandles.fetch(market, epic, v.ltf(), fromEntry, now);
+                List<Candle> h1 = v.ltf() == com.adam.server.broker.Resolution.H1
+                        ? entryTf
+                        : HtsCandles.fetch(market, epic, com.adam.server.broker.Resolution.H1, fromH1, now);
+                HtsScan signal = haHunt.evaluate(v, code, epic, entryTf, h1, now, sym.skipPivot());
+                if (signal != null) {
+                    found.add(signal);
+                    persist(signal);
+                    notify(signal, context(entryTf, h1, signal));
+                    execution.executeSignal(signal);
+                    log.info("HTS [{}] signal {} {} entry {} stop {} target {} (hunt {})",
+                            v.label(), signal.symbol(), signal.direction(), signal.entry(),
+                            signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear");
+                }
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
+            }
+        }
     }
 
     private void scanVariant(HtsVariant v, List<HtsInstrument> universe, BrokerClient market,
