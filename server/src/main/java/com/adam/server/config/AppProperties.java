@@ -377,6 +377,7 @@ public class AppProperties {
         private String eurusd = "EURUSD";
         private String btc = "BTCUSD";
         private String usdjpy = "USDJPY";
+        private String us500 = "US500";
 
         public String getGer40() {
             return ger40;
@@ -424,6 +425,14 @@ public class AppProperties {
 
         public void setUsdjpy(String usdjpy) {
             this.usdjpy = usdjpy;
+        }
+
+        public String getUs500() {
+            return us500;
+        }
+
+        public void setUs500(String us500) {
+            this.us500 = us500;
         }
     }
 
