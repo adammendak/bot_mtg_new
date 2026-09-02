@@ -37,15 +37,51 @@ public class MailHtsNotifier implements HtsNotifier {
     public void onHtsSignal(HtsScan s, HtsSignalContext ctx) {
         String key = variantName(s) + "|" + s.symbol() + "|" + s.direction();
         Instant now = Instant.now();
-        Instant prev = lastMailed.get(key);
-        if (prev != null && prev.plus(cooldown).isAfter(now)) {
-            return; // same setup, still within the cooldown — don't re-mail
+        // HA-hunt entries are a one-bar HA-flip event (not a persisting setup the
+        // scan re-emits every cycle), and they are rare — mail every one, no cooldown.
+        if (!isHaHunt(s)) {
+            Instant prev = lastMailed.get(key);
+            if (prev != null && prev.plus(cooldown).isAfter(now)) {
+                return; // same setup, still within the cooldown — don't re-mail
+            }
         }
         lastMailed.put(key, now);
+
+        if (isHaHunt(s)) {
+            String subject = "HTS [" + variantLabel(s) + "] " + s.direction() + " " + s.symbol()
+                    + " @ " + trim(s.entry()) + "  (hunt " + (s.htfUp() ? "bull" : "bear") + ")";
+            mailer.send(subject, haHunt(s));
+            return;
+        }
 
         String subject = "HTS [" + variantLabel(s) + "] " + s.direction() + " " + s.symbol()
                 + " @ " + trim(s.entry()) + "  (HTF " + (s.htfUp() ? "up" : "down") + ")";
         mailer.send(subject, ctx == null ? brief(s) : full(s, ctx));
+    }
+
+    private static boolean isHaHunt(HtsScan s) {
+        return s.variant() != null && s.variant().strategy() == HtsVariant.Strategy.HA_HUNT;
+    }
+
+    private static String haHunt(HtsScan s) {
+        double dist = Math.abs(s.entry() - s.stopLevel());
+        double pct = s.entry() != 0 ? dist / s.entry() * 100.0 : Double.NaN;
+        return "HA-hunt cloud entry — " + variantLabel(s) + " — " + s.timestamp() + "\n"
+                + s.direction() + ' ' + s.symbol() + " (" + s.epic() + ")\n\n"
+                + "  entry        " + trim(s.entry()) + '\n'
+                + "  stop         " + trim(s.stopLevel()) + "   (2.5xATR = 1R = " + trim(dist)
+                + " = " + trim(pct) + "% of price)\n"
+                + "  target       " + trim(s.targetLevel()) + "   (2R; informational — exit is cloud-hold)\n"
+                + "  hunt regime  " + (s.htfUp() ? "bull" : "bear") + " (last-closed HTF Heikin-Ashi)\n\n"
+                + "Entry-TF Heikin-Ashi flipped " + (isBuy(s) ? "bull" : "bear")
+                + " on the just-closed bar, aligned with the " + (s.htfUp() ? "bull" : "bear")
+                + " hunt regime, RMA stacked, mid-TF confirming, daily pivot aligned.\n"
+                + "Exit: fixed stop, OR the last-closed hunt Heikin-Ashi colour flips against the position.\n"
+                + "No TP1, no trailing. At most 2 fills per hunt regime per instrument.\n";
+    }
+
+    private static boolean isBuy(HtsScan s) {
+        return "BUY".equals(String.valueOf(s.direction()));
     }
 
     private static String variantName(HtsScan s) {
@@ -53,18 +89,15 @@ public class MailHtsNotifier implements HtsNotifier {
     }
 
     private static String variantLabel(HtsScan s) {
-        if (s.variant() == null) {
-            return "HTS";
-        }
-        return s.variant().name() + " " + s.variant().htf() + "/" + s.variant().ltf();
+        return s.variant() == null ? "HTS" : s.variant().label();
     }
 
     private static String htf(HtsScan s) {
-        return s.variant() == null ? "HTF" : s.variant().htf().name();
+        return s.variant() == null || s.variant().htf() == null ? "HTF" : s.variant().htf().name();
     }
 
     private static String ltf(HtsScan s) {
-        return s.variant() == null ? "LTF" : s.variant().ltf().name();
+        return s.variant() == null || s.variant().ltf() == null ? "LTF" : s.variant().ltf().name();
     }
 
     private static String brief(HtsScan s) {

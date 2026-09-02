@@ -64,4 +64,26 @@ class MailHtsNotifierTest {
 
         verify(mailer).send(contains("[CORE H4/M15]"), anyString());
     }
+
+    @Test
+    void haHuntSignalsMailEveryTimeIgnoringTheCooldown() {
+        Mailer mailer = mock(Mailer.class);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
+
+        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);
+        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);
+        n.onHtsSignal(signal(HtsVariant.HA12, "US100"), null);
+
+        verify(mailer, times(3)).send(anyString(), anyString());
+    }
+
+    @Test
+    void haHuntSubjectUsesTheHuntLabelAndDoesNotNpeOnNullHtf() {
+        Mailer mailer = mock(Mailer.class);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
+
+        n.onHtsSignal(signal(HtsVariant.HA4, "USDJPY"), null);
+
+        verify(mailer).send(contains("[HA4 H4-hunt/M15]"), contains("HA-hunt cloud entry"));
+    }
 }
