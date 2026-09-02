@@ -21,66 +21,34 @@ class MailHtsNotifierTest {
     }
 
     @Test
-    void mailsOncePerSetupThenSuppressesWithinCooldown() {
+    void mailsEveryHaHuntSignalWithNoCooldown() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
-
-        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
-        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
-        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
-
-        verify(mailer, times(1)).send(anyString(), anyString());
-    }
-
-    @Test
-    void differentSetupsEachGetAMail() {
-        Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
-
-        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
-        n.onHtsSignal(signal(HtsVariant.CORE, "BTC"), null);   // different variant
-        n.onHtsSignal(signal(HtsVariant.FAST, "GER40"), null); // different symbol
-
-        verify(mailer, times(3)).send(anyString(), anyString());
-    }
-
-    @Test
-    void zeroCooldownMailsEveryTime() {
-        Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer, 0);
-
-        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
-        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
-
-        verify(mailer, times(2)).send(anyString(), anyString());
-    }
-
-    @Test
-    void subjectCarriesVariantAndTimeframe() {
-        Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
-
-        n.onHtsSignal(signal(HtsVariant.CORE, "GER40"), null);
-
-        verify(mailer).send(contains("[CORE H4/M15]"), anyString());
-    }
-
-    @Test
-    void haHuntSignalsMailEveryTimeIgnoringTheCooldown() {
-        Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
+        MailHtsNotifier n = new MailHtsNotifier(mailer);
 
         n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);
-        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);
+        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);   // same setup — still mailed
         n.onHtsSignal(signal(HtsVariant.HA12, "US100"), null);
 
         verify(mailer, times(3)).send(anyString(), anyString());
     }
 
     @Test
-    void haHuntSubjectUsesTheHuntLabelAndDoesNotNpeOnNullHtf() {
+    void doesNotMailFastOrOkxOrLiveVariants() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer, 120);
+        MailHtsNotifier n = new MailHtsNotifier(mailer);
+
+        n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
+        n.onHtsSignal(signal(HtsVariant.FAST_OKX, "DOGE"), null);
+        n.onHtsSignal(signal(HtsVariant.CORE_OKX, "ETH"), null);
+        n.onHtsSignal(signal(HtsVariant.CORE_LIVE, "GER40"), null);
+
+        verify(mailer, never()).send(anyString(), anyString());
+    }
+
+    @Test
+    void subjectAndBodyUseTheHuntLabelAndDoNotNpeOnNullHtf() {
+        Mailer mailer = mock(Mailer.class);
+        MailHtsNotifier n = new MailHtsNotifier(mailer);
 
         n.onHtsSignal(signal(HtsVariant.HA4, "USDJPY"), null);
 

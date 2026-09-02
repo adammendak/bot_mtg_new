@@ -99,6 +99,16 @@ public enum HtsVariant {
     }
 
     /**
+     * Whether per-signal e-mail is sent for this variant. Only the HA-hunt
+     * strategies (HA4 / HA12) mail — they are sparse and each fill matters.
+     * FAST (M5) and the OKX crypto variants signal too often to mail; CORE_LIVE
+     * is silent in practice and its fills are visible on the dashboard / trades feed.
+     */
+    public boolean mailsSignals() {
+        return strategy == Strategy.HA_HUNT;
+    }
+
+    /**
      * Parked: kept in the enum but not scanned or traded. CORE / SWING ribbon
      * gave zero signals through the forward test and were replaced by the
      * HA-hunt variants on the same demo books.
