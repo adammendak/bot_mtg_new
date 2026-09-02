@@ -20,6 +20,11 @@ class MailHtsNotifierTest {
                 Direction.BUY, 100.0, 98.0, 104.0, true);
     }
 
+    private HtsScan shortSignal(HtsVariant v, String symbol) {
+        return new HtsScan(v, Instant.parse("2026-08-31T07:00:00Z"), symbol, symbol + "USD",
+                Direction.SELL, 100.0, 102.0, 96.0, false);
+    }
+
     @Test
     void mailsEveryHaHuntSignalWithNoCooldown() {
         Mailer mailer = mock(Mailer.class);
@@ -53,5 +58,15 @@ class MailHtsNotifierTest {
         n.onHtsSignal(signal(HtsVariant.HA4, "USDJPY"), null);
 
         verify(mailer).send(contains("[HA4 H4-hunt/M15]"), contains("HA-hunt cloud entry"));
+    }
+
+    @Test
+    void shortOnALongOnlyVariantIsMailedButMarkedObserveOnly() {
+        Mailer mailer = mock(Mailer.class);
+        MailHtsNotifier n = new MailHtsNotifier(mailer);
+
+        n.onHtsSignal(shortSignal(HtsVariant.HA12, "US100"), null);
+
+        verify(mailer).send(contains("OBSERVE ONLY"), contains("NOT executed"));
     }
 }

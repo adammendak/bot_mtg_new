@@ -123,8 +123,10 @@ public class HaHuntEngine {
             }
         }
 
-        // --- 7: universe / side ---
-        if (!v.universe().contains(code) || (v.longOnly() && !longDir)) {
+        // --- 7: universe. Side is NOT filtered here: a short on a long-only
+        // variant is still emitted so it is e-mailed / logged, but the scan does
+        // not hand it to the execution gate (observe-only). ---
+        if (!v.universe().contains(code)) {
             return null;
         }
 

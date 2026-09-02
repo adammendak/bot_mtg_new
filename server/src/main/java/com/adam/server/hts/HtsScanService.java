@@ -309,10 +309,16 @@ public class HtsScanService {
                     found.add(signal);
                     persist(signal);
                     notify(signal, context(entryTf, h1, signal));
-                    execution.executeSignal(signal);
-                    log.info("HTS [{}] signal {} {} entry {} stop {} target {} (hunt {})",
+                    // Long-only variant: a short is emitted (persisted + e-mailed)
+                    // for visibility but NOT executed.
+                    boolean observeOnly = v.longOnly() && signal.direction() != Direction.BUY;
+                    if (!observeOnly) {
+                        execution.executeSignal(signal);
+                    }
+                    log.info("HTS [{}] signal {} {} entry {} stop {} target {} (hunt {}){}",
                             v.label(), signal.symbol(), signal.direction(), signal.entry(),
-                            signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear");
+                            signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear",
+                            observeOnly ? " — OBSERVE ONLY (short, not executed)" : "");
                 }
             } catch (RuntimeException e) {
                 log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
