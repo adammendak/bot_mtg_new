@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -116,12 +117,18 @@ public class HtsTradeService {
                 && trades.existsByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN");
     }
 
-    @Transactional
+    /**
+     * REQUIRES_NEW: the broker order has already been placed by the time this is
+     * called, so the {@code hts_trades} row must be committed independently — a
+     * failure here (or a rollback elsewhere in the scan pass) must not leave a
+     * live position with no DB record for the monitor to manage.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public HtsTradeEntity recordOpen(HtsScan s, HtsVariant v, String book, String accountName,
                                      double size, OrderAck ack) {
         HtsTradeEntity t = new HtsTradeEntity();
         t.setVariant(v.name());
-        t.setHtf(v.htf().name());
+        t.setHtf(v.htfLabel());
         t.setLtf(v.ltf().name());
         t.setBook(book);
         t.setAccountName(accountName);
@@ -596,7 +603,7 @@ public class HtsTradeService {
         String book = null;
         try {
             HtsVariant v = HtsVariant.valueOf(variant);
-            htf = v.htf().name();
+            htf = v.htfLabel();
             ltf = v.ltf().name();
             book = v.book();
         } catch (RuntimeException ignored) {

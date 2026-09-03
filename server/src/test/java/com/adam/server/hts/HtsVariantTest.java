@@ -18,6 +18,17 @@ class HtsVariantTest {
     }
 
     @Test
+    void htfLabelIsNeverNull() {
+        assertThat(HtsVariant.CORE.htfLabel()).isEqualTo("H4");
+        assertThat(HtsVariant.SWING.htfLabel()).isEqualTo("D1");
+        assertThat(HtsVariant.HA4.htfLabel()).isEqualTo("H4");   // htf() is null
+        assertThat(HtsVariant.HA12.htfLabel()).isEqualTo("H12"); // htf() is null
+        for (HtsVariant v : HtsVariant.values()) {
+            assertThat(v.htfLabel()).as(v.name()).isNotBlank();
+        }
+    }
+
+    @Test
     void higherTimeframeModelsStillTradeBtcAndEurusd() {
         assertThat(HtsVariant.CORE.tradesSymbol("BTC")).isTrue();
         assertThat(HtsVariant.SWING.tradesSymbol("BTC")).isTrue();

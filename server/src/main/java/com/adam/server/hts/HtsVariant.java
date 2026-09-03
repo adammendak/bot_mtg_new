@@ -135,6 +135,15 @@ public enum HtsVariant {
         return htf;
     }
 
+    /**
+     * Non-null higher-timeframe label for persistence / display. HA-hunt variants
+     * have no {@link Resolution} htf (the hunt runs on a resampled H4/H12 series),
+     * so this returns {@code "H4"} / {@code "H12"} for them.
+     */
+    public String htfLabel() {
+        return htf != null ? htf.name() : "H" + huntHours;
+    }
+
     public Resolution ltf() {
         return ltf;
     }
