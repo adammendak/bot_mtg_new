@@ -2,6 +2,7 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Candle;
+import com.adam.server.sdd.Band;
 import com.adam.server.sdd.HeikenAshi;
 import com.adam.server.sdd.PivotPoints;
 import com.adam.server.sdd.Resample;
@@ -17,24 +18,25 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Live engine for the two "HA-hunt cloud" strategy variants
- * ({@link HtsVariant#HA4}, {@link HtsVariant#HA12}) — SDD-style entry, an HTF
+ * Live engine for the "HA-hunt cloud" strategy variants ({@link HtsVariant#HA4},
+ * {@link HtsVariant#HA12}, {@link HtsVariant#HA4X}) — SDD-style entry, an HTF
  * Heikin-Ashi "hunt" regime gate, and a cloud-hold exit. Ribbon variants use
  * {@link HtsEngine}; this one is picked when {@code variant.strategy() == HA_HUNT}.
  *
- * <p><b>Entry</b> (on a just-closed entry-TF bar — M15 for HA4, H1 for HA12):
+ * <p><b>Entry</b> (on a just-closed entry-TF bar — M15 for HA4/HA4X, H1 for HA12):
  * <ol>
- *   <li>entry-TF HA colour flipped on this bar; {@code direction} = the new colour;</li>
+ *   <li>entry-TF direction, per {@link HtsVariant.EntryTrigger}: HA colour flip
+ *       on this bar, or a fresh band cross;</li>
  *   <li>{@code direction} == the current hunt-regime colour (last closed H4/H12 HA bar);</li>
  *   <li>entry-TF RMA stacked ({@code close} vs {@code RMA33} vs {@code RMAslow});</li>
- *   <li>"WITH" confirm on the mid TF (H1 for HA4, H4 for HA12): HA colour matches
- *       {@code direction} OR close on the {@code direction} side of the RMAs;</li>
+ *   <li>"WITH" confirm on the mid TF (H1 for HA4/HA4X, H4 for HA12): HA colour
+ *       matches {@code direction} OR close on the {@code direction} side of the RMAs;</li>
  *   <li>daily Pivot aligned (21:00 UTC roll; skipped for crypto);</li>
  *   <li>universe / side filter;</li>
  *   <li>at most 2 fills per hunt regime per instrument.</li>
  * </ol>
- * <b>Stop</b> = {@code entry ∓ 2.5 × ATR14} on the stop TF (H1 for HA4, H4 for
- * HA12). 1R = that distance. <b>Exit</b> = stop touch OR the last-closed hunt
+ * <b>Stop</b> = {@code entry ∓ 2.5 × ATR14} on the stop TF (H1 for HA4/HA4X, H4
+ * for HA12). 1R = that distance. <b>Exit</b> = stop touch OR the last-closed hunt
  * HA colour flips against the position ({@link #cloudHoldExit}).
  */
 @Component
@@ -87,14 +89,14 @@ public class HaHuntEngine {
             reg.fills = 0; // colour flipped — a new hunt opened
         }
 
-        // --- 1+2: entry-TF HA flip on the just-closed bar ---
-        List<HeikenAshi.Bar> eHa = HeikenAshi.from(entryTf);
-        int last = eHa.size() - 1;
-        boolean curBull = eHa.get(last).bullish();
-        if (curBull == eHa.get(last - 1).bullish()) {
+        // --- 1+2: entry-TF direction — trigger mode picks how it's decided ---
+        Boolean dir = v.entryTrigger() == HtsVariant.EntryTrigger.BAND_CROSS
+                ? bandCrossDirection(entryTf, slow)
+                : haFlipDirection(entryTf);
+        if (dir == null) {
             return null;
         }
-        boolean longDir = curBull;
+        boolean longDir = dir;
 
         // --- 3: hunt gate ---
         if (longDir != huntBull) {
@@ -167,6 +169,45 @@ public class HaHuntEngine {
         }
         boolean huntBull = HeikenAshi.from(hunt).getLast().bullish();
         return positionIsBuy ? !huntBull : huntBull;
+    }
+
+    /** HA_FLIP trigger: entry-TF Heikin-Ashi colour changed on the just-closed bar. */
+    static Boolean haFlipDirection(List<Candle> entryTf) {
+        List<HeikenAshi.Bar> eHa = HeikenAshi.from(entryTf);
+        int last = eHa.size() - 1;
+        boolean curBull = eHa.get(last).bullish();
+        return curBull == eHa.get(last - 1).bullish() ? null : curBull;
+    }
+
+    /**
+     * BAND_CROSS trigger: entry-TF close closes beyond the fast RMA band (fast
+     * band clear of the slow band), on the first bar this becomes true — not a
+     * persisting state, otherwise it would re-signal every bar the price stays
+     * extended.
+     */
+    static Boolean bandCrossDirection(List<Candle> entryTf, int slow) {
+        int i = entryTf.size() - 1;
+        if (i < 1) {
+            return null;
+        }
+        Band.Series fast = Band.rma(entryTf, RMA_FAST);
+        Band.Series slowBand = Band.rma(entryTf, slow);
+        if (!fast.ready(i) || !slowBand.ready(i) || !fast.ready(i - 1) || !slowBand.ready(i - 1)) {
+            return null;
+        }
+        double close = entryTf.get(i).close();
+        double prevClose = entryTf.get(i - 1).close();
+        boolean longNow = close > fast.upper()[i] && fast.lower()[i] > slowBand.upper()[i];
+        boolean shortNow = close < fast.lower()[i] && fast.upper()[i] < slowBand.lower()[i];
+        boolean longPrev = prevClose > fast.upper()[i - 1] && fast.lower()[i - 1] > slowBand.upper()[i - 1];
+        boolean shortPrev = prevClose < fast.lower()[i - 1] && fast.upper()[i - 1] < slowBand.lower()[i - 1];
+        if (longNow && !longPrev) {
+            return Boolean.TRUE;
+        }
+        if (shortNow && !shortPrev) {
+            return Boolean.FALSE;
+        }
+        return null;
     }
 
     private boolean withConfirm(HtsVariant v, List<Candle> h1, Instant now, boolean longDir, int slow) {
