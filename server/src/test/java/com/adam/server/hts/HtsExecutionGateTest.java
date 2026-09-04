@@ -181,8 +181,9 @@ class HtsExecutionGateTest {
     void widensATooTightStopToTheBrokerMinimum() {
         when(broker.marketRules(anyString()))
                 .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 500.0, 0));
+        realSizeFor();
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
-                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.02));
 
         gate.executeSignal(signal(78988.65, 78823.036)); // ~166 pts stop, min is 500
 
@@ -198,9 +199,7 @@ class HtsExecutionGateTest {
         // be recomputed from 500, not left sized for 166 (~3x over-risk otherwise).
         when(broker.marketRules(anyString()))
                 .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 500.0, 0));
-        when(risk.sizeFor(anyDouble(), eq(500.0), anyDouble())).thenReturn(0.02);
-        when(risk.sizeFor(eq(10.0), org.mockito.ArgumentMatchers.doubleThat(d -> d < 200), anyDouble()))
-                .thenReturn(0.06);
+        realSizeFor();
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
                 "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.02));
 
@@ -208,7 +207,8 @@ class HtsExecutionGateTest {
 
         ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
         verify(broker).placeMarketOrder(req.capture());
-        assertThat(req.getValue().size()).isEqualTo(0.02); // sized for the widened 500pt stop
+        // 10 PLN risk over the widened 500pt stop (pv 1.0) -> 0.02, not ~0.06 (sized for 166pt)
+        assertThat(req.getValue().size()).isEqualTo(0.02);
     }
 
     @Test
@@ -233,30 +233,91 @@ class HtsExecutionGateTest {
         when(broker.marketRules(anyString()))
                 .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 0, 0, true, 0.05, "EUR", 1.0));
         when(broker.fxRate("EUR", "PLN")).thenReturn(4.0);
-        when(risk.sizeFor(anyDouble(),
-                org.mockito.ArgumentMatchers.doubleThat(d -> d > 600), anyDouble())).thenReturn(0.02);
+        realSizeFor();
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
-                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.02));
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.015));
 
         gate.executeSignal(signal(78988.65, 78823.036)); // stopDist ~165 -> ~662 after point value
 
+        // sizeFor must be fed stopDist * pointValue(1.0) * fx(4.0) ~= 662, not ~165
+        verify(risk, org.mockito.Mockito.atLeastOnce())
+                .sizeFor(eq(10.0), org.mockito.ArgumentMatchers.doubleThat(d -> d > 600), anyDouble());
         ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
         verify(broker).placeMarketOrder(req.capture());
-        assertThat(req.getValue().size()).isEqualTo(0.02);
+        // 10 / (165.6 * 4.0) ~= 0.0151 -> ~0.015, NOT ~0.06 (the FX-less bug)
+        assertThat(req.getValue().size()).isBetween(0.013, 0.017);
+    }
+
+    /** Mirror of RiskPolicy.sizeFor: riskCash / (stopAtrMult * atr). */
+    private void realSizeFor() {
+        when(risk.sizeFor(anyDouble(), anyDouble(), anyDouble())).thenAnswer(inv ->
+                (double) inv.getArgument(0) / ((double) inv.getArgument(2) * (double) inv.getArgument(1)));
+    }
+
+    @Test
+    void usdInstrumentOnAPlnAccountWithNoBrokerPipValueStillGetsFxConverted() {
+        // US100 / GOLD: Capital returns valueOfOnePip = null -> pointValue 0.
+        // The size must still divide by stopDist * USDPLN, not stopDist alone.
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("US100", 0.001, 1, 0, 0, true, 0.05, "USD", 0.0));
+        when(broker.fxRate("USD", "PLN")).thenReturn(3.7);
+        realSizeFor();
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "US100", Direction.BUY, 29480.8, 0.012));
+
+        gate.executeSignal(signal(29480.8, 29247.2)); // stopDist 233.6, risk target 10 PLN
+
+        ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(broker).placeMarketOrder(req.capture());
+        // 10 / (233.6 * 3.7) ~= 0.0116 -> rounds to ~0.012, NOT ~0.043 (the FX-less bug)
+        assertThat(req.getValue().size()).isBetween(0.010, 0.014);
+    }
+
+    @Test
+    void sameCurrencyAccountUsesNoFxConversion() {
+        Account usd = new Account("acc1", "Account m5", "USD", 1000, 1000, 0, true);
+        when(broker.accounts()).thenReturn(List.of(usd));
+        when(risk.pickForBook(eq(book), any())).thenReturn(usd);
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("US100", 0.001, 1, 0, 0, true, 0.05, "USD", 0.0));
+        realSizeFor();
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "US100", Direction.BUY, 29480.8, 0.043));
+
+        gate.executeSignal(signal(29480.8, 29247.2)); // 10 / (233.6 * 1.0) ~= 0.043
+
+        ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(broker).placeMarketOrder(req.capture());
+        assertThat(req.getValue().size()).isBetween(0.040, 0.046);
+    }
+
+    @Test
+    void skipsWhenTheSmallestTradeableSizeRisksWellOverTheTarget() {
+        when(risk.riskAmount(any(), eq(false))).thenReturn(1.0);          // tiny 1 PLN target
+        when(broker.marketRules(anyString()))
+                .thenReturn(new MarketRules("US100", 0.1, 1, 0, 0, true, 0.05, "USD", 0.0)); // chunky minDeal
+        when(broker.fxRate("USD", "PLN")).thenReturn(3.7);
+        realSizeFor();
+
+        gate.executeSignal(signal(29480.8, 29247.2)); // minDeal 0.1 -> risk ~86 PLN >> 1.25 PLN
+
+        verify(broker, never()).placeMarketOrder(any());
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+        verify(mailer).sendThrottled(eq("exec-hts-oversize-FAST"), anyString(), anyString());
     }
 
     @Test
     void capsSizeToWhatTheAccountCanMargin() {
-        // 1R sizing wants 0.5 lots; account has 1000 PLN and DE40-style margin
-        // is 5% of a USD notional at ~4.0 PLN/USD -> only ~0.05 lots fit.
-        when(risk.sizeFor(anyDouble(), anyDouble(), anyDouble())).thenReturn(0.5);
+        // Tight 20pt stop -> 1R sizing wants ~0.125 lots; DE40-style 5% margin on
+        // a ~79k USD notional at 4.0 PLN/USD only leaves room for ~0.05 lots.
+        realSizeFor();
         when(broker.marketRules(anyString()))
                 .thenReturn(new MarketRules("BTCUSD", 0.001, 1, 0, 0, true, 0.05, "USD"));
         when(broker.fxRate("USD", "PLN")).thenReturn(4.0);
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
-                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 79000.0, 0.05));
 
-        gate.executeSignal(signal(78988.65, 78823.036));
+        gate.executeSignal(signal(79000.0, 78980.0)); // stopDist 20
 
         ArgumentCaptor<OrderRequest> req = ArgumentCaptor.forClass(OrderRequest.class);
         verify(broker).placeMarketOrder(req.capture());

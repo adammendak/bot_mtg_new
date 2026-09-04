@@ -227,13 +227,19 @@ public class HtsExecutionGate {
             if (fx <= 0) {
                 fx = 1.0;
             }
-            // Value of one price point in the account currency. 1R sizing divides
-            // by this — without it a €1/point index on a PLN account is sized
-            // ~fx times too big (a "1%" trade actually risked ~4%).
-            double pointValueAcct = rules.pointValue() > 0 ? rules.pointValue() * fx : 1.0;
+            // Value of one price point per 1.0 size, IN THE ACCOUNT CURRENCY.
+            // A standard CFD moves one unit of the instrument currency per point
+            // (Capital lotSize=1), so when Capital returns no valueOfOnePip
+            // (null for US100 / GOLD) fall back to 1.0 *in the instrument
+            // currency* and then convert — NOT to 1.0 in the account currency,
+            // which silently drops FX and sizes a USD instrument on a PLN
+            // account ~USDPLN× too big (a "1%" trade actually risked ~3.7%).
+            double pointValue = rules.pointValue() > 0 ? rules.pointValue() : 1.0;
+            double pointValueAcct = pointValue * fx;
 
             double stopDist = Math.abs(s.entry() - s.stopLevel());
-            double cash = risk.riskAmount(account, live);
+            // Cash at risk if the entry stop is hit = riskPercent of account equity.
+            double cash = risk.riskAmount(account, live) * properties.getHtsRiskPercent();
             double size = risk.sizeFor(cash, stopDist * pointValueAcct, 1.0);
             if (size <= 0 || stopDist <= 0) {
                 log.warn("HTS [{}] execution {}: size/stop is zero (cash {}, stopDist {}, pointValue {})",
@@ -324,6 +330,26 @@ public class HtsExecutionGate {
                 log.warn("HTS [{}] LIVE execution skipped {} — size {} below min deal {} after shaping",
                         s.variant().name(), s.symbol(), adjSize, minSize);
                 placed.remove(key);
+                return;
+            }
+            // After rounding to minDeal / step, the actual cash at risk can exceed
+            // the 1R target (a tiny account on a chunky-minDeal instrument). Don't
+            // place an oversized ticket.
+            double actualRisk = adjDist * adjSize * pointValueAcct;
+            if (actualRisk > cash * 1.25) {
+                log.warn("HTS [{}] {} entry skipped — rounded size {} risks ~{} {} > 1.25x target {} {} "
+                                + "(min deal / step forces oversize on this account)",
+                        s.variant().name(), s.symbol(), adjSize,
+                        Math.round(actualRisk * 100) / 100.0, account.currency(),
+                        Math.round(cash * 100) / 100.0, account.currency());
+                placed.remove(key);
+                mailer.sendThrottled("exec-hts-oversize-" + s.variant().name(),
+                        mailTag(s) + " entry skipped — size too big for " + s.symbol(),
+                        s.variant().name() + " " + s.symbol() + " " + s.direction() + ": the smallest tradeable "
+                                + "size (" + adjSize + ") risks ~" + (Math.round(actualRisk * 100) / 100.0) + " "
+                                + account.currency() + ", over 1.25x the " + (Math.round(cash * 100) / 100.0) + " "
+                                + account.currency() + " target. No order was placed.\n\n"
+                                + "(further skips within 30 min are suppressed)");
                 return;
             }
             double adjTarget = buy ? adjEntry + HtsEngine.RR * adjDist : adjEntry - HtsEngine.RR * adjDist;
