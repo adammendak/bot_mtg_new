@@ -32,6 +32,8 @@ public class AppProperties {
     private double minDealSize = 0.01;
     /** HTS: cap a position so its broker margin ≤ this fraction of the account's free funds. */
     private double htsMarginBuffer = 0.8;
+    /** HTS: cash at risk per new ticket, as a percent of account equity (1.0 = 1%). */
+    private double htsRiskPercent = 1.0;
     private int maxOpenNames = 4;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
@@ -236,6 +238,14 @@ public class AppProperties {
 
     public void setHtsMarginBuffer(double htsMarginBuffer) {
         this.htsMarginBuffer = htsMarginBuffer;
+    }
+
+    public double getHtsRiskPercent() {
+        return htsRiskPercent;
+    }
+
+    public void setHtsRiskPercent(double htsRiskPercent) {
+        this.htsRiskPercent = htsRiskPercent;
     }
 
     public int getMaxOpenNames() {
