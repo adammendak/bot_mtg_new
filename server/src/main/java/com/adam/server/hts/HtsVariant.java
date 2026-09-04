@@ -17,7 +17,9 @@ import java.util.List;
  *       {@code HTS_LIVE_EXECUTION_ENABLED} (separate from the demo flag)</li>
  *   <li>{@link #CORE_OKX} / {@link #FAST_OKX} — ribbon → {@code okx} book (crypto, SWAP), 24/7</li>
  *   <li>{@link #HA4} — HA-hunt cloud, H4 hunt / M15 entry, "HA flip + stack" trigger
- *       → {@code demo} book ("Account m15"); XAU / US100 / USDJPY, long only</li>
+ *       → {@code demo} book ("Account m15"); XAU / US100 / USDJPY / GER40, long only.
+ *       GER40 is in the universe on request — the H4/M15 backtest found it
+ *       net-negative and it is not backed by evidence, unlike the other three.</li>
  *   <li>{@link #HA4X} — same H4 hunt / M15 entry / stop / universe as {@link #HA4},
  *       but the "M15 band cross" trigger → {@code swing} book ("Account H1"); a
  *       side-by-side comparison of the two entry triggers on comparable accounts</li>
@@ -53,11 +55,11 @@ public enum HtsVariant {
     FAST_OKX(Resolution.H1, Resolution.M5, Books.OKX, Duration.ofDays(28), Duration.ofDays(6), 5, false),
 
     /** H4-HA-hunt cloud, M15 execution, ATR stop on H1, slow RMA 100. HA-flip entry. */
-    HA4(Books.DEMO, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.HA_FLIP),
+    HA4(Books.DEMO, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY", "GER40"), EntryTrigger.HA_FLIP),
     /** H12-HA-hunt cloud, H1 execution, ATR stop on H4, slow RMA 144. Parked — see class javadoc. */
     HA12(Books.SWING, Resolution.H1, 60, 12, 4, 144, List.of("XAU", "US100"), EntryTrigger.HA_FLIP),
     /** Same H4/M15/H1 shape as {@link #HA4}, band-cross entry — for comparison on "Account H1". */
-    HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.BAND_CROSS),
+    HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY", "GER40"), EntryTrigger.BAND_CROSS),
     /** H1-HA-hunt cloud, M5 entry, ATR stop/WITH on M15 (resampled from M5). HA-flip entry. Unvalidated — see class javadoc. */
     HA1(Books.HTS, Resolution.M5, 5, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.HA_FLIP, 15,
             Duration.ofDays(6));
