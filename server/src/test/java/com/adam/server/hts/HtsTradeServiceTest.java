@@ -107,6 +107,21 @@ class HtsTradeServiceTest {
     }
 
     @Test
+    void recordOpenDoesNotNpeForHaHuntVariantsWithNoResolutionHtf() {
+        HtsScan s = new HtsScan(HtsVariant.HA4, bar, "XAU", "GOLD", Direction.BUY,
+                4400.0, 4350.0, 4500.0, true);
+
+        HtsTradeEntity t = service.recordOpen(s, HtsVariant.HA4, HtsVariant.HA4.book(), "Account m15", 0.2,
+                new OrderAck("ref-ha", "d-ha", "OK"));
+
+        assertThat(t.getVariant()).isEqualTo("HA4");
+        assertThat(t.getHtf()).isEqualTo("H4");   // htfLabel(), not htf().name() (which is null)
+        assertThat(t.getLtf()).isEqualTo("M15");
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+        verify(sink).onOpen(t);
+    }
+
+    @Test
     void alreadyExecutedDelegatesToTheRepo() {
         when(repo.existsByVariantAndSymbolAndDirectionAndBarTime("CORE", "GER40", "BUY", bar))
                 .thenReturn(true);
