@@ -112,8 +112,9 @@ public class HaHuntEngine {
             return null;
         }
 
-        // --- 5: "WITH" confirm on the mid TF ---
-        if (!withConfirm(v, h1, now, longDir, slow)) {
+        // --- 5: "WITH" confirm on the mid TF (also the stop TF — computed once, step 5 + the stop below) ---
+        List<Candle> midBars = midTimeframe(v, entryTf, h1, now);
+        if (!withConfirm(midBars, longDir, slow)) {
             return null;
         }
 
@@ -138,8 +139,7 @@ public class HaHuntEngine {
         }
 
         // --- stop = entry ∓ 2.5 × ATR14(stop TF) ---
-        List<Candle> stopBars = v.atrHours() == 1 ? h1 : Resample.toHours(h1, v.atrHours(), now);
-        double atr = Wilder.last(Wilder.atr(stopBars, ATR_LEN));
+        double atr = Wilder.last(Wilder.atr(midBars, ATR_LEN));
         if (Double.isNaN(atr) || atr <= 0) {
             return null;
         }
@@ -210,27 +210,32 @@ public class HaHuntEngine {
         return null;
     }
 
-    private boolean withConfirm(HtsVariant v, List<Candle> h1, Instant now, boolean longDir, int slow) {
-        if (v.huntHours() == 4) {
-            // HA4: H1 HA colour matches OR H1 close stacked with RMA33/RMAslow
-            boolean h1Bull = HeikenAshi.from(h1).getLast().bullish();
-            double[] c = Wilder.closes(h1);
-            double f = Wilder.last(Wilder.rma(c, RMA_FAST));
-            double s = Wilder.last(Wilder.rma(c, slow));
-            boolean stk = !Double.isNaN(f) && !Double.isNaN(s)
-                    && stacked(h1.getLast().close(), f, s, longDir);
-            return h1Bull == longDir || stk;
+    /**
+     * The mid timeframe used for both the WITH confirm and the ATR stop — one
+     * step between the entry TF and the hunt TF. Whole-hour hunts (H4, H12)
+     * resample it from the raw H1 feed (H1 itself, or an H4 resample); an H1
+     * hunt has no room for a whole-hour mid step, so it resamples a finer one
+     * (M15) from the entry-TF (M5) feed instead — see {@link HtsVariant#atrMinutes()}.
+     */
+    private static List<Candle> midTimeframe(HtsVariant v, List<Candle> entryTf, List<Candle> h1, Instant now) {
+        if (v.atrMinutes() > 0) {
+            return Resample.toMinutes(entryTf, v.atrMinutes(), now);
         }
-        // HA12: H4 HA colour matches OR H4 close on the direction side of RMA33(H4)
-        List<Candle> h4 = Resample.toHours(h1, 4, now);
-        if (h4.size() < RMA_FAST + 2) {
+        return v.atrHours() == 1 ? h1 : Resample.toHours(h1, v.atrHours(), now);
+    }
+
+    /** Mid-TF HA colour matches {@code direction}, OR mid-TF close is RMA-stacked with it. */
+    private static boolean withConfirm(List<Candle> midBars, boolean longDir, int slow) {
+        if (midBars.size() < slow + 2) {
             return false;
         }
-        boolean h4Bull = HeikenAshi.from(h4).getLast().bullish();
-        double f = Wilder.last(Wilder.rma(Wilder.closes(h4), RMA_FAST));
-        boolean side = !Double.isNaN(f)
-                && (longDir ? h4.getLast().close() > f : h4.getLast().close() < f);
-        return h4Bull == longDir || side;
+        boolean midBull = HeikenAshi.from(midBars).getLast().bullish();
+        double[] c = Wilder.closes(midBars);
+        double f = Wilder.last(Wilder.rma(c, RMA_FAST));
+        double s = Wilder.last(Wilder.rma(c, slow));
+        boolean stk = !Double.isNaN(f) && !Double.isNaN(s)
+                && stacked(midBars.getLast().close(), f, s, longDir);
+        return midBull == longDir || stk;
     }
 
     private static boolean stacked(double close, double fast, double slow, boolean longDir) {

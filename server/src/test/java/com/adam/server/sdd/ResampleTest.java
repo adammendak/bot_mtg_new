@@ -47,6 +47,30 @@ class ResampleTest {
         assertThat(h4.getFirst().time()).isEqualTo(midnight);
     }
 
+    /** 60 five-minute bars starting at a UTC boundary → up to 20 M15 buckets. */
+    private List<Candle> m5Hour(Instant start) {
+        List<Candle> out = new ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            double base = 100 + i;
+            out.add(new Candle(start.plusSeconds(i * 300L), base, base + 1, base - 0.5, base + 0.5, 0));
+        }
+        return out;
+    }
+
+    @Test
+    void bucketsM5IntoFifteenMinuteWindows() {
+        Instant midnight = Instant.parse("2026-09-01T00:00:00Z");
+        // "now" = +2h -> only the 8 buckets fully closed by then (2h / 15min)
+        List<Candle> m15 = Resample.toMinutes(m5Hour(midnight), 15, midnight.plusSeconds(2 * 3600L));
+
+        assertThat(m15).hasSize(8);
+        assertThat(m15.getFirst().time()).isEqualTo(midnight);
+        assertThat(m15.get(1).time()).isEqualTo(midnight.plusSeconds(15 * 60L));
+        // each bucket = 3 five-minute bars: open of the first, close of the third
+        assertThat(m15.getFirst().open()).isEqualTo(100.0);
+        assertThat(m15.getFirst().close()).isEqualTo(102.5); // base 102 + 0.5
+    }
+
     @Test
     void twelveHourBucketsSplitTheDayInTwo() {
         Instant midnight = Instant.parse("2026-09-01T00:00:00Z");

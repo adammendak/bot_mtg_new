@@ -21,13 +21,21 @@ import java.util.List;
  *   <li>{@link #HA4X} — same H4 hunt / M15 entry / stop / universe as {@link #HA4},
  *       but the "M15 band cross" trigger → {@code swing} book ("Account H1"); a
  *       side-by-side comparison of the two entry triggers on comparable accounts</li>
+ *   <li>{@link #HA1} — H1-HA-hunt cloud, M5 entry, ATR stop / WITH confirm on
+ *       M15 (resampled from the M5 feed — no separate broker fetch) →
+ *       {@code hts} book ("Account m5"); XAU / US100 / USDJPY, long only.
+ *       <b>No backtest evidence</b> — FAST's M5 band-edge stop churns on this
+ *       book (avg hold 5–9 min on every symbol but BTC), this swaps in an
+ *       ATR-based stop on the same book to see if that structurally holds up.</li>
  * </ul>
  *
- * <p>{@link #CORE}, {@link #SWING} and {@link #HA12} are {@link #parked() parked}
- * — kept in the enum for history but no longer scanned. CORE/SWING (ribbon) gave
- * zero signals through the forward test; HA12 (H12 hunt / H1 entry) gave zero
- * signals in its first two days and was replaced by {@link #HA4X} on the same
- * ("Account H1") book to compare entry triggers instead.
+ * <p>{@link #CORE}, {@link #SWING}, {@link #HA12} and {@link #FAST} are
+ * {@link #parked() parked} — kept in the enum for history but no longer
+ * scanned. CORE/SWING (ribbon) gave zero signals through the forward test;
+ * HA12 (H12 hunt / H1 entry) gave zero signals in its first two days and was
+ * replaced by {@link #HA4X} on the same ("Account H1") book to compare entry
+ * triggers instead; FAST churned every non-BTC symbol on M5 and was replaced
+ * by {@link #HA1} on the same ("Account m5") book.
  *
  * <p>Ribbon variants ({@link Strategy#RIBBON}) run {@link HtsEngine};
  * HA-hunt variants ({@link Strategy#HA_HUNT}) run {@link HaHuntEngine} with a
@@ -49,7 +57,10 @@ public enum HtsVariant {
     /** H12-HA-hunt cloud, H1 execution, ATR stop on H4, slow RMA 144. Parked — see class javadoc. */
     HA12(Books.SWING, Resolution.H1, 60, 12, 4, 144, List.of("XAU", "US100"), EntryTrigger.HA_FLIP),
     /** Same H4/M15/H1 shape as {@link #HA4}, band-cross entry — for comparison on "Account H1". */
-    HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.BAND_CROSS);
+    HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.BAND_CROSS),
+    /** H1-HA-hunt cloud, M5 entry, ATR stop/WITH on M15 (resampled from M5). HA-flip entry. Unvalidated — see class javadoc. */
+    HA1(Books.HTS, Resolution.M5, 5, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.HA_FLIP, 15,
+            Duration.ofDays(6));
 
     /** Entry model: {@link HtsEngine} ribbon, or {@link HaHuntEngine} HA-hunt cloud. */
     public enum Strategy { RIBBON, HA_HUNT }
@@ -78,6 +89,8 @@ public enum HtsVariant {
     // HA-hunt only:
     private final int huntHours;
     private final int atrHours;
+    /** ATR/WITH timeframe in minutes instead of hours (resampled from the entry TF, not H1) — 0 = use atrHours. */
+    private final int atrMinutes;
     private final int slowLen;
     private final List<String> universe;
     private final boolean longOnly;
@@ -87,18 +100,37 @@ public enum HtsVariant {
     HtsVariant(Resolution htf, Resolution ltf, String book, Duration htfLookback, Duration ltfLookback,
                int ltfMinutes, boolean live) {
         this(Strategy.RIBBON, htf, ltf, book, htfLookback, ltfLookback, ltfMinutes, live,
-                0, 0, 0, List.of(), false, EntryTrigger.HA_FLIP);
+                0, 0, 0, 0, List.of(), false, EntryTrigger.HA_FLIP);
     }
 
-    /** HA-hunt cloud variant. {@code entryTf} is what the broker is asked for; hunt/stop TFs are resampled from H1. */
+    /**
+     * HA-hunt cloud variant, ATR/WITH timeframe in whole hours. {@code entryTf}
+     * is what the broker is asked for; hunt/stop TFs are resampled from H1.
+     */
     HtsVariant(String book, Resolution entryTf, int ltfMinutes, int huntHours, int atrHours,
                int slowLen, List<String> universe, EntryTrigger entryTrigger) {
         this(Strategy.HA_HUNT, null, entryTf, book, Duration.ofDays(60), Duration.ofDays(20), ltfMinutes, false,
-                huntHours, atrHours, slowLen, universe, true, entryTrigger);
+                huntHours, atrHours, 0, slowLen, universe, true, entryTrigger);
+    }
+
+    /**
+     * HA-hunt cloud variant whose ATR/WITH timeframe is finer than an hour
+     * (e.g. M15), resampled from the entry-TF feed instead of H1 — for a hunt
+     * TF that is itself only H1 (a bare hour), there is no room for a whole-hour
+     * "mid" timeframe between the hunt and the entry. Takes its own entry-TF
+     * lookback (a fine entry TF like M5 needs far fewer calendar days of
+     * history than M15/H1 do, and fetching 20 days of M5 per symbol per scan
+     * would be a lot of avoidable Capital API calls).
+     */
+    HtsVariant(String book, Resolution entryTf, int ltfMinutes, int huntHours,
+               int slowLen, List<String> universe, EntryTrigger entryTrigger, int atrMinutes,
+               Duration ltfLookback) {
+        this(Strategy.HA_HUNT, null, entryTf, book, Duration.ofDays(60), ltfLookback, ltfMinutes, false,
+                huntHours, 0, atrMinutes, slowLen, universe, true, entryTrigger);
     }
 
     HtsVariant(Strategy strategy, Resolution htf, Resolution ltf, String book, Duration htfLookback,
-               Duration ltfLookback, int ltfMinutes, boolean live, int huntHours, int atrHours,
+               Duration ltfLookback, int ltfMinutes, boolean live, int huntHours, int atrHours, int atrMinutes,
                int slowLen, List<String> universe, boolean longOnly, EntryTrigger entryTrigger) {
         this.strategy = strategy;
         this.htf = htf;
@@ -110,6 +142,7 @@ public enum HtsVariant {
         this.live = live;
         this.huntHours = huntHours;
         this.atrHours = atrHours;
+        this.atrMinutes = atrMinutes;
         this.slowLen = slowLen;
         this.universe = universe;
         this.longOnly = longOnly;
@@ -136,10 +169,11 @@ public enum HtsVariant {
 
     /**
      * Parked: kept in the enum but not scanned or traded. CORE / SWING ribbon
-     * and HA12 gave zero signals through the forward test and were replaced.
+     * and HA12 gave zero signals through the forward test; FAST churned every
+     * non-BTC M5 symbol (avg hold 5-9 min) on its band-edge stop. All replaced.
      */
     public boolean parked() {
-        return this == CORE || this == SWING || this == HA12;
+        return this == CORE || this == SWING || this == HA12 || this == FAST;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
@@ -201,6 +235,11 @@ public enum HtsVariant {
 
     public int atrHours() {
         return atrHours;
+    }
+
+    /** ATR/WITH timeframe in minutes, resampled from the entry TF — 0 means "use atrHours instead". */
+    public int atrMinutes() {
+        return atrMinutes;
     }
 
     public int slowLen() {

@@ -115,6 +115,44 @@ class HaHuntEngineTest {
         assertThat(engine.evaluate(HtsVariant.HA4, "XAU", "GOLD", m15, h1Down, now, true)).isNull();
     }
 
+    /** Same shape as {@link #m15PullbackThenFlipUp}, but at M5 spacing for HA1. */
+    private List<Candle> m5PullbackThenFlipUp(int n, Instant end) {
+        List<Candle> out = new ArrayList<>(n);
+        double c = 100;
+        for (int i = 0; i < n; i++) {
+            double step;
+            if (i >= n - 6 && i < n - 1) {
+                step = -0.5;
+            } else if (i == n - 1) {
+                step = 5;
+            } else {
+                step = 0.3;
+            }
+            double open = c;
+            c += step;
+            double hi = Math.max(open, c) + 0.1;
+            double lo = Math.min(open, c) - 0.1;
+            out.add(new Candle(end.minusSeconds((n - i) * 300L), open, hi, lo, c, 0));
+        }
+        return out;
+    }
+
+    @Test
+    void emitsALongSignalForHa1OnM5WithAnM15StopAndWithResampledFromM5() {
+        // HA1: H1 hunt, M5 entry, ATR stop / WITH confirm on M15 resampled from
+        // the M5 feed itself (atrMinutes) — no separate H1-derived mid TF.
+        Instant now = t0.plusSeconds(320 * 3600L);
+        List<Candle> h1Up = h1(320, 50, 1.0);              // -> H1 hunt bull (huntHours=1)
+        List<Candle> m5 = m5PullbackThenFlipUp(400, now);  // enough M5 bars for a 102-bar M15 resample
+
+        HtsScan s = engine.evaluate(HtsVariant.HA1, "XAU", "GOLD", m5, h1Up, now, true);
+
+        assertThat(s).isNotNull();
+        assertThat(s.direction()).isEqualTo(Direction.BUY);
+        assertThat(s.stopLevel()).isLessThan(s.entry());
+        assertThat(s.htfUp()).isTrue();
+    }
+
     @Test
     void needsEnoughBars() {
         Instant now = t0.plusSeconds(50 * 3600L);
