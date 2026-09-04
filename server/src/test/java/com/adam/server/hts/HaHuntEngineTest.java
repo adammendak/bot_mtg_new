@@ -136,6 +136,72 @@ class HaHuntEngineTest {
         assertThat(engine.cloudHoldExit(HtsVariant.HA4, up, false, now)).isTrue();
     }
 
+    // ---- BAND_CROSS trigger (HA4X) ----
+
+    /** {@code chopBars} of tight back-and-forth, then {@code trendBars} of a steady push. */
+    private List<Candle> chopThenTrend(int chopBars, int trendBars, double base, double step) {
+        List<Candle> out = new ArrayList<>(chopBars + trendBars);
+        double c = base;
+        for (int i = 0; i < chopBars; i++) {
+            double open = c;
+            c += (i % 2 == 0) ? 0.4 : -0.4;
+            out.add(bar(i, open, c));
+        }
+        for (int i = 0; i < trendBars; i++) {
+            double open = c;
+            c += step;
+            out.add(bar(chopBars + i, open, c));
+        }
+        return out;
+    }
+
+    private Candle bar(int i, double open, double close) {
+        double hi = Math.max(open, close) + 0.3;
+        double lo = Math.min(open, close) - 0.3;
+        return new Candle(t0.plusSeconds(i * 900L), open, hi, lo, close, 0);
+    }
+
+    @Test
+    void bandCrossFiresOnceThenStaysQuietWhileTheTrendContinues() {
+        List<Candle> series = chopThenTrend(150, 80, 100, 3.0);
+
+        int fireAt = -1;
+        Boolean dir = null;
+        for (int end = 150; end <= series.size(); end++) {
+            Boolean d = HaHuntEngine.bandCrossDirection(series.subList(0, end), 100);
+            if (d != null) {
+                fireAt = end;
+                dir = d;
+                break;
+            }
+        }
+
+        assertThat(fireAt).as("band cross never fired during the breakout").isPositive();
+        assertThat(dir).isEqualTo(Boolean.TRUE);
+        // the very next bar — still trending the same way — must not re-fire
+        if (fireAt < series.size()) {
+            assertThat(HaHuntEngine.bandCrossDirection(series.subList(0, fireAt + 1), 100)).isNull();
+        }
+    }
+
+    @Test
+    void bandCrossNeverFiresDuringPureChop() {
+        List<Candle> series = chopThenTrend(200, 0, 100, 0);
+
+        for (int end = 40; end <= series.size(); end++) {
+            assertThat(HaHuntEngine.bandCrossDirection(series.subList(0, end), 100)).isNull();
+        }
+    }
+
+    @Test
+    void haFlipDirectionIsNullWithoutAColourChange() {
+        // Deep into a steady climb, HA colour is already bullish and stays bullish —
+        // the HA_FLIP trigger (HA4) must not fire on a non-flipping bar.
+        List<Candle> steadyClimb = h1(60, 100, 1.0);
+
+        assertThat(HaHuntEngine.haFlipDirection(steadyClimb)).isNull();
+    }
+
     @Test
     void ribbonVariantsAreNotHandledHere() {
         Instant now = t0.plusSeconds(320 * 3600L);
