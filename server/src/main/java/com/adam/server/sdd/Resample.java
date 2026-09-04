@@ -8,25 +8,33 @@ import java.util.List;
 import java.util.TreeMap;
 
 /**
- * Resample an H1 candle series into fixed N-hour UTC buckets (H4, H12).
+ * Resample a candle series into fixed-span UTC buckets — H1 into N-hour
+ * buckets (H4, H12), or a finer series (M5) into N-minute buckets (M15).
  *
- * <p>Bucket key = {@code floor(epochSeconds / (hours*3600)) * (hours*3600)}.
- * A bucket is only returned once its window has fully elapsed by {@code now}
- * ({@code bucketStart + hours*3600 <= now}), so callers always see closed bars.
- * Open = first H1 open in the bucket, high/low = extremes, close = last H1 close,
- * time = bucket start. Input must be time-ascending (as {@code HtsCandles.fetch}
- * returns it).
+ * <p>Bucket key = {@code floor(epochSeconds / span) * span}. A bucket is only
+ * returned once its window has fully elapsed by {@code now}
+ * ({@code bucketStart + span <= now}), so callers always see closed bars.
+ * Open = first source open in the bucket, high/low = extremes, close = last
+ * source close, time = bucket start. Input must be time-ascending (as
+ * {@code HtsCandles.fetch} returns it).
  */
 public final class Resample {
 
     private Resample() {
     }
 
-    public static List<Candle> toHours(List<Candle> h1, int hours, Instant now) {
-        long span = hours * 3600L;
+    public static List<Candle> toHours(List<Candle> source, int hours, Instant now) {
+        return bucket(source, hours * 3600L, now);
+    }
+
+    public static List<Candle> toMinutes(List<Candle> source, int minutes, Instant now) {
+        return bucket(source, minutes * 60L, now);
+    }
+
+    private static List<Candle> bucket(List<Candle> source, long spanSeconds, Instant now) {
         TreeMap<Long, double[]> buckets = new TreeMap<>(); // key -> [open, high, low, close]
-        for (Candle c : h1) {
-            long key = Math.floorDiv(c.time().getEpochSecond(), span) * span;
+        for (Candle c : source) {
+            long key = Math.floorDiv(c.time().getEpochSecond(), spanSeconds) * spanSeconds;
             double[] b = buckets.get(key);
             if (b == null) {
                 buckets.put(key, new double[]{c.open(), c.high(), c.low(), c.close()});
@@ -40,7 +48,7 @@ public final class Resample {
         List<Candle> out = new ArrayList<>(buckets.size());
         for (var e : buckets.entrySet()) {
             long start = e.getKey();
-            if (start + span > nowSec) {
+            if (start + spanSeconds > nowSec) {
                 continue; // window not fully closed yet
             }
             double[] b = e.getValue();

@@ -46,6 +46,18 @@ class HtsVariantTest {
     }
 
     @Test
+    void ha1ReplacesTheParkedFastOnTheSameBook() {
+        assertThat(HtsVariant.FAST.parked()).isTrue();
+        assertThat(HtsVariant.HA1.parked()).isFalse();
+        assertThat(HtsVariant.HA1.book()).isEqualTo(HtsVariant.FAST.book()); // "Account m5"
+        assertThat(HtsVariant.HA1.ltf()).isEqualTo(com.adam.server.broker.Resolution.M5);
+        assertThat(HtsVariant.HA1.huntHours()).isEqualTo(1);
+        assertThat(HtsVariant.HA1.atrHours()).isEqualTo(0);
+        assertThat(HtsVariant.HA1.atrMinutes()).isEqualTo(15); // M15 WITH/stop, resampled from M5
+        assertThat(HtsVariant.FAST_OKX.parked()).isFalse(); // crypto FAST unaffected
+    }
+
+    @Test
     void ha4xMirrorsHa4ExceptTheEntryTrigger() {
         assertThat(HtsVariant.HA4.entryTrigger()).isEqualTo(HtsVariant.EntryTrigger.HA_FLIP);
         assertThat(HtsVariant.HA4X.entryTrigger()).isEqualTo(HtsVariant.EntryTrigger.BAND_CROSS);
