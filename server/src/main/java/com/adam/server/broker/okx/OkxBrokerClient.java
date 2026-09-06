@@ -290,6 +290,18 @@ public class OkxBrokerClient implements BrokerClient {
         return instId != null && instId.endsWith("-SWAP") ? "SWAP" : "FUTURES";
     }
 
+    /**
+     * Last settled funding rate for a perpetual swap, as a fraction of notional
+     * per ~8&nbsp;h period (e.g. {@code 0.0001} = +0.01%). Positive = longs pay
+     * shorts (crowded longs). Public endpoint, no auth. Throws
+     * {@link BrokerException} on transport / parse failure — the caller decides
+     * whether that fails the entry open or not.
+     */
+    public double fundingRate(String instId) {
+        JsonNode root = get("/api/v5/public/funding-rate", Map.of("instId", instId), false);
+        return OkxJson.fundingRate(root);
+    }
+
     @Override
     public MarketRules marketRules(String epic) {
         try {

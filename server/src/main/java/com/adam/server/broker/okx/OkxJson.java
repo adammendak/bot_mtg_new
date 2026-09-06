@@ -151,6 +151,11 @@ final class OkxJson {
         return stringOf(first(root).get("ctType"));
     }
 
+    /** Last settled funding rate from {@code /public/funding-rate}: a fraction per ~8h period. */
+    static double fundingRate(JsonNode root) {
+        return num(first(root).get("fundingRate"));
+    }
+
     /** One dated-future contract from {@code /public/instruments?instType=FUTURES&uly=...}. */
     record FutureInst(String instId, String alias, long expiryMs, String state) {
     }

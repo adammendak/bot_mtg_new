@@ -158,6 +158,18 @@ class OkxBrokerClientHttpTest {
     }
 
     @Test
+    void fundingRateParsesThePublicEndpoint() throws Exception {
+        enqueue("{\"code\":\"0\",\"msg\":\"\",\"data\":[{"
+                + "\"instType\":\"SWAP\",\"instId\":\"BTC-USDT-SWAP\","
+                + "\"fundingRate\":\"0.00073\",\"nextFundingRate\":\"\",\"fundingTime\":\"1700000000000\"}]}");
+        double rate = client.fundingRate("BTC-USDT-SWAP");
+        assertThat(rate).isEqualTo(0.00073);
+        RecordedRequest req = server.takeRequest();
+        assertThat(req.getPath()).isEqualTo("/api/v5/public/funding-rate?instId=BTC-USDT-SWAP");
+        assertThat(req.getHeader("OK-ACCESS-SIGN")).isNull(); // public — unsigned
+    }
+
+    @Test
     void daysToExpiryParsesTheYymmddSuffix() {
         String next = java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusDays(20)
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd"));

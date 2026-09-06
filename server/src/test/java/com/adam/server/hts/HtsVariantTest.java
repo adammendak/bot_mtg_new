@@ -46,6 +46,20 @@ class HtsVariantTest {
     }
 
     @Test
+    void haOkxIsAHaHuntVariantOnTheOkxBookBtcAndEthOnly() {
+        assertThat(HtsVariant.HA_OKX.strategy()).isEqualTo(HtsVariant.Strategy.HA_HUNT);
+        assertThat(HtsVariant.HA_OKX.book()).isEqualTo(com.adam.server.broker.Books.OKX);
+        assertThat(HtsVariant.HA_OKX.parked()).isFalse();
+        assertThat(HtsVariant.HA_OKX.universe()).containsExactly("BTC", "ETH");
+        assertThat(HtsVariant.HA_OKX.longOnly()).isTrue();
+        assertThat(HtsVariant.HA_OKX.entryTrigger()).isEqualTo(HtsVariant.EntryTrigger.HA_FLIP);
+        assertThat(HtsVariant.HA_OKX.huntHours()).isEqualTo(4);
+        assertThat(HtsVariant.HA_OKX.slowLen()).isEqualTo(100);
+        assertThat(HtsVariant.HA_OKX.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
+        assertThat(HtsVariant.HA_OKX.htfLabel()).isEqualTo("H4");
+    }
+
+    @Test
     void haHuntUniverseAddsSilverAndNikkeiAndDropsGer40() {
         java.util.List<String> expected = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
         assertThat(HtsVariant.HA4.universe()).isEqualTo(expected);

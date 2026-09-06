@@ -28,6 +28,10 @@ import java.util.List;
  *       <b>No backtest evidence</b> — FAST's M5 band-edge stop churns on this
  *       book (avg hold 5–9 min on every symbol but BTC), this swaps in an
  *       ATR-based stop on the same book to see if that structurally holds up.</li>
+ *   <li>{@link #HA_OKX} — HA-hunt cloud, same H4/M15/H1 shape as {@link #HA4},
+ *       on the {@code okx} book: BTC + ETH linear USDT perpetual swaps, long
+ *       only, plus a funding-rate crowding skip. No OKX backtest (edge = the
+ *       Capital HA4 result); execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
  * </ul>
  *
  * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
@@ -64,7 +68,17 @@ public enum HtsVariant {
     HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, HaHunt.UNIVERSE, EntryTrigger.BAND_CROSS),
     /** H1-HA-hunt cloud, M5 entry, ATR stop/WITH on M15 (resampled from M5). HA-flip entry. Unvalidated — see class javadoc. */
     HA1(Books.HTS, Resolution.M5, 5, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.HA_FLIP, 15,
-            Duration.ofDays(6));
+            Duration.ofDays(6)),
+    /**
+     * Same H4-hunt / M15-entry / H1-ATR-stop / slow-RMA-100 / cloud-hold shape as
+     * {@link #HA4}, ported to the OKX {@code okx} book — BTC + ETH linear USDT
+     * perpetual swaps, long only. Adds a funding-rate crowding skip (see
+     * {@link HaHuntEngine} / {@code HtsScanService}): a long is not executed when
+     * OKX funding is extreme-positive (crowded longs). No OKX backtest — the edge
+     * is the Capital HA4 result; execution stays gated by
+     * {@code OKX_LIVE_EXECUTION_ENABLED}.
+     */
+    HA_OKX(Books.OKX, Resolution.M15, 15, 4, 1, 100, HaHunt.OKX_UNIVERSE, EntryTrigger.HA_FLIP);
 
     /** Entry model: {@link HtsEngine} ribbon, or {@link HaHuntEngine} HA-hunt cloud. */
     public enum Strategy { RIBBON, HA_HUNT }
@@ -82,9 +96,11 @@ public enum HtsVariant {
      */
     public enum EntryTrigger { HA_FLIP, BAND_CROSS }
 
-    /** Holder so the shared list can be referenced from the enum constants above. */
+    /** Holder so the shared lists can be referenced from the enum constants above. */
     private static final class HaHunt {
         static final java.util.List<String> UNIVERSE = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
+        /** OKX perps — codes match {@link com.adam.server.broker.okx.OkxSymbol}. */
+        static final java.util.List<String> OKX_UNIVERSE = java.util.List.of("BTC", "ETH");
     }
 
     private final Strategy strategy;

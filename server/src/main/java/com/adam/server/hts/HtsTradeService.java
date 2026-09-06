@@ -353,12 +353,17 @@ public class HtsTradeService {
         if (t.getDealId() == null || t.getSize() == null) {
             return false;
         }
+        // OKX candles come from the OKX book, not the shared Capital market-data
+        // broker (a BTC-USDT-SWAP epic means nothing to Capital).
+        BrokerClient data = com.adam.server.broker.Books.OKX.equals(t.getBook())
+                ? books.forBook(com.adam.server.broker.Books.OKX)
+                : market;
         String cacheKey = t.getEpic() + "|H1";
         List<Candle> h1 = candleCache.get(cacheKey);
         if (h1 == null) {
             try {
                 Instant now = Instant.now();
-                h1 = HtsCandles.fetch(market, t.getEpic(), com.adam.server.broker.Resolution.H1,
+                h1 = HtsCandles.fetch(data, t.getEpic(), com.adam.server.broker.Resolution.H1,
                         now.minus(Duration.ofDays(45)), now);
             } catch (Exception e) {
                 log.warn("HTS [{}] {}: H1 fetch for cloud exit failed ({})", v, t.getSymbol(),
