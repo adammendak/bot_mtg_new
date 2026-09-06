@@ -17,27 +17,26 @@ import java.util.List;
  *       {@code HTS_LIVE_EXECUTION_ENABLED} (separate from the demo flag)</li>
  *   <li>{@link #CORE_OKX} / {@link #FAST_OKX} — ribbon → {@code okx} book (crypto, SWAP), 24/7</li>
  *   <li>{@link #HA4} — HA-hunt cloud, H4 hunt / M15 entry, "HA flip + stack" trigger
- *       → {@code demo} book ("Account m15"); XAU / US100 / USDJPY / GER40, long only.
- *       GER40 is in the universe on request — the H4/M15 backtest found it
- *       net-negative and it is not backed by evidence, unlike the other three.</li>
- *   <li>{@link #HA4X} — same H4 hunt / M15 entry / stop / universe as {@link #HA4},
- *       but the "M15 band cross" trigger → {@code swing} book ("Account H1"); a
- *       side-by-side comparison of the two entry triggers on comparable accounts</li>
+ *       → {@code demo} book ("Account m15"); XAU / XAG / J225 / USDJPY / US100, long only.</li>
+ *   <li>{@link #HA12} — HA-hunt cloud, H12 hunt / H1 entry → {@code swing} book
+ *       ("Account H1"); same universe as {@link #HA4}. Backtest's strongest
+ *       config (PF ~1.8, MaxDD ~6%); ran silent for two days on first deploy,
+ *       resumed on the numbers.</li>
  *   <li>{@link #HA1} — H1-HA-hunt cloud, M5 entry, ATR stop / WITH confirm on
  *       M15 (resampled from the M5 feed — no separate broker fetch) →
- *       {@code hts} book ("Account m5"); XAU / US100 / USDJPY, long only.
+ *       {@code hts} book ("Account m5"); same universe as {@link #HA4}, long only.
  *       <b>No backtest evidence</b> — FAST's M5 band-edge stop churns on this
  *       book (avg hold 5–9 min on every symbol but BTC), this swaps in an
  *       ATR-based stop on the same book to see if that structurally holds up.</li>
  * </ul>
  *
- * <p>{@link #CORE}, {@link #SWING}, {@link #HA12} and {@link #FAST} are
+ * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
  * {@link #parked() parked} — kept in the enum for history but no longer
  * scanned. CORE/SWING (ribbon) gave zero signals through the forward test;
- * HA12 (H12 hunt / H1 entry) gave zero signals in its first two days and was
- * replaced by {@link #HA4X} on the same ("Account H1") book to compare entry
- * triggers instead; FAST churned every non-BTC symbol on M5 and was replaced
- * by {@link #HA1} on the same ("Account m5") book.
+ * FAST churned every non-BTC symbol on M5 and was replaced by {@link #HA1} on
+ * the same ("Account m5") book; {@link #HA4X} ("M15 band cross" entry) backtested
+ * to PF ~1.2 IS / ~0.8 in the recent regime, MaxDD ~30% — the HA-flip vs
+ * band-cross A/B was decided on the numbers, {@link #HA12} took its book.
  *
  * <p>Ribbon variants ({@link Strategy#RIBBON}) run {@link HtsEngine};
  * HA-hunt variants ({@link Strategy#HA_HUNT}) run {@link HaHuntEngine} with a
@@ -54,12 +53,15 @@ public enum HtsVariant {
     CORE_OKX(Resolution.H4, Resolution.M15, Books.OKX, Duration.ofDays(80), Duration.ofDays(10), 15, false),
     FAST_OKX(Resolution.H1, Resolution.M5, Books.OKX, Duration.ofDays(28), Duration.ofDays(6), 5, false),
 
+    // Shared HA-hunt universe: backtest — XAU/XAG strongest, J225/USDJPY good,
+    // US100 weak diversifier, GER40 net-negative (removed). See HaHunt.UNIVERSE.
+
     /** H4-HA-hunt cloud, M15 execution, ATR stop on H1, slow RMA 100. HA-flip entry. */
-    HA4(Books.DEMO, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY", "GER40"), EntryTrigger.HA_FLIP),
-    /** H12-HA-hunt cloud, H1 execution, ATR stop on H4, slow RMA 144. Parked — see class javadoc. */
-    HA12(Books.SWING, Resolution.H1, 60, 12, 4, 144, List.of("XAU", "US100"), EntryTrigger.HA_FLIP),
-    /** Same H4/M15/H1 shape as {@link #HA4}, band-cross entry — for comparison on "Account H1". */
-    HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, List.of("XAU", "US100", "USDJPY", "GER40"), EntryTrigger.BAND_CROSS),
+    HA4(Books.DEMO, Resolution.M15, 15, 4, 1, 100, HaHunt.UNIVERSE, EntryTrigger.HA_FLIP),
+    /** H12-HA-hunt cloud, H1 execution, ATR stop on H4, slow RMA 144. Backtest's strongest config. */
+    HA12(Books.SWING, Resolution.H1, 60, 12, 4, 144, HaHunt.UNIVERSE, EntryTrigger.HA_FLIP),
+    /** Same H4/M15/H1 shape as {@link #HA4}, band-cross entry. Parked — lost the A/B on the numbers. */
+    HA4X(Books.SWING, Resolution.M15, 15, 4, 1, 100, HaHunt.UNIVERSE, EntryTrigger.BAND_CROSS),
     /** H1-HA-hunt cloud, M5 entry, ATR stop/WITH on M15 (resampled from M5). HA-flip entry. Unvalidated — see class javadoc. */
     HA1(Books.HTS, Resolution.M5, 5, 1, 100, List.of("XAU", "US100", "USDJPY"), EntryTrigger.HA_FLIP, 15,
             Duration.ofDays(6));
@@ -79,6 +81,11 @@ public enum HtsVariant {
      * </ul>
      */
     public enum EntryTrigger { HA_FLIP, BAND_CROSS }
+
+    /** Holder so the shared list can be referenced from the enum constants above. */
+    private static final class HaHunt {
+        static final java.util.List<String> UNIVERSE = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
+    }
 
     private final Strategy strategy;
     private final Resolution htf;
@@ -171,11 +178,12 @@ public enum HtsVariant {
 
     /**
      * Parked: kept in the enum but not scanned or traded. CORE / SWING ribbon
-     * and HA12 gave zero signals through the forward test; FAST churned every
-     * non-BTC M5 symbol (avg hold 5-9 min) on its band-edge stop. All replaced.
+     * gave zero signals; FAST churned every non-BTC M5 symbol (avg hold 5-9 min)
+     * on its band-edge stop; HA4X (band-cross entry) lost the HA-flip vs
+     * band-cross A/B on the backtest (PF ~1.2 IS / ~0.8 recent, MaxDD ~30%).
      */
     public boolean parked() {
-        return this == CORE || this == SWING || this == HA12 || this == FAST;
+        return this == CORE || this == SWING || this == HA4X || this == FAST;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */

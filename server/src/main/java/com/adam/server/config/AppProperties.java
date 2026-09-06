@@ -388,6 +388,8 @@ public class AppProperties {
         private String btc = "BTCUSD";
         private String usdjpy = "USDJPY";
         private String us500 = "US500";
+        private String xag = "SILVER";
+        private String j225 = "J225";
 
         public String getGer40() {
             return ger40;
@@ -443,6 +445,22 @@ public class AppProperties {
 
         public void setUs500(String us500) {
             this.us500 = us500;
+        }
+
+        public String getXag() {
+            return xag;
+        }
+
+        public void setXag(String xag) {
+            this.xag = xag;
+        }
+
+        public String getJ225() {
+            return j225;
+        }
+
+        public void setJ225(String j225) {
+            this.j225 = j225;
         }
     }
 
