@@ -57,11 +57,12 @@ class HtsVariantTest {
     }
 
     @Test
-    void haOkxIsAHaHuntVariantOnTheOkxBookBtcAndEthOnly() {
+    void haOkxIsAHaHuntVariantOnTheOkxBookEthAndXrp() {
         assertThat(HtsVariant.HA_OKX.strategy()).isEqualTo(HtsVariant.Strategy.HA_HUNT);
         assertThat(HtsVariant.HA_OKX.book()).isEqualTo(com.adam.server.broker.Books.OKX);
         assertThat(HtsVariant.HA_OKX.parked()).isFalse();
-        assertThat(HtsVariant.HA_OKX.universe()).containsExactly("BTC", "ETH");
+        assertThat(HtsVariant.HA_OKX.universe()).containsExactly("ETH", "XRP");
+        assertThat(HtsVariant.HA_OKX.universe()).doesNotContain("BTC");
         assertThat(HtsVariant.HA_OKX.longOnly()).isTrue();
         assertThat(HtsVariant.HA_OKX.entryTrigger()).isEqualTo(HtsVariant.EntryTrigger.HA_FLIP);
         assertThat(HtsVariant.HA_OKX.huntHours()).isEqualTo(4);

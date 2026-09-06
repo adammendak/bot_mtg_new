@@ -29,9 +29,9 @@ import java.util.List;
  *       book (avg hold 5–9 min on every symbol but BTC), this swaps in an
  *       ATR-based stop on the same book to see if that structurally holds up.</li>
  *   <li>{@link #HA_OKX} — HA-hunt cloud, same H4/M15/H1 shape as {@link #HA4},
- *       on the {@code okx} book: BTC + ETH linear USDT perpetual swaps, long
- *       only, plus a funding-rate crowding skip. No OKX backtest (edge = the
- *       Capital HA4 result); execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
+ *       on the {@code okx} book: ETH + XRP linear USDT perpetual swaps, long
+ *       only, plus a funding-rate crowding skip. OKX HA-hunt backtest dropped
+ *       BTC (net loser) for XRP; execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
  * </ul>
  *
  * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
@@ -71,11 +71,12 @@ public enum HtsVariant {
             Duration.ofDays(6)),
     /**
      * Same H4-hunt / M15-entry / H1-ATR-stop / slow-RMA-100 / cloud-hold shape as
-     * {@link #HA4}, ported to the OKX {@code okx} book — BTC + ETH linear USDT
-     * perpetual swaps, long only. Adds a funding-rate crowding skip (see
+     * {@link #HA4}, ported to the OKX {@code okx} book — <b>ETH + XRP</b> linear
+     * USDT perpetual swaps, long only. Adds a funding-rate crowding skip (see
      * {@link HaHuntEngine} / {@code HtsScanService}): a long is not executed when
-     * OKX funding is extreme-positive (crowded longs). No OKX backtest — the edge
-     * is the Capital HA4 result; execution stays gated by
+     * OKX funding is extreme-positive (crowded longs). OKX HA-hunt backtest
+     * (12&nbsp;mo, no fees): BTC PF ~0.8 (net loser), ETH ~1.2, XRP ~1.6 —
+     * dropped BTC, added XRP. Execution stays gated by
      * {@code OKX_LIVE_EXECUTION_ENABLED}.
      */
     HA_OKX(Books.OKX, Resolution.M15, 15, 4, 1, 100, HaHunt.OKX_UNIVERSE, EntryTrigger.HA_FLIP);
@@ -100,7 +101,7 @@ public enum HtsVariant {
     private static final class HaHunt {
         static final java.util.List<String> UNIVERSE = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
         /** OKX perps — codes match {@link com.adam.server.broker.okx.OkxSymbol}. */
-        static final java.util.List<String> OKX_UNIVERSE = java.util.List.of("BTC", "ETH");
+        static final java.util.List<String> OKX_UNIVERSE = java.util.List.of("ETH", "XRP");
     }
 
     private final Strategy strategy;
