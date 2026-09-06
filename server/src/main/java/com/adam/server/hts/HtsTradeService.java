@@ -256,7 +256,7 @@ public class HtsTradeService {
             return haHuntCloudExit(t, v, buy, market, candleCache);
         }
         if (v.strategy() == HtsVariant.Strategy.MMS) {
-            return mmsBandExit(t, v, buy, market, candleCache);
+            return mmsExit(t, v, buy, market, candleCache);
         }
         double entry = t.getEntry();
         double leg = Math.abs(entry - t.getStopLevel());
@@ -394,13 +394,14 @@ public class HtsTradeService {
     }
 
     /**
-     * MMS opposite-band TP: no trail, no break-even. The broker holds the
-     * fixed %-of-price stop; here we close the whole position when the last
-     * closed entry-TF bar touches the far envelope. Pre-stamps TARGET so the
-     * sequential-delever restore sees a winning TP.
+     * MMS TP: no trail, no break-even. The broker holds the stop. We close the
+     * whole position when the last closed entry-TF bar hits the configured
+     * target — opposite envelope ({@link MmsEngine.TpMode#OPPOSITE_BAND}) or
+     * the stored 1:1 level ({@link MmsEngine.TpMode#FIXED_1R}). Pre-stamps
+     * TARGET so sequential delever restores ×1.
      */
-    private boolean mmsBandExit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
-                                Map<String, List<Candle>> candleCache) {
+    private boolean mmsExit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
+                            Map<String, List<Candle>> candleCache) {
         if (t.getDealId() == null || t.getSize() == null) {
             return false;
         }
@@ -414,26 +415,31 @@ public class HtsTradeService {
                 Instant now = Instant.now();
                 entryTf = HtsCandles.fetch(data, t.getEpic(), v.ltf(), now.minus(v.ltfLookback()), now);
             } catch (Exception e) {
-                log.warn("HTS [{}] {}: entry-TF fetch for MMS band exit failed ({})", v, t.getSymbol(),
+                log.warn("HTS [{}] {}: entry-TF fetch for MMS TP failed ({})", v, t.getSymbol(),
                         e.getClass().getSimpleName());
                 return false;
             }
             candleCache.put(cacheKey, entryTf);
         }
-        if (!mms.oppositeBandHit(v, entryTf, buy, Instant.now())) {
+        Instant now = Instant.now();
+        boolean hit = mms.params().tpMode() == MmsEngine.TpMode.FIXED_1R
+                ? mms.fixed1rHit(v, entryTf, buy, t.getTargetLevel(), now)
+                : mms.oppositeBandHit(v, entryTf, buy, now);
+        if (!hit) {
             return false;
         }
         selectBookAccount(t.getBook());
         BrokerClient broker = books.forBook(t.getBook());
         double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        String how = mms.params().tpMode() == MmsEngine.TpMode.FIXED_1R ? "FIXED_1R" : "opposite-band";
         try {
             t.setCloseReason("TARGET");
             trades.save(t);
             broker.closePosition(t.getDealId(), remaining);
-            log.info("HTS [{}] {} MMS opposite-band TP — far envelope touched, no trail", v, t.getSymbol());
+            log.info("HTS [{}] {} MMS {} TP — no trail", v, t.getSymbol(), how);
             return true;
         } catch (Exception e) {
-            log.warn("HTS [{}] {}: MMS band close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+            log.warn("HTS [{}] {}: MMS {} close failed ({})", v, t.getSymbol(), how, e.getClass().getSimpleName());
             return false;
         }
     }

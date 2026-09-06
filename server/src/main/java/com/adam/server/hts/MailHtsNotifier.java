@@ -74,7 +74,8 @@ public class MailHtsNotifier implements HtsNotifier {
                 + "  entry        " + trim(s.entry()) + '\n'
                 + "  stop         " + trim(s.stopLevel()) + "   (" + trim(pct)
                 + "% of price; no trail, no break-even)\n"
-                + "  target       " + trim(s.targetLevel()) + "   (opposite ATR band)\n\n"
+                + "  target       " + trim(s.targetLevel())
+                + "   (OPPOSITE_BAND default, or FIXED_1R = 1:1 from SL)\n\n"
                 + "Closed-bar " + (buy ? "lower" : "upper") + " band touch, then first reactive "
                 + (buy ? "up" : "down") + " candle. ×1 ≈ 1% account / 1% price; after a full SL "
                 + "the unit drops to ×0.1 until a winning TP restores ×1.\n"

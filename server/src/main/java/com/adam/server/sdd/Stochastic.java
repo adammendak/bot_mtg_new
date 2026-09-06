@@ -8,7 +8,8 @@ import java.util.List;
 /**
  * Slow Stochastic ({@code %K} length / {@code %K} smooth / {@code %D} smooth),
  * matching the common TradingView {@code ta.stoch} + SMA defaults of 14, 3, 3.
- * Closed-bar only. Used as an optional H1 extreme filter for MMS add-ons.
+ * Closed-bar only. Used as an optional H1 extreme filter for MMS entries
+ * and adds, and as an optional entry-TF %K/%D cross filter.
  */
 public final class Stochastic {
 
@@ -46,5 +47,17 @@ public final class Stochastic {
         double[] k = AtrEnvelope.sma(raw, kSmooth);
         double[] d = AtrEnvelope.sma(k, dSmooth);
         return new Series(k, d);
+    }
+
+    /** %K crosses above %D on closed bar {@code i}. */
+    public static boolean crossUp(Series st, int i) {
+        return st != null && st.ready(i) && st.ready(i - 1)
+                && st.k()[i - 1] <= st.d()[i - 1] && st.k()[i] > st.d()[i];
+    }
+
+    /** %K crosses below %D on closed bar {@code i}. */
+    public static boolean crossDown(Series st, int i) {
+        return st != null && st.ready(i) && st.ready(i - 1)
+                && st.k()[i - 1] >= st.d()[i - 1] && st.k()[i] < st.d()[i];
     }
 }

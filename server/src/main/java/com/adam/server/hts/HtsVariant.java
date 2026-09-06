@@ -92,11 +92,13 @@ public enum HtsVariant {
 
     /**
      * MastermindZX MMS mean-reversion — TMA ± ATR envelope on the entry TF
-     * (default M15; change the constructor to M5/H1 or document M10/M20/M30 in
-     * Pine). Universe: BTC (Capital {@code BTCUSD} / OKX {@code BTC-USDT-SWAP}
-     * if remapped), XAU/GOLD, US100/NQ. Both sides. Parked — not scanned,
-     * not executed. Site: https://mastermindzx.pl/ (BTCUSDT monthly-optimised
-     * backtests; no WR copied into code).
+     * (default M15; prefer M10–M30 for algo, H1 for manual base; do not use M5).
+     * TP mode {@link com.adam.server.hts.MmsEngine.TpMode#OPPOSITE_BAND} (site
+     * prose) or {@link com.adam.server.hts.MmsEngine.TpMode#FIXED_1R} (MT5
+     * tester clips). Universe: BTC (Capital {@code BTCUSD} / OKX
+     * {@code BTC-USDT-SWAP} if remapped), XAU/GOLD, US100/NQ. Both sides.
+     * Parked — not scanned, not executed. Site: https://mastermindzx.pl/
+     * (BTCUSDT monthly-optimised backtests; no WR copied into code).
      */
     MMS(Books.DEMO, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
 

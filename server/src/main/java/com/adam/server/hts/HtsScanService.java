@@ -300,7 +300,7 @@ public class HtsScanService {
     private void scanMms(HtsVariant v, BrokerClient market, Instant now, ZoneId zone, List<HtsScan> found) {
         Instant fromEntry = now.minus(v.ltfLookback());
         Instant fromH1 = now.minus(java.time.Duration.ofDays(20));
-        boolean wantH1 = mms.params().stochFilterEnabled();
+        boolean wantH1 = mms.params().stochFilterEnabled(); // optional H1 extreme for entries and adds
         java.util.Set<String> open = new java.util.HashSet<>();
         for (SddSymbol s : SddSymbol.htsUniverseFor(now, zone)) {
             open.add(s.code());

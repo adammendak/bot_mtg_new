@@ -3,15 +3,21 @@ indicator("MMS Mean Reversion (MastermindZX)", overlay=true, max_labels_count=20
 
 // Bot-side sibling: HtsVariant.MMS / MmsEngine (closed-bar only, no lookahead).
 // Site: https://mastermindzx.pl/  — BTCUSDT backtests there are monthly-optimised.
+// Written site = OPPOSITE_BAND TP; MT5 tester clips on BTCUSD = FIXED_1R.
 
 atrPeriod = input.int(20, "ATR / MA period", minval=2, group="Envelope")
 atrMult   = input.float(2.0, "ATR multiplier", minval=0.1, step=0.1, group="Envelope")
 mode      = input.string("TMA_ATR", "Envelope type", options=["TMA_ATR", "BB_ATR"], group="Envelope")
-slPct     = input.float(2.0, "Stop loss % of price (site default ~2%)", minval=0.1, step=0.1, group="Risk")
-tfNote    = input.string("M15", "Entry TF note (bot default M15; also M10 / M20 / M30 / H1)", group="Timeframe")
+tpMode    = input.string("OPPOSITE_BAND", "TP mode", options=["OPPOSITE_BAND", "FIXED_1R"], group="Risk",
+     tooltip="OPPOSITE_BAND = written site. FIXED_1R = MT5 tester clips (1:1 from SL).")
+slMode    = input.string("PCT", "SL mode", options=["PCT", "WICK_EXTREME"], group="Risk",
+     tooltip="PCT = % of entry (site ~2%). WICK_EXTREME = beyond piercing/reaction wick (tester).")
+slPct     = input.float(2.0, "Stop loss % of price (when SL=PCT)", minval=0.1, step=0.1, group="Risk")
+tfNote    = input.string("M15", "Entry TF note (bot default M15; prefer M10–M30; not M5)", group="Timeframe")
 reactWin  = input.int(8, "Reaction window (bars after touch)", minval=1, maxval=32, group="Entry")
 addOn     = input.bool(false, "Add-on ×1 after one confirming candle (bot default off)", group="Optional")
-stochFlt  = input.bool(false, "H1 Stoch(14,3,3) extreme filter for adds (bot default off)", group="Optional")
+stochFlt  = input.bool(false, "H1 Stoch(14,3,3) extreme for entries and adds (default off)", group="Optional")
+stochX    = input.bool(false, "Entry-TF Stoch OB/OS + %K/%D cross (tester BB clip, default off)", group="Optional")
 stochLen  = input.int(14, "Stoch length", minval=2, group="Optional")
 stochK    = input.int(3, "Stoch %K smooth", minval=1, group="Optional")
 stochD    = input.int(3, "Stoch %D smooth", minval=1, group="Optional")
@@ -31,14 +37,15 @@ fill(uPlot, lPlot, color=color.new(color.blue, 92), title="ATR envelope")
 touchUpper = not na(upper) and high >= upper
 touchLower = not na(lower) and low  <= lower
 
-// First reactive candle after a band touch on a *previous* closed bar.
-// Wait for the touch bar to close, then the first opposite-colour body.
 upperSetup = false
 lowerSetup = false
+touchHi = high
+touchLo = low
 if not na(upper)
     for i = 1 to reactWin
         if high[i] >= upper[i]
             upperSetup := true
+            touchHi := high[i]
             break
         if close[i] < open[i]
             break
@@ -46,14 +53,30 @@ if not na(lower)
     for i = 1 to reactWin
         if low[i] <= lower[i]
             lowerSetup := true
+            touchLo := low[i]
             break
         if close[i] > open[i]
             break
 
 reactDown = close < open
 reactUp   = close > open
-shortEntry = barstate.isconfirmed and upperSetup and reactDown
-longEntry  = barstate.isconfirmed and lowerSetup and reactUp
+k = ta.sma(ta.stoch(close, high, low, stochLen), stochK)
+d = ta.sma(k, stochD)
+crossDn = ta.crossunder(k, d)
+crossUp = ta.crossover(k, d)
+extremeShort = k[1] >= 80 or k >= 80
+extremeLong  = k[1] <= 20 or k <= 20
+stochXOkShort = not stochX or (extremeShort and crossDn)
+stochXOkLong  = not stochX or (extremeLong and crossUp)
+
+h1k = request.security(syminfo.tickerid, "60", ta.sma(ta.stoch(close, high, low, stochLen), stochK), lookahead=barmerge.lookahead_off)
+stochOkLong  = not stochFlt or h1k <= 20
+stochOkShort = not stochFlt or h1k >= 80
+
+shortRaw = barstate.isconfirmed and upperSetup and reactDown
+longRaw  = barstate.isconfirmed and lowerSetup and reactUp
+shortEntry = shortRaw and stochXOkShort and stochOkShort
+longEntry  = longRaw and stochXOkLong and stochOkLong
 
 plotshape(touchUpper and barstate.isconfirmed, title="Upper band touch", style=shape.triangledown,
      location=location.abovebar, color=color.new(color.red, 30), size=size.tiny)
@@ -64,25 +87,32 @@ plotshape(shortEntry, title="SHORT reaction", style=shape.arrowdown,
 plotshape(longEntry, title="LONG reaction", style=shape.arrowup,
      location=location.belowbar, color=color.lime, size=size.small, text="L")
 
-slLong  = close * (1.0 - slPct * 0.01)
-slShort = close * (1.0 + slPct * 0.01)
+wickSlLong  = math.min(touchLo, low)
+wickSlShort = math.max(touchHi, high)
+pctSlLong   = close * (1.0 - slPct * 0.01)
+pctSlShort  = close * (1.0 + slPct * 0.01)
+slLong  = slMode == "WICK_EXTREME" and wickSlLong < close ? wickSlLong : pctSlLong
+slShort = slMode == "WICK_EXTREME" and wickSlShort > close ? wickSlShort : pctSlShort
+distLong  = close - slLong
+distShort = slShort - close
+tpLong  = tpMode == "FIXED_1R" ? close + distLong  : upper
+tpShort = tpMode == "FIXED_1R" ? close - distShort : lower
+
 plot(longEntry  ? slLong  : na, "Long SL",  color=color.maroon, style=plot.style_circles, linewidth=2)
 plot(shortEntry ? slShort : na, "Short SL", color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(longEntry  ? tpLong  : na, "Long TP",  color=color.teal, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? tpShort : na, "Short TP", color=color.teal, style=plot.style_circles, linewidth=2)
 
-// Optional H1 stoch extreme (adds only — visual, matches bot flags default off).
-h1k = request.security(syminfo.tickerid, "60", ta.sma(ta.stoch(close, high, low, stochLen), stochK), lookahead=barmerge.lookahead_off)
-stochOkLong  = not stochFlt or h1k <= 20
-stochOkShort = not stochFlt or h1k >= 80
-addLong  = addOn and longEntry  and stochOkLong  and close > close[1]
-addShort = addOn and shortEntry and stochOkShort and close < close[1]
+addLong  = addOn and longEntry  and close > close[1]
+addShort = addOn and shortEntry and close < close[1]
 plotshape(addLong,  title="Add LONG",  style=shape.circle, location=location.belowbar, color=color.aqua, size=size.tiny)
 plotshape(addShort, title="Add SHORT", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
-alertcondition(longEntry,  title="MMS LONG",  message="MMS LONG reaction — lower band touch + first up candle")
-alertcondition(shortEntry, title="MMS SHORT", message="MMS SHORT reaction — upper band touch + first down candle")
+alertcondition(longEntry,  title="MMS LONG",  message="MMS LONG — band touch + first up candle")
+alertcondition(shortEntry, title="MMS SHORT", message="MMS SHORT — band touch + first down candle")
 
 var table info = table.new(position.top_right, 1, 3, bgcolor=color.new(color.black, 70))
 if barstate.islast
-    table.cell(info, 0, 0, "MMS  " + tfNote + "  " + mode, text_color=color.white, text_size=size.small)
-    table.cell(info, 0, 1, "ATR " + str.tostring(atrPeriod) + " × " + str.tostring(atrMult) + "   SL " + str.tostring(slPct) + "%", text_color=color.silver, text_size=size.tiny)
-    table.cell(info, 0, 2, "add-on " + (addOn ? "ON" : "off") + "   stoch " + (stochFlt ? "ON" : "off"), text_color=color.gray, text_size=size.tiny)
+    table.cell(info, 0, 0, "MMS  " + tfNote + "  " + mode + "  " + tpMode, text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 1, "SL " + slMode + " " + str.tostring(slPct) + "%   ATR " + str.tostring(atrPeriod) + "×" + str.tostring(atrMult), text_color=color.silver, text_size=size.tiny)
+    table.cell(info, 0, 2, "add " + (addOn ? "ON" : "off") + "  H1stoch " + (stochFlt ? "ON" : "off") + "  cross " + (stochX ? "ON" : "off"), text_color=color.gray, text_size=size.tiny)

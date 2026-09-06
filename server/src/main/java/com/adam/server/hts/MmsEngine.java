@@ -14,23 +14,25 @@ import java.util.List;
 /**
  * MastermindZX MMS mean-reversion engine ({@link HtsVariant#MMS}): fade an ATR
  * envelope after a closed-bar band touch and the first reactive candle the other
- * way. Both long and short. Stop is a fixed percent of price (no trail, no
- * break-even). Target is the opposite band.
+ * way. Both long and short. Stop is mandatory; no trail, no break-even.
  *
- * <p>Rules (closed bars only — the still-forming bar is dropped):
- * <ol>
- *   <li>SHORT: a closed bar reaches the upper band → wait → first reactive
- *       down candle (close &lt; open) opens SHORT ×1.</li>
- *   <li>LONG: a closed bar reaches the lower band → first reactive up candle
- *       opens LONG ×1.</li>
- *   <li>TP = opposite band (the monitor closes the base when that band is
- *       touched). SL = {@link #SL_PCT} of entry price.</li>
- * </ol>
+ * <p>TP is selectable ({@link TpMode}):
+ * <ul>
+ *   <li>{@link TpMode#OPPOSITE_BAND} — site prose: close / flip the base when
+ *       the far envelope is touched.</li>
+ *   <li>{@link TpMode#FIXED_1R} — MT5 Strategy Tester clips on BTCUSD: take
+ *       profit at 1:1 from the stop distance. SL is either a % of price or
+ *       beyond the piercing / reaction wick ({@link SlMode}).</li>
+ * </ul>
  *
- * <p>Site source: <a href="https://mastermindzx.pl/">mastermindzx.pl</a>.
- * Published BTCUSDT backtests on that site are monthly-optimised — this engine
- * does not encode win-rate claims. Optional add-on / H1 Stochastic filters
- * default <b>off</b> ({@link Params#addOnEnabled()}, {@link Params#stochFilterEnabled()}).
+ * <p>Optional Stochastic: H1 extreme filter for <em>entries and adds</em>
+ * ({@link Params#stochFilterEnabled()}), and an entry-TF %K/%D cross after
+ * OB/OS ({@link Params#stochCrossEnabled()}) matching the BB + Stoch tester
+ * clip. Both default <b>off</b>.
+ *
+ * <p>Closed bars only — the still-forming bar is dropped. Site:
+ * <a href="https://mastermindzx.pl/">mastermindzx.pl</a>. Published BTCUSDT
+ * backtests are monthly-optimised; this engine does not encode win-rate claims.
  */
 @Component
 public class MmsEngine {
@@ -39,13 +41,14 @@ public class MmsEngine {
 
     /** Envelope lookback — standard TMA / BB period. */
     public static final int ATR_PERIOD = 20;
-    /** Band width in ATRs. */
+    /** Band width in ATRs. Site BB M15 example uses period 41 / deviation 3.2. */
     public static final double ATR_MULT = 2.0;
     /** Site default SL (~2% of price). Backtests on the site often use 1–1.9%. */
     public static final double SL_PCT = 0.02;
-    /** ×1 after a winning opposite-band TP; ×0.1 after a full SL. */
+    /** ×1 after a winning TP; ×0.1 after a full SL (site also mentions ×0.01 in BT talk). */
     public static final double RISK_UNIT_FULL = 1.0;
     public static final double RISK_UNIT_DELEVER = 0.1;
+    public static final double RISK_UNIT_MICRO = 0.01;
     /** How many closed bars after a touch we still accept the first reaction. */
     public static final int REACTION_WINDOW = 8;
     public static final int STOCH_LEN = 14;
@@ -53,22 +56,65 @@ public class MmsEngine {
     public static final int STOCH_D = 3;
     public static final double STOCH_OB = 80.0;
     public static final double STOCH_OS = 20.0;
+    /** Add-on extra risk vs the base entry: must be ≤ 1%, typically &lt; 0.5%. */
+    public static final double ADDON_MAX_EXTRA_PCT = 0.01;
+    /** Stoch-filtered add-on uses a fixed 1% SL instead of the wick. */
+    public static final double ADDON_STOCH_SL_PCT = 0.01;
+
+    /** Site prose vs MT5 tester clips. */
+    public enum TpMode { OPPOSITE_BAND, FIXED_1R }
+
+    /** % of entry (site default) vs stop beyond the piercing / reaction wick. */
+    public enum SlMode { PCT, WICK_EXTREME }
 
     /**
-     * Tunable inputs (bot + Pine). Defaults match the site's "standard settings"
-     * note; add-on / stoch stay off until explicitly enabled.
+     * Tunable inputs (bot + Pine). Defaults match the site's written rules
+     * (opposite-band TP, 2% SL, TMA envelope). Tester-clip presets live on
+     * {@link #testerFixed1r()} / {@link #testerBbStoch()}.
      */
     public record Params(
             int atrPeriod,
             double atrMult,
             double slPct,
             AtrEnvelope.Mode mode,
+            TpMode tpMode,
+            SlMode slMode,
             boolean addOnEnabled,
-            boolean stochFilterEnabled
+            boolean stochFilterEnabled,
+            boolean stochCrossEnabled,
+            double addOnMaxExtraPct,
+            double addOnStochSlPct
     ) {
         public static Params defaults() {
-            return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR, false, false);
+            return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR,
+                    TpMode.OPPOSITE_BAND, SlMode.PCT, false, false, false,
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
         }
+
+        /** MT5 tester: 1:1 RR, SL beyond the piercing wick. */
+        public static Params testerFixed1r() {
+            return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR,
+                    TpMode.FIXED_1R, SlMode.WICK_EXTREME, false, false, false,
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+        }
+
+        /** Tester clip: BB pierce + Stoch OB/OS + reversal close + %K/%D cross, 1:1 RR. */
+        public static Params testerBbStoch() {
+            return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.BB_ATR,
+                    TpMode.FIXED_1R, SlMode.WICK_EXTREME, false, false, true,
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+        }
+
+        /** Documented site BB M15 example (period 41, deviation 3.2, SL 1.7%) — not the live default. */
+        public static Params siteBbM15Example() {
+            return new Params(41, 3.2, 0.017, AtrEnvelope.Mode.BB_ATR,
+                    TpMode.OPPOSITE_BAND, SlMode.PCT, false, false, false,
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+        }
+    }
+
+    /** Closed-bar band-touch + reaction (touch and reaction are different bars). */
+    record Setup(boolean longDir, int touchIdx, int reactIdx) {
     }
 
     private final Params params;
@@ -87,7 +133,7 @@ public class MmsEngine {
 
     /**
      * @param entryTf entry-timeframe candles (M15 default), ascending; may include a forming bar
-     * @param h1      closed H1 candles — only used when the optional stoch add-on filter is on
+     * @param h1      closed H1 candles — used when the optional H1 stoch filter is on
      */
     public HtsScan evaluate(HtsVariant v, String code, String epic,
                             List<Candle> entryTf, List<Candle> h1, Instant now) {
@@ -107,25 +153,35 @@ public class MmsEngine {
         if (!env.ready(i)) {
             return null;
         }
-        Boolean longDir = reactionEntry(bars, env, i);
-        if (longDir == null) {
+        Setup setup = reactionSetup(bars, env, i);
+        if (setup == null) {
             return null;
         }
-        if (params.addOnEnabled() && params.stochFilterEnabled()
+        boolean longDir = setup.longDir();
+        if (params.stochFilterEnabled()
                 && !stochAllows(h1, longDir, now, v.ltfMinutes() >= 60 ? v.ltfMinutes() : 60)) {
             return null;
         }
-        Candle bar = bars.get(i);
+        if (params.stochCrossEnabled() && !stochCrossOk(bars, setup)) {
+            return null;
+        }
+        Candle bar = bars.get(setup.reactIdx());
         double entry = bar.close();
         if (entry <= 0) {
             return null;
         }
-        double slDist = entry * params.slPct();
-        double stop = longDir ? entry - slDist : entry + slDist;
-        double target = longDir ? env.upper()[i] : env.lower()[i];
-        log.info("MMS [{}] {} {} entry {} stop {} target {} ({} ± {}×ATR)",
+        double stop = stopLevel(entry, longDir, bars, setup);
+        double slDist = Math.abs(entry - stop);
+        if (slDist <= 0) {
+            return null;
+        }
+        double target = params.tpMode() == TpMode.FIXED_1R
+                ? (longDir ? entry + slDist : entry - slDist)
+                : (longDir ? env.upper()[i] : env.lower()[i]);
+        log.info("MMS [{}] {} {} entry {} stop {} target {} ({} {} / {} SL)",
                 v.name(), code, longDir ? "LONG" : "SHORT",
-                round(entry), round(stop), round(target), params.mode(), params.atrMult());
+                round(entry), round(stop), round(target),
+                params.mode(), params.tpMode(), params.slMode());
         return new HtsScan(v, bar.time(), code, epic,
                 longDir ? Direction.BUY : Direction.SELL, entry, stop, target, longDir);
     }
@@ -133,7 +189,7 @@ public class MmsEngine {
     /**
      * Opposite-band TP: last closed bar touches the far envelope.
      * LONG exits when the high reaches the upper band; SHORT when the low
-     * reaches the lower band. No trailing, no instant break-even.
+     * reaches the lower band. Used when {@link TpMode#OPPOSITE_BAND}.
      */
     public boolean oppositeBandHit(HtsVariant v, List<Candle> entryTf, boolean positionIsBuy, Instant now) {
         if (v == null || v.strategy() != HtsVariant.Strategy.MMS || entryTf == null) {
@@ -153,8 +209,25 @@ public class MmsEngine {
     }
 
     /**
+     * FIXED_1R TP: last closed bar reaches the stored 1:1 target. No trail.
+     */
+    public boolean fixed1rHit(HtsVariant v, List<Candle> entryTf, boolean positionIsBuy,
+                              Double target, Instant now) {
+        if (v == null || v.strategy() != HtsVariant.Strategy.MMS || target == null || entryTf == null) {
+            return false;
+        }
+        List<Candle> bars = closedOnly(entryTf, v.ltfMinutes(), now);
+        if (bars.isEmpty()) {
+            return false;
+        }
+        Candle bar = bars.getLast();
+        return positionIsBuy ? bar.high() >= target : bar.low() <= target;
+    }
+
+    /**
      * Sequential delever from the site: after a full SL, size drops to ×0.1
-     * until a winning opposite-band TP restores ×1.
+     * until a winning TP restores ×1. Site BT talk also mentions ×0.01 —
+     * that micro unit is not applied automatically.
      */
     public static double riskUnitAfter(String closeReason, Double rMultiple) {
         if (closeReason != null) {
@@ -173,13 +246,52 @@ public class MmsEngine {
     }
 
     /**
+     * Add-on SL at the local wick. Rejected ({@code NaN}) when the extra move
+     * vs the base entry is ≤ 0 or &gt; {@code maxExtraPct} (site: ≤ 1%, typically
+     * &lt; 0.5%). Stoch-filtered adds use a fixed 1% SL instead.
+     */
+    public static double addonStop(double baseEntry, boolean longDir, double localWick,
+                                   boolean stochFiltered, double maxExtraPct, double stochSlPct) {
+        if (baseEntry <= 0) {
+            return Double.NaN;
+        }
+        if (stochFiltered) {
+            return longDir ? baseEntry * (1.0 - stochSlPct) : baseEntry * (1.0 + stochSlPct);
+        }
+        double extra = longDir ? (baseEntry - localWick) / baseEntry : (localWick - baseEntry) / baseEntry;
+        if (extra <= 0 || extra > maxExtraPct) {
+            return Double.NaN;
+        }
+        return localWick;
+    }
+
+    double stopLevel(double entry, boolean longDir, List<Candle> bars, Setup setup) {
+        if (params.slMode() == SlMode.WICK_EXTREME && setup != null) {
+            Candle touch = bars.get(setup.touchIdx());
+            Candle react = bars.get(setup.reactIdx());
+            double extreme = longDir
+                    ? Math.min(touch.low(), react.low())
+                    : Math.max(touch.high(), react.high());
+            boolean beyond = longDir ? extreme < entry : extreme > entry;
+            if (beyond) {
+                return extreme;
+            }
+        }
+        double slDist = entry * params.slPct();
+        return longDir ? entry - slDist : entry + slDist;
+    }
+
+    /**
      * First reactive candle after a band touch, on the just-closed bar {@code i}.
-     * Touch and reaction are different bars (wait for the touch bar to close,
-     * then the next interval's first opposite-colour body).
      *
      * @return {@code TRUE} long, {@code FALSE} short, {@code null} no entry
      */
     static Boolean reactionEntry(List<Candle> bars, AtrEnvelope.Series env, int i) {
+        Setup s = reactionSetup(bars, env, i);
+        return s == null ? null : s.longDir();
+    }
+
+    static Setup reactionSetup(List<Candle> bars, AtrEnvelope.Series env, int i) {
         if (i < 1 || !env.ready(i)) {
             return null;
         }
@@ -205,7 +317,6 @@ public class MmsEngine {
             if (lowerTouch == null && reactUp && c.low() <= env.lower()[j]) {
                 lowerTouch = j;
             }
-            // An earlier same-direction reaction already consumed that touch.
             if (upperTouch == null && bear && reactDown) {
                 break;
             }
@@ -217,10 +328,10 @@ public class MmsEngine {
             }
         }
         if (upperTouch != null && reactDown) {
-            return Boolean.FALSE;
+            return new Setup(false, upperTouch, i);
         }
         if (lowerTouch != null && reactUp) {
-            return Boolean.TRUE;
+            return new Setup(true, lowerTouch, i);
         }
         return null;
     }
@@ -248,8 +359,8 @@ public class MmsEngine {
     }
 
     /**
-     * Optional H1 Stochastic extreme filter for <em>adds</em> (default off).
-     * Long add requires %K ≤ oversold; short add requires %K ≥ overbought.
+     * Optional H1 Stochastic extreme filter for entries and adds (default off).
+     * Long requires %K ≤ oversold; short requires %K ≥ overbought.
      */
     boolean stochAllows(List<Candle> h1, boolean longDir, Instant now, int tfMinutes) {
         List<Candle> bars = closedOnly(h1, tfMinutes, now);
@@ -263,6 +374,33 @@ public class MmsEngine {
         }
         double k = st.k()[i];
         return longDir ? k <= STOCH_OS : k >= STOCH_OB;
+    }
+
+    /**
+     * Tester-clip entry-TF filter (default off): Stoch was OB/OS on the touch
+     * (or the bar before the reaction) and %K crosses %D on the closed
+     * reversal bar. Closed-bar stand-in for "enter next open".
+     */
+    boolean stochCrossOk(List<Candle> bars, Setup setup) {
+        if (setup == null || bars == null) {
+            return false;
+        }
+        Stochastic.Series st = Stochastic.of(bars, STOCH_LEN, STOCH_K, STOCH_D);
+        int i = setup.reactIdx();
+        if (!st.ready(i) || !st.ready(i - 1) || !st.ready(setup.touchIdx())) {
+            return false;
+        }
+        double kTouch = st.k()[setup.touchIdx()];
+        double kPrev = st.k()[i - 1];
+        boolean extreme = setup.longDir()
+                ? (kTouch <= STOCH_OS || kPrev <= STOCH_OS)
+                : (kTouch >= STOCH_OB || kPrev >= STOCH_OB);
+        if (!extreme) {
+            return false;
+        }
+        return setup.longDir()
+                ? Stochastic.crossUp(st, i)
+                : Stochastic.crossDown(st, i);
     }
 
     private static double round(double v) {
