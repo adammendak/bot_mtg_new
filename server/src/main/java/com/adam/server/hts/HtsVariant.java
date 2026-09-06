@@ -281,17 +281,25 @@ public enum HtsVariant {
     }
 
     /**
-     * Whether this model trades {@code symbolCode}. FAST acts on the M5 close and
-     * on BTC and EURUSD the fast-band stop there is a tiny fraction of price
-     * (~0.15&nbsp;% for BTC, ~0.04&nbsp;% for EURUSD), so it scalps and churns
-     * (stops out within minutes, draining the m5 sub-account's free margin).
-     * Both stay on the higher-timeframe models; every other FAST symbol and
-     * every other model is unaffected.
+     * Whether this model trades {@code symbolCode}.
+     *
+     * <ul>
+     *   <li>{@link #FAST} skips BTC / EURUSD — the M5 fast-band stop there is a
+     *       tiny fraction of price (~0.15&nbsp;% BTC, ~0.04&nbsp;% EURUSD), so it
+     *       scalps and churns the m5 sub-account. Both stay on the HTF models.</li>
+     *   <li>{@link #CORE_LIVE} skips GER40 — on the <b>real-money</b> book it
+     *       stacked and re-entered GER40 every M15 bar (ids 85–102, ~10&nbsp;min
+     *       each) and GER40 is net-negative in the HA-hunt backtest across every
+     *       variant. The other CORE_LIVE names are unaffected.</li>
+     * </ul>
      */
     public boolean tradesSymbol(String symbolCode) {
-        if (this != FAST) {
-            return true;
+        if (this == FAST) {
+            return !("BTC".equalsIgnoreCase(symbolCode) || "EURUSD".equalsIgnoreCase(symbolCode));
         }
-        return !("BTC".equalsIgnoreCase(symbolCode) || "EURUSD".equalsIgnoreCase(symbolCode));
+        if (this == CORE_LIVE) {
+            return !"GER40".equalsIgnoreCase(symbolCode);
+        }
+        return true;
     }
 }
