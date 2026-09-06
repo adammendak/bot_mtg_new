@@ -18,6 +18,17 @@ class HtsVariantTest {
     }
 
     @Test
+    void coreLiveDoesNotTradeGer40OnRealMoney() {
+        assertThat(HtsVariant.CORE_LIVE.tradesSymbol("GER40")).isFalse();
+        assertThat(HtsVariant.CORE_LIVE.tradesSymbol("ger40")).isFalse();
+        assertThat(HtsVariant.CORE_LIVE.tradesSymbol("XAU")).isTrue();
+        assertThat(HtsVariant.CORE_LIVE.tradesSymbol("US100")).isTrue();
+        // other variants still trade GER40
+        assertThat(HtsVariant.FAST.tradesSymbol("GER40")).isTrue();
+        assertThat(HtsVariant.CORE.tradesSymbol("GER40")).isTrue();
+    }
+
+    @Test
     void htfLabelIsNeverNull() {
         assertThat(HtsVariant.CORE.htfLabel()).isEqualTo("H4");
         assertThat(HtsVariant.SWING.htfLabel()).isEqualTo("D1");
