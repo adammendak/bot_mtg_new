@@ -406,13 +406,18 @@ public class HtsExecutionGate {
                         s.variant().name(), s.symbol(), e.getClass().getSimpleName());
             }
         } catch (Exception e) {
-            log.warn("HTS [{}] execution failed for {}: {}", s.variant().name(), s.symbol(),
-                    e.getClass().getSimpleName());
+            // Surface the broker's own message (OKX/Capital put the reject code +
+            // text there — e.g. "OKX /api/v5/trade/order failed: code=51010 msg=..."),
+            // not just "BrokerException", so a live failure is diagnosable.
+            String detail = e.getMessage() == null || e.getMessage().isBlank()
+                    ? e.getClass().getSimpleName()
+                    : e.getClass().getSimpleName() + ": " + e.getMessage();
+            log.warn("HTS [{}] execution failed for {}: {}", s.variant().name(), s.symbol(), detail);
             placed.remove(key);
             errorLog.record("hts-exec", s.variant().name(), s.symbol(), e);
             mailer.sendThrottled("exec-hts", mailTag(s) + " execution failed — " + s.symbol(),
                     "Placing an HTS entry failed for " + s.variant().name() + " " + s.symbol()
-                            + " " + s.direction() + ":\n\n" + e.getClass().getSimpleName()
+                            + " " + s.direction() + ":\n\n" + detail
                             + "\n\n(further failures within 30 min are suppressed)");
         }
     }
