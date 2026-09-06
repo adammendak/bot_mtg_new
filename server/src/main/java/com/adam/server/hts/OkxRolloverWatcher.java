@@ -11,15 +11,16 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * OKX trades dated (quarterly) futures. New entries always resolve to a
- * front-quarter contract with runway (see {@link OkxBrokerClient#resolveEpic}),
- * so the only thing left to watch is an <b>open</b> position whose contract is
- * approaching expiry — OKX force-settles it at the mark price on expiry day.
+ * The live OKX universe is <b>perpetual swaps</b> ({@code *-USDT-SWAP}), which
+ * never expire, so this watcher is <b>dormant</b> in normal operation — it fires
+ * only if a legacy dated {@code -YYMMDD} futures position is ever open on the
+ * OKX book ({@link OkxBrokerClient#daysToExpiry} returns {@code -1} for a
+ * {@code -SWAP} id and the position is skipped).
  *
- * <p>This is a notifier, not an auto-roller: once an OKX position is within
- * {@link OkxBrokerClient#ROLL_WARN_DAYS} of expiry it e-mails a reminder (once
- * per contract per 30&nbsp;min) so the position can be rolled or closed on the
- * user's terms rather than settled.
+ * <p>For such a dated position it is a notifier, not an auto-roller: once it is
+ * within {@link OkxBrokerClient#ROLL_WARN_DAYS} of expiry it e-mails a reminder
+ * (once per contract per 30&nbsp;min) so the position can be rolled or closed on
+ * the user's terms rather than force-settled at the mark price on expiry day.
  */
 @Component
 public class OkxRolloverWatcher {

@@ -3,12 +3,13 @@ package com.adam.server.broker.okx;
 import java.util.List;
 
 /**
- * Crypto universe for the OKX book. The OKX EEA entity does not offer perpetual
- * swaps to retail, so the bot trades <b>dated (quarterly) futures</b> instead:
- * {@code code()} is the short symbol (BTC, ETH, …), {@code underlying()} is the
- * OKX underlying ({@code BTC-USDT}), and the concrete contract id
- * ({@code BTC-USDT-YYMMDD}) is resolved per cycle by
- * {@link OkxBrokerClient#resolveEpic(String)} to the current front quarter.
+ * Crypto universe for the OKX book. The OKX EEA entity lists <b>linear USDT
+ * perpetual swaps</b> ({@code BTC-USDT-SWAP}, …) — not dated USDT futures — so
+ * that is what the bot trades: {@code code()} is the short symbol (BTC, ETH, …),
+ * {@code underlying()} is the OKX underlying ({@code BTC-USDT}), and
+ * {@code instId()} is the perpetual ({@code BTC-USDT-SWAP}). A perpetual never
+ * expires, so {@link OkxBrokerClient#resolveEpic(String)} returns it unchanged
+ * and {@link com.adam.server.hts.OkxRolloverWatcher} is dormant.
  */
 public enum OkxSymbol {
 

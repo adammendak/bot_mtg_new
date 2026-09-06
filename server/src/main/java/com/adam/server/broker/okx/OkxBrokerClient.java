@@ -208,17 +208,24 @@ public class OkxBrokerClient implements BrokerClient {
     }
 
     /**
-     * An underlying ({@code BTC-USDT}) → the front-quarter dated future to trade
-     * now; rolls to next-quarter once the front one is within
-     * {@link #ROLL_BEFORE_DAYS} of expiry. A concrete {@code -YYMMDD} id is
-     * returned unchanged. Cached {@link #CONTRACT_TTL_MS}; on any lookup failure
-     * the (possibly stale) cached id is reused, else the input is returned.
+     * Resolve a strategy epic to the concrete OKX instrument id to trade now.
+     *
+     * <p>The live OKX universe ({@link OkxSymbol}) is <b>linear USDT perpetual
+     * swaps</b> — a {@code *-USDT-SWAP} id never expires and never rolls, so it
+     * is returned unchanged with no API call. A concrete dated {@code -YYMMDD}
+     * contract is likewise returned as-is. Only a bare underlying
+     * ({@code BTC-USDT}, no suffix) triggers a {@code FUTURES} lookup for the
+     * front-quarter contract with runway (rolls to next-quarter once the front
+     * one is within {@link #ROLL_BEFORE_DAYS} of expiry); that result is cached
+     * {@link #CONTRACT_TTL_MS} and, on any lookup failure, the (possibly stale)
+     * cached id is reused, else the input is returned.
      */
     @Override
     public String resolveEpic(String symbolOrUnderlying) {
         if (symbolOrUnderlying == null || symbolOrUnderlying.isBlank()
+                || symbolOrUnderlying.endsWith("-SWAP")      // perpetual — already the final instId
                 || symbolOrUnderlying.matches(".*-\\d{6}$")) {
-            return symbolOrUnderlying; // already a dated contract
+            return symbolOrUnderlying; // already a concrete instrument
         }
         String uly = symbolOrUnderlying;
         Object[] cached = contractCache.get(uly);

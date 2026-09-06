@@ -150,6 +150,14 @@ class OkxBrokerClientHttpTest {
     }
 
     @Test
+    void resolveEpicLeavesAPerpetualSwapUntouchedWithNoLookup() {
+        // The live universe is *-USDT-SWAP perpetuals — no expiry, no roll, no API call.
+        assertThat(client.resolveEpic("BTC-USDT-SWAP")).isEqualTo("BTC-USDT-SWAP");
+        assertThat(client.resolveEpic("ETH-USDT-SWAP")).isEqualTo("ETH-USDT-SWAP");
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
     void daysToExpiryParsesTheYymmddSuffix() {
         String next = java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusDays(20)
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd"));
