@@ -84,7 +84,7 @@ class HtsTradeServiceTest {
                         new Candle(bar.minusSeconds(60), 100, 100, 100, 100, 0),
                         new Candle(bar, 100, 100, 100, 100, 0)));
         when(repo.save(any(HtsTradeEntity.class))).thenAnswer(i -> i.getArgument(0));
-        service = new HtsTradeService(repo, books, engine, haHunt, props, risk, List.of(sink));
+        service = new HtsTradeService(repo, books, engine, haHunt, new MmsEngine(), props, risk, List.of(sink));
     }
 
     // ---- recordOpen / idempotency / realised P/L ----
@@ -121,6 +121,27 @@ class HtsTradeServiceTest {
         assertThat(t.getLtf()).isEqualTo("M15");
         assertThat(t.getStatus()).isEqualTo("OPEN");
         verify(sink).onOpen(t);
+    }
+
+    @Test
+    void mmsRiskUnitDeleversAfterAStopAndRestoresAfterATarget() {
+        HtsTradeEntity stopped = new HtsTradeEntity();
+        stopped.setCloseReason("STOP");
+        stopped.setRMultiple(-1.0);
+        when(repo.findFirstByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
+                .thenReturn(stopped);
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "BTC")).isEqualTo(0.1);
+
+        HtsTradeEntity won = new HtsTradeEntity();
+        won.setCloseReason("TARGET");
+        won.setRMultiple(1.2);
+        when(repo.findFirstByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
+                .thenReturn(won);
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "XAU")).isEqualTo(1.0);
+
+        when(repo.findFirstByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "US100", "CLOSED"))
+                .thenReturn(null);
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "US100")).isEqualTo(1.0);
     }
 
     @Test

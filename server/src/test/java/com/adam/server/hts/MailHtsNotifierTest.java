@@ -61,6 +61,16 @@ class MailHtsNotifierTest {
     }
 
     @Test
+    void mailsMmsSignalsWithTheMeanReversionBody() {
+        Mailer mailer = mock(Mailer.class);
+        MailHtsNotifier n = new MailHtsNotifier(mailer);
+
+        n.onHtsSignal(signal(HtsVariant.MMS, "BTC"), null);
+
+        verify(mailer).send(contains("[MMS M15 TMA-ATR]"), contains("MMS mean-reversion entry"));
+    }
+
+    @Test
     void shortOnALongOnlyVariantIsMailedButMarkedObserveOnly() {
         Mailer mailer = mock(Mailer.class);
         MailHtsNotifier n = new MailHtsNotifier(mailer);

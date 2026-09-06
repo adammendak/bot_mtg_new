@@ -239,8 +239,13 @@ public class HtsExecutionGate {
 
             double stopDist = Math.abs(s.entry() - s.stopLevel());
             // Cash at risk if the entry stop is hit = riskPercent of account equity.
-            double cash = risk.riskAmount(account, live) * properties.getHtsRiskPercent();
-            double size = risk.sizeFor(cash, stopDist * pointValueAcct, 1.0);
+            // MMS ×1 ≈ 1% account for a 1% price move; after a full SL the unit
+            // drops to ×0.1 until a winning opposite-band TP restores ×1.
+            boolean mms = s.variant().strategy() == HtsVariant.Strategy.MMS;
+            double riskUnit = mms ? trades.mmsRiskUnit(s.variant(), s.symbol()) : 1.0;
+            double cash = risk.riskAmount(account, live) * properties.getHtsRiskPercent() * riskUnit;
+            double sizeDist = mms && s.entry() > 0 ? s.entry() * 0.01 : stopDist;
+            double size = risk.sizeFor(cash, sizeDist * pointValueAcct, 1.0);
             if (size <= 0 || stopDist <= 0) {
                 log.warn("HTS [{}] execution {}: size/stop is zero (cash {}, stopDist {}, pointValue {})",
                         s.variant().name(), s.symbol(), cash, stopDist, pointValueAcct);
@@ -276,7 +281,7 @@ public class HtsExecutionGate {
             // If the stop was widened to the broker minimum, re-size from the NEW
             // distance so risk stays ~1R — otherwise a 165pt band stop widened to
             // a 500pt broker minimum would risk ~3× the intended amount.
-            if (adjDist > stopDist * 1.0001) {
+            if (adjDist > stopDist * 1.0001 && !mms) {
                 double resized = risk.sizeFor(cash, adjDist * pointValueAcct, 1.0);
                 log.info("HTS [{}] {} re-sized after stop widen: {} -> {} (dist {} -> {})",
                         s.variant().name(), s.symbol(), size, resized, stopDist, adjDist);

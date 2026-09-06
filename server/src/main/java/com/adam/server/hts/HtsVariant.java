@@ -32,21 +32,30 @@ import java.util.List;
  *       on the {@code okx} book: ETH + XRP linear USDT perpetual swaps, long
  *       only, plus a funding-rate crowding skip. OKX HA-hunt backtest dropped
  *       BTC (net loser) for XRP; execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
+ *   <li>{@link #MMS} — MastermindZX mean-reversion (TMA/ATR envelope, M15
+ *       default) on BTC / XAU / US100 → {@code demo} book. <b>Parked</b>:
+ *       observe-only until unparked; never live by default. See
+ *       {@code docs/MMS-STRATEGY.md}.</li>
  * </ul>
  *
- * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
- * {@link #parked() parked} — kept in the enum for history but no longer
+ * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST} and
+ * {@link #MMS} are {@link #parked() parked} — kept in the enum but not
  * scanned. CORE/SWING (ribbon) gave zero signals through the forward test;
  * FAST churned every non-BTC symbol on M5 and was replaced by {@link #HA1} on
  * the same ("Account m5") book; {@link #HA4X} ("M15 band cross" entry) backtested
  * to PF ~1.2 IS / ~0.8 in the recent regime, MaxDD ~30% — the HA-flip vs
  * band-cross A/B was decided on the numbers, {@link #HA12} took its book.
+ * {@link #MMS} is parked so it cannot place orders until someone explicitly
+ * unparks it; execution still honours {@code HTS_EXECUTION_ENABLED}.
  *
  * <p>Ribbon variants ({@link Strategy#RIBBON}) run {@link HtsEngine};
  * HA-hunt variants ({@link Strategy#HA_HUNT}) run {@link HaHuntEngine} with a
  * cloud-hold exit. Within HA-hunt, {@link EntryTrigger} picks how the entry-TF
  * direction is decided (steps 3–7 — hunt gate, RMA-stacked, WITH confirm, daily
  * pivot, universe/side, fill cap — are identical either way).
+ * MMS ({@link Strategy#MMS}) runs {@link MmsEngine}: fade a TMA/ATR envelope
+ * after a closed-bar band touch + first reactive candle; opposite-band TP;
+ * fixed %-of-price SL; sequential delever after a full SL.
  */
 public enum HtsVariant {
 
@@ -79,10 +88,20 @@ public enum HtsVariant {
      * dropped BTC, added XRP. Execution stays gated by
      * {@code OKX_LIVE_EXECUTION_ENABLED}.
      */
-    HA_OKX(Books.OKX, Resolution.M15, 15, 4, 1, 100, HaHunt.OKX_UNIVERSE, EntryTrigger.HA_FLIP);
+    HA_OKX(Books.OKX, Resolution.M15, 15, 4, 1, 100, HaHunt.OKX_UNIVERSE, EntryTrigger.HA_FLIP),
 
-    /** Entry model: {@link HtsEngine} ribbon, or {@link HaHuntEngine} HA-hunt cloud. */
-    public enum Strategy { RIBBON, HA_HUNT }
+    /**
+     * MastermindZX MMS mean-reversion — TMA ± ATR envelope on the entry TF
+     * (default M15; change the constructor to M5/H1 or document M10/M20/M30 in
+     * Pine). Universe: BTC (Capital {@code BTCUSD} / OKX {@code BTC-USDT-SWAP}
+     * if remapped), XAU/GOLD, US100/NQ. Both sides. Parked — not scanned,
+     * not executed. Site: https://mastermindzx.pl/ (BTCUSDT monthly-optimised
+     * backtests; no WR copied into code).
+     */
+    MMS(Books.DEMO, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
+
+    /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, or {@link MmsEngine}. */
+    public enum Strategy { RIBBON, HA_HUNT, MMS }
 
     /**
      * How an HA-hunt variant decides entry-TF direction (the hunt gate, RMA
@@ -102,6 +121,11 @@ public enum HtsVariant {
         static final java.util.List<String> UNIVERSE = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
         /** OKX perps — codes match {@link com.adam.server.broker.okx.OkxSymbol}. */
         static final java.util.List<String> OKX_UNIVERSE = java.util.List.of("ETH", "XRP");
+    }
+
+    /** MastermindZX MMS: BTC + gold + Nasdaq (Capital epics BTCUSD / GOLD / US100). */
+    private static final class Mms {
+        static final java.util.List<String> UNIVERSE = java.util.List.of("BTC", "XAU", "US100");
     }
 
     private final Strategy strategy;
@@ -155,6 +179,16 @@ public enum HtsVariant {
                 huntHours, 0, atrMinutes, slowLen, universe, true, entryTrigger);
     }
 
+    /**
+     * MMS mean-reversion: entry TF only (no hunt resample), both sides,
+     * {@code live=false}. Parked separately — this constructor does not enable
+     * execution.
+     */
+    HtsVariant(String book, Resolution entryTf, int ltfMinutes, Duration ltfLookback, List<String> universe) {
+        this(Strategy.MMS, null, entryTf, book, Duration.ofDays(20), ltfLookback, ltfMinutes, false,
+                0, 0, 0, 0, universe, false, EntryTrigger.HA_FLIP);
+    }
+
     HtsVariant(Strategy strategy, Resolution htf, Resolution ltf, String book, Duration htfLookback,
                Duration ltfLookback, int ltfMinutes, boolean live, int huntHours, int atrHours, int atrMinutes,
                int slowLen, List<String> universe, boolean longOnly, EntryTrigger entryTrigger) {
@@ -190,7 +224,7 @@ public enum HtsVariant {
      * practice and its fills are visible on the dashboard / trades feed.
      */
     public boolean mailsSignals() {
-        return strategy == Strategy.HA_HUNT;
+        return strategy == Strategy.HA_HUNT || strategy == Strategy.MMS;
     }
 
     /**
@@ -207,7 +241,7 @@ public enum HtsVariant {
      */
     public boolean parked() {
         return this == CORE || this == SWING || this == HA4X || this == FAST
-                || this == CORE_OKX || this == FAST_OKX;
+                || this == CORE_OKX || this == FAST_OKX || this == MMS;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
@@ -234,6 +268,9 @@ public enum HtsVariant {
      * so this returns {@code "H4"} / {@code "H12"} for them.
      */
     public String htfLabel() {
+        if (strategy == Strategy.MMS) {
+            return ltf != null ? ltf.name() : "M15";
+        }
         return htf != null ? htf.name() : "H" + huntHours;
     }
 
@@ -255,11 +292,19 @@ public enum HtsVariant {
     }
 
     public String label() {
+        if (strategy == Strategy.MMS) {
+            return name() + " " + ltf + " TMA-ATR";
+        }
         if (strategy != Strategy.HA_HUNT) {
             return name() + " " + htf + "/" + ltf;
         }
         String trigger = entryTrigger == EntryTrigger.BAND_CROSS ? " band-cross" : "";
         return name() + " H" + huntHours + "-hunt/" + ltf + trigger;
+    }
+
+    /** Entry-TF bar length in minutes (M15 = 15, H1 = 60). Used to drop a forming bar. */
+    public int ltfMinutes() {
+        return ltfMinutes;
     }
 
     // ---- HA-hunt accessors ----
@@ -307,6 +352,17 @@ public enum HtsVariant {
         }
         if (this == CORE_LIVE) {
             return !"GER40".equalsIgnoreCase(symbolCode);
+        }
+        if (strategy == Strategy.MMS) {
+            if (symbolCode == null) {
+                return false;
+            }
+            for (String code : universe) {
+                if (code.equalsIgnoreCase(symbolCode)) {
+                    return true;
+                }
+            }
+            return false;
         }
         return true;
     }

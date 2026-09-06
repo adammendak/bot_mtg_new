@@ -58,6 +58,7 @@ public class HtsTradeService {
     private final BrokerBooks books;
     private final HtsEngine engine;
     private final HaHuntEngine haHunt;
+    private final MmsEngine mms;
     private final AppProperties properties;
     private final com.adam.server.sdd.RiskPolicy risk;
     private final List<HtsTradeSink> sinks;
@@ -65,12 +66,13 @@ public class HtsTradeService {
     private final Map<Long, Integer> reconcileMisses = new java.util.concurrent.ConcurrentHashMap<>();
 
     public HtsTradeService(HtsTradeRepository trades, BrokerBooks books, HtsEngine engine, HaHuntEngine haHunt,
-                           AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
+                           MmsEngine mms, AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
                            List<HtsTradeSink> sinks) {
         this.trades = trades;
         this.books = books;
         this.engine = engine;
         this.haHunt = haHunt;
+        this.mms = mms;
         this.properties = properties;
         this.risk = risk;
         this.sinks = sinks;
@@ -253,6 +255,9 @@ public class HtsTradeService {
         if (v.strategy() == HtsVariant.Strategy.HA_HUNT) {
             return haHuntCloudExit(t, v, buy, market, candleCache);
         }
+        if (v.strategy() == HtsVariant.Strategy.MMS) {
+            return mmsBandExit(t, v, buy, market, candleCache);
+        }
         double entry = t.getEntry();
         double leg = Math.abs(entry - t.getStopLevel());
         if (leg <= 0) {
@@ -388,6 +393,51 @@ public class HtsTradeService {
         }
     }
 
+    /**
+     * MMS opposite-band TP: no trail, no break-even. The broker holds the
+     * fixed %-of-price stop; here we close the whole position when the last
+     * closed entry-TF bar touches the far envelope. Pre-stamps TARGET so the
+     * sequential-delever restore sees a winning TP.
+     */
+    private boolean mmsBandExit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
+                                Map<String, List<Candle>> candleCache) {
+        if (t.getDealId() == null || t.getSize() == null) {
+            return false;
+        }
+        BrokerClient data = com.adam.server.broker.Books.OKX.equals(t.getBook())
+                ? books.forBook(com.adam.server.broker.Books.OKX)
+                : market;
+        String cacheKey = t.getEpic() + "|MMS|" + v.ltf().name();
+        List<Candle> entryTf = candleCache.get(cacheKey);
+        if (entryTf == null) {
+            try {
+                Instant now = Instant.now();
+                entryTf = HtsCandles.fetch(data, t.getEpic(), v.ltf(), now.minus(v.ltfLookback()), now);
+            } catch (Exception e) {
+                log.warn("HTS [{}] {}: entry-TF fetch for MMS band exit failed ({})", v, t.getSymbol(),
+                        e.getClass().getSimpleName());
+                return false;
+            }
+            candleCache.put(cacheKey, entryTf);
+        }
+        if (!mms.oppositeBandHit(v, entryTf, buy, Instant.now())) {
+            return false;
+        }
+        selectBookAccount(t.getBook());
+        BrokerClient broker = books.forBook(t.getBook());
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        try {
+            t.setCloseReason("TARGET");
+            trades.save(t);
+            broker.closePosition(t.getDealId(), remaining);
+            log.info("HTS [{}] {} MMS opposite-band TP — far envelope touched, no trail", v, t.getSymbol());
+            return true;
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: MMS band close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     // ---- close-out bookkeeping ----
 
     private void applyClose(HtsTradeEntity t, List<BrokerTransaction> tx) {
@@ -463,6 +513,8 @@ public class HtsTradeService {
             t.setCloseReason("RUNNER");
         } else if (isHaHunt(t)) {
             t.setCloseReason("CLOUD"); // HA-hunt: no TP1/trail — a non-stop exit is the cloud-hold flip
+        } else if (isMms(t)) {
+            t.setCloseReason("BAND");
         } else {
             t.setCloseReason("MANUAL");
         }
@@ -474,6 +526,30 @@ public class HtsTradeService {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    private static boolean isMms(HtsTradeEntity t) {
+        try {
+            return HtsVariant.valueOf(t.getVariant()).strategy() == HtsVariant.Strategy.MMS;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Sequential delever for MMS: ×0.1 after a full SL on this variant/symbol,
+     * ×1 after a winning opposite-band TP. No history → ×1.
+     */
+    public double mmsRiskUnit(HtsVariant variant, String symbol) {
+        if (variant == null || symbol == null) {
+            return MmsEngine.RISK_UNIT_FULL;
+        }
+        HtsTradeEntity last = trades.findFirstByVariantAndSymbolAndStatusOrderByIdDesc(
+                variant.name(), symbol, "CLOSED");
+        if (last == null) {
+            return MmsEngine.RISK_UNIT_FULL;
+        }
+        return MmsEngine.riskUnitAfter(last.getCloseReason(), last.getRMultiple());
     }
 
     /**

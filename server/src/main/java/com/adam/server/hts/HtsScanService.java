@@ -47,6 +47,7 @@ public class HtsScanService {
     private final BrokerBooks books;
     private final HtsEngine engine;
     private final HaHuntEngine haHunt;
+    private final MmsEngine mms;
     private final HtsSignalRepository signals;
     private final com.adam.server.config.AppProperties properties;
     private final Clock clock;
@@ -63,6 +64,7 @@ public class HtsScanService {
             BrokerBooks books,
             HtsEngine engine,
             HaHuntEngine haHunt,
+            MmsEngine mms,
             HtsSignalRepository signals,
             com.adam.server.config.AppProperties properties,
             Clock clock,
@@ -74,6 +76,7 @@ public class HtsScanService {
         this.books = books;
         this.engine = engine;
         this.haHunt = haHunt;
+        this.mms = mms;
         this.signals = signals;
         this.properties = properties;
         this.clock = clock;
@@ -127,6 +130,8 @@ public class HtsScanService {
                     }
                     if (variant.strategy() == HtsVariant.Strategy.HA_HUNT) {
                         scanHaHunt(variant, market, now, found);
+                    } else if (variant.strategy() == HtsVariant.Strategy.MMS) {
+                        scanMms(variant, market, now, zone, found);
                     } else if (variant.book().equals(Books.OKX)) {
                         BrokerClient okx = market;
                         scanVariant(variant, OkxSymbol.universe().stream()
@@ -284,6 +289,58 @@ public class HtsScanService {
                     + "or 'not confirmed open'.");
         }
         return out;
+    }
+
+    /**
+     * MMS mean-reversion scan: Capital epics for BTC / XAU / US100 (weekend =
+     * BTC only — XAU and US100 are closed). Signals are persisted + mailed;
+     * execution still goes through {@link HtsExecutionGate} (and the variant
+     * is parked by default, so this loop is not reached until unparked).
+     */
+    private void scanMms(HtsVariant v, BrokerClient market, Instant now, ZoneId zone, List<HtsScan> found) {
+        Instant fromEntry = now.minus(v.ltfLookback());
+        Instant fromH1 = now.minus(java.time.Duration.ofDays(20));
+        boolean wantH1 = mms.params().stochFilterEnabled();
+        java.util.Set<String> open = new java.util.HashSet<>();
+        for (SddSymbol s : SddSymbol.htsUniverseFor(now, zone)) {
+            open.add(s.code());
+        }
+        for (String code : v.universe()) {
+            if (!open.contains(code) || !v.tradesSymbol(code)) {
+                continue;
+            }
+            SddSymbol sym;
+            try {
+                sym = SddSymbol.valueOf(code);
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan: unknown symbol {}", v.name(), code);
+                continue;
+            }
+            String epic = sym.epic(properties);
+            try {
+                List<Candle> entryTf = HtsCandles.fetch(market, epic, v.ltf(), fromEntry, now);
+                List<Candle> h1 = null;
+                if (wantH1) {
+                    h1 = v.ltf() == com.adam.server.broker.Resolution.H1
+                            ? entryTf
+                            : HtsCandles.fetch(market, epic, com.adam.server.broker.Resolution.H1, fromH1, now);
+                }
+                HtsScan signal = mms.evaluate(v, code, epic, entryTf, h1, now);
+                if (signal != null) {
+                    found.add(signal);
+                    persist(signal);
+                    notify(signal, context(entryTf, h1 == null ? List.of() : h1, signal));
+                    // Parked variants never reach here. When unparked, still honour
+                    // the shared HTS execution flag — do not bypass it.
+                    execution.executeSignal(signal);
+                    log.info("HTS [{}] signal {} {} entry {} stop {} target {}",
+                            v.label(), signal.symbol(), signal.direction(), signal.entry(),
+                            signal.stopLevel(), signal.targetLevel());
+                }
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
+            }
+        }
     }
 
     /** HA-hunt cloud scan: per-variant universe, entry TF from the broker, hunt/stop TFs resampled from H1. */
