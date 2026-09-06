@@ -197,9 +197,16 @@ public enum HtsVariant {
      * gave zero signals; FAST churned every non-BTC M5 symbol (avg hold 5-9 min)
      * on its band-edge stop; HA4X (band-cross entry) lost the HA-flip vs
      * band-cross A/B on the backtest (PF ~1.2 IS / ~0.8 recent, MaxDD ~30%).
+     *
+     * <p>{@link #CORE_OKX} / {@link #FAST_OKX} (ribbon on the real-money OKX
+     * book) are parked too: once {@code OKX_LIVE_EXECUTION_ENABLED} is armed for
+     * {@link #HA_OKX}, FAST_OKX's M5 ribbon would churn LTC/BTC every 5&nbsp;min
+     * (the same reason {@link #FAST} is parked) and CORE_OKX ribbon has the same
+     * zero-edge history as CORE. Only {@link #HA_OKX} trades the OKX book now.
      */
     public boolean parked() {
-        return this == CORE || this == SWING || this == HA4X || this == FAST;
+        return this == CORE || this == SWING || this == HA4X || this == FAST
+                || this == CORE_OKX || this == FAST_OKX;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */

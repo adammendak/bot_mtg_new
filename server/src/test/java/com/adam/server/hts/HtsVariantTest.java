@@ -88,7 +88,16 @@ class HtsVariantTest {
         assertThat(HtsVariant.HA1.huntHours()).isEqualTo(1);
         assertThat(HtsVariant.HA1.atrHours()).isEqualTo(0);
         assertThat(HtsVariant.HA1.atrMinutes()).isEqualTo(15); // M15 WITH/stop, resampled from M5
-        assertThat(HtsVariant.FAST_OKX.parked()).isFalse(); // crypto FAST unaffected
+    }
+
+    @Test
+    void onlyHaOkxTradesTheOkxBookNowRibbonOkxParked() {
+        // One OKX account: only the M15 HA-hunt runs there. The OKX ribbon
+        // variants are parked (FAST_OKX would churn LTC/BTC on M5 once live is armed).
+        assertThat(HtsVariant.CORE_OKX.parked()).isTrue();
+        assertThat(HtsVariant.FAST_OKX.parked()).isTrue();
+        assertThat(HtsVariant.HA_OKX.parked()).isFalse();
+        assertThat(HtsVariant.HA_OKX.book()).isEqualTo(com.adam.server.broker.Books.OKX);
     }
 
     @Test
