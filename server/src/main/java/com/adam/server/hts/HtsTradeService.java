@@ -395,6 +395,8 @@ public class HtsTradeService {
         double leg = t.getEntry() != null && t.getStopLevel() != null
                 ? Math.abs(t.getEntry() - t.getStopLevel()) : 0.0;
         double tp1 = t.getTp1Pnl() != null ? t.getTp1Pnl() : 0.0;
+        boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+        boolean preset = t.getCloseReason() != null && !t.getCloseReason().isBlank(); // e.g. WEEKEND
         // NB: keep the branches explicit — `cond ? doublePrimitive : null` makes
         // javac unbox the null (NPE: Double.doubleValue) when settle and tp1Pnl
         // are both absent, which is exactly the reconcile-a-fresh-trade case.
@@ -407,30 +409,89 @@ public class HtsTradeService {
             pnl = null;
         }
         t.setPnl(pnl);
-        boolean preset = t.getCloseReason() != null && !t.getCloseReason().isBlank(); // e.g. WEEKEND
+
         if (settle != null && t.getSize() != null && t.getSize() > 0 && leg > 0) {
-            boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+            // real settlement from the broker transaction feed
             double closedSize = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
             double move = closedSize > 0 ? settle / closedSize : 0.0;
             t.setExitPrice(buy ? t.getEntry() + move : t.getEntry() - move);
-            double rr = move / leg;
-            t.setRMultiple(round(rr));
-            double targetR = t.getTargetLevel() != null
-                    ? Math.abs(t.getTargetLevel() - t.getEntry()) / leg : Double.NaN;
-            if (preset) {
-                // keep the reason the caller stamped (WEEKEND)
-            } else if (Math.abs(rr + 1.0) <= REASON_TOLERANCE) {
-                t.setCloseReason(t.getTp1At() != null ? "TRAIL" : "STOP");
-            } else if (!Double.isNaN(targetR) && Math.abs(rr - targetR) <= REASON_TOLERANCE) {
-                t.setCloseReason("TARGET");
-            } else if (t.getTp1At() != null) {
-                t.setCloseReason("RUNNER");
-            } else {
-                t.setCloseReason("MANUAL");
+            t.setRMultiple(round(move / leg));
+            stampReason(t, move / leg, leg, preset);
+            return;
+        }
+
+        // No matching settlement: Capital's transaction `reference` is the closing
+        // deal's own id, not the opening dealId/dealReference matchPnl keys on, so
+        // it misses ~always (91/91 CLOSED rows had pnl/r_multiple/close_reason
+        // NULL/UNKNOWN before this). Estimate the exit from a fresh mark price on
+        // the trade's own book, else assume the fixed stop was hit, so the
+        // scorecard/journal get an R instead of dropping the row. `pnl` stays
+        // null — the R is estimated, the cash is not known.
+        if (leg > 0 && t.getEntry() != null) {
+            Double estExit = estimateExitPrice(t);
+            if (estExit != null && estExit > 0) {
+                double move = (estExit - t.getEntry()) * (buy ? 1.0 : -1.0);
+                t.setExitPrice(round(estExit));
+                double rr = move / leg;
+                t.setRMultiple(round(rr));
+                stampReason(t, rr, leg, preset);
+                return;
             }
-        } else if (!preset) {
+        }
+        if (!preset) {
             t.setCloseReason("UNKNOWN");
         }
+    }
+
+    /** Classify {@code close_reason} from the realised (or estimated) R multiple. */
+    private void stampReason(HtsTradeEntity t, double rr, double leg, boolean preset) {
+        if (preset) {
+            return; // keep the reason the caller stamped (WEEKEND)
+        }
+        double targetR = t.getTargetLevel() != null && t.getEntry() != null && leg > 0
+                ? Math.abs(t.getTargetLevel() - t.getEntry()) / leg : Double.NaN;
+        if (Math.abs(rr + 1.0) <= REASON_TOLERANCE) {
+            t.setCloseReason(t.getTp1At() != null ? "TRAIL" : "STOP");
+        } else if (!Double.isNaN(targetR) && Math.abs(rr - targetR) <= REASON_TOLERANCE) {
+            t.setCloseReason("TARGET");
+        } else if (t.getTp1At() != null) {
+            t.setCloseReason("RUNNER");
+        } else if (isHaHunt(t)) {
+            t.setCloseReason("CLOUD"); // HA-hunt: no TP1/trail — a non-stop exit is the cloud-hold flip
+        } else {
+            t.setCloseReason("MANUAL");
+        }
+    }
+
+    private static boolean isHaHunt(HtsTradeEntity t) {
+        try {
+            return HtsVariant.valueOf(t.getVariant()).strategy() == HtsVariant.Strategy.HA_HUNT;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Best-effort exit price when the transaction feed has no matching
+     * settlement: a fresh mark-price mid on the trade's own book, falling back to
+     * the fixed stop level (a vanished position with an untriggered exit has most
+     * likely stopped out). Never throws.
+     */
+    private Double estimateExitPrice(HtsTradeEntity t) {
+        try {
+            BrokerClient b = books.forBook(t.getBook());
+            if (b != null && b.configured() && t.getEpic() != null) {
+                selectBookAccount(t.getBook());
+                double mid = b.marketPrice(t.getEpic()).mid();
+                if (mid > 0) {
+                    return mid;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("HTS applyClose: mark-price estimate unavailable for {} {} ({}) — assuming stop-out",
+                    t.getVariant(), t.getSymbol(), e.getClass().getSimpleName());
+        }
+        return t.getStopLevel();
     }
 
     /**
@@ -728,8 +789,18 @@ public class HtsTradeService {
     }
 
     private static boolean refHit(HtsTradeEntity t, BrokerTransaction b) {
-        return "TRADE".equalsIgnoreCase(b.type()) && b.reference() != null
-                && (b.reference().equals(t.getDealId()) || b.reference().equals(t.getDealReference()));
+        if (!"TRADE".equalsIgnoreCase(b.type()) || b.reference() == null) {
+            return false;
+        }
+        return sameRef(b.reference(), t.getDealId()) || sameRef(b.reference(), t.getDealReference());
+    }
+
+    /** Reference equality tolerant of Capital's {@code o_}/{@code o-} prefix drift and case. */
+    private static boolean sameRef(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.equals(b) || a.replace('_', '-').equalsIgnoreCase(b.replace('_', '-'));
     }
 
     /**
