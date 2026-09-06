@@ -55,19 +55,28 @@ public final class AtrEnvelope {
         return sma(sma(src, period), period);
     }
 
+    /**
+     * Rolling mean. A window that still contains {@code NaN} (e.g. the second
+     * SMA of a TMA) stays {@code NaN} — it does not poison later values.
+     */
     public static double[] sma(double[] src, int period) {
         double[] out = new double[src.length];
         Arrays.fill(out, Double.NaN);
         if (period <= 0 || src.length < period) {
             return out;
         }
-        double sum = 0;
-        for (int i = 0; i < src.length; i++) {
-            sum += src[i];
-            if (i >= period) {
-                sum -= src[i - period];
+        for (int i = period - 1; i < src.length; i++) {
+            double sum = 0;
+            boolean ok = true;
+            for (int j = i - period + 1; j <= i; j++) {
+                double v = src[j];
+                if (Double.isNaN(v)) {
+                    ok = false;
+                    break;
+                }
+                sum += v;
             }
-            if (i >= period - 1) {
+            if (ok) {
                 out[i] = sum / period;
             }
         }

@@ -31,12 +31,12 @@ class MmsEngineTest {
 
     @Test
     void shortAfterUpperBandTouchThenReactiveDown() {
-        // Flat 100, TMA~100, ATR~1 → upper ~102. Spike high through the band, then a red body.
+        // Flat 100, TMA~100, ATR~2 → upper ~104. Spike well through the band, then a red body.
         Instant touchT = t0.plusSeconds(80 * 900L);
         Instant reactT = touchT.plusSeconds(900);
         Instant now = reactT.plusSeconds(900); // reaction bar is closed
         List<Candle> bars = baseThen(
-                new Candle(touchT, 100.5, 104, 100, 101, 0),
+                new Candle(touchT, 100.5, 112, 100, 101, 0),
                 new Candle(reactT, 101, 101.2, 98.5, 99.0, 0));
 
         HtsScan s = engine.evaluate(HtsVariant.MMS, "BTC", "BTCUSD", bars, null, now);
@@ -55,7 +55,7 @@ class MmsEngineTest {
         Instant reactT = touchT.plusSeconds(900);
         Instant now = reactT.plusSeconds(900);
         List<Candle> bars = baseThen(
-                new Candle(touchT, 99.5, 100, 96, 99, 0),
+                new Candle(touchT, 99.5, 100, 88, 99, 0),
                 new Candle(reactT, 99, 101.5, 98.8, 101.0, 0));
 
         HtsScan s = engine.evaluate(HtsVariant.MMS, "XAU", "GOLD", bars, null, now);
@@ -73,7 +73,7 @@ class MmsEngineTest {
         Instant reactT = touchT.plusSeconds(900);
         Instant now = reactT.plusSeconds(900);
         List<Candle> bars = baseThen(
-                new Candle(touchT, 99.5, 100, 96, 99, 0),
+                new Candle(touchT, 99.5, 100, 88, 99, 0),
                 new Candle(reactT, 99, 101.5, 98.8, 101.0, 0));
 
         assertThat(engine.evaluate(HtsVariant.MMS, "GER40", "DE40", bars, null, now)).isNull();
@@ -87,7 +87,7 @@ class MmsEngineTest {
         // now is still inside the reaction bar (opened at reactT, 15-min TF)
         Instant now = reactT.plusSeconds(60);
         List<Candle> bars = baseThen(
-                new Candle(touchT, 100.5, 104, 100, 101, 0),
+                new Candle(touchT, 100.5, 112, 100, 101, 0),
                 new Candle(reactT, 101, 101.2, 98.5, 99.0, 0));
 
         assertThat(engine.evaluate(HtsVariant.MMS, "BTC", "BTCUSD", bars, null, now)).isNull();
@@ -101,7 +101,7 @@ class MmsEngineTest {
         for (int i = 0; i < 80; i++) {
             bars.add(new Candle(t0.plusSeconds(i * 900L), 100, 101, 99, 100, 0));
         }
-        bars.add(new Candle(last, 100, 104, 99.5, 101, 0));
+        bars.add(new Candle(last, 100, 112, 99.5, 101, 0));
 
         assertThat(engine.oppositeBandHit(HtsVariant.MMS, bars, true, now)).isTrue();
         assertThat(engine.oppositeBandHit(HtsVariant.MMS, bars, false, now)).isFalse();
@@ -130,7 +130,7 @@ class MmsEngineTest {
         Instant touchT = t0.plusSeconds(80 * 900L);
         Instant reactT = touchT.plusSeconds(900);
         List<Candle> bars = baseThen(
-                new Candle(touchT, 100.5, 104, 100, 101, 0),
+                new Candle(touchT, 100.5, 112, 100, 101, 0),
                 new Candle(reactT, 101, 101.2, 98.5, 99.0, 0));
         AtrEnvelope.Series env = AtrEnvelope.of(bars, MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT,
                 AtrEnvelope.Mode.TMA_ATR);
