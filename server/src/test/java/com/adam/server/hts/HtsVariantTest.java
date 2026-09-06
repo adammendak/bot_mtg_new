@@ -39,10 +39,19 @@ class HtsVariantTest {
     }
 
     @Test
-    void ha12IsParkedInFavourOfHa4xOnTheSameBook() {
-        assertThat(HtsVariant.HA12.parked()).isTrue();
-        assertThat(HtsVariant.HA4X.parked()).isFalse();
+    void ha12IsActiveAndHa4xIsParkedOnTheSameBook() {
+        assertThat(HtsVariant.HA12.parked()).isFalse();
+        assertThat(HtsVariant.HA4X.parked()).isTrue();
         assertThat(HtsVariant.HA4X.book()).isEqualTo(HtsVariant.HA12.book()); // "Account H1"
+    }
+
+    @Test
+    void haHuntUniverseAddsSilverAndNikkeiAndDropsGer40() {
+        java.util.List<String> expected = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
+        assertThat(HtsVariant.HA4.universe()).isEqualTo(expected);
+        assertThat(HtsVariant.HA12.universe()).isEqualTo(expected);
+        assertThat(HtsVariant.HA4X.universe()).isEqualTo(expected);
+        assertThat(HtsVariant.HA4.universe()).doesNotContain("GER40");
     }
 
     @Test

@@ -13,10 +13,14 @@ public enum SddSymbol {
     US100("US100", false),
     EURUSD("EURUSD", false),
     BTC("BTC", true),
-    /** HA-hunt only (Strategy A universe). Kept out of the ribbon / SDD universe helpers. */
-    USDJPY("USDJPY", false);
+    /** HA-hunt only. Kept out of the ribbon / SDD universe helpers. */
+    USDJPY("USDJPY", false),
+    /** HA-hunt only — silver. */
+    XAG("XAG", false),
+    /** HA-hunt only — Nikkei 225. */
+    J225("J225", false);
 
-    /** The names scanned by the ribbon HTS + SDD models — USDJPY is HA-hunt-only. */
+    /** The names scanned by the ribbon HTS + SDD models — USDJPY / XAG / J225 are HA-hunt-only. */
     private static final List<SddSymbol> LEGACY = List.of(GER40, XAU, US100, EURUSD, BTC);
 
     private final String code;
@@ -44,6 +48,8 @@ public enum SddSymbol {
             case EURUSD -> epics.getEurusd();
             case BTC -> epics.getBtc();
             case USDJPY -> epics.getUsdjpy();
+            case XAG -> epics.getXag();
+            case J225 -> epics.getJ225();
         };
     }
 
