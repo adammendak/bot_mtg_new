@@ -478,6 +478,12 @@ public class AppProperties {
         private boolean demo = false;
         /** Opt-in required to execute on a REAL-money OKX account (demo=false). */
         private boolean liveExecutionEnabled = false;
+        /** HA_OKX: skip a LONG when the last funding rate exceeds this (crowded longs). Fraction per period, +0.05% default. */
+        private double htsFundingLongMax = 0.0005;
+        /** HA_OKX: skip a SHORT when the last funding rate is below this (crowded shorts). Fraction per period, -0.03% default. */
+        private double htsFundingShortMin = -0.0003;
+        /** HA_OKX: on a funding-rate API failure, {@code false} = skip the entry (fail closed), {@code true} = allow it. */
+        private boolean htsFundingFailOpen = false;
 
         public String getApiKey() {
             return apiKey;
@@ -525,6 +531,30 @@ public class AppProperties {
 
         public void setLiveExecutionEnabled(boolean liveExecutionEnabled) {
             this.liveExecutionEnabled = liveExecutionEnabled;
+        }
+
+        public double getHtsFundingLongMax() {
+            return htsFundingLongMax;
+        }
+
+        public void setHtsFundingLongMax(double htsFundingLongMax) {
+            this.htsFundingLongMax = htsFundingLongMax;
+        }
+
+        public double getHtsFundingShortMin() {
+            return htsFundingShortMin;
+        }
+
+        public void setHtsFundingShortMin(double htsFundingShortMin) {
+            this.htsFundingShortMin = htsFundingShortMin;
+        }
+
+        public boolean isHtsFundingFailOpen() {
+            return htsFundingFailOpen;
+        }
+
+        public void setHtsFundingFailOpen(boolean htsFundingFailOpen) {
+            this.htsFundingFailOpen = htsFundingFailOpen;
         }
 
         public boolean credentialsPresent() {

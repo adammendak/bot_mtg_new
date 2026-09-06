@@ -290,21 +290,37 @@ public class HtsScanService {
     private void scanHaHunt(HtsVariant v, BrokerClient market, Instant now, List<HtsScan> found) {
         Instant fromEntry = now.minus(v.ltfLookback());
         Instant fromH1 = now.minus(java.time.Duration.ofDays(45));
+        boolean okx = Books.OKX.equals(v.book());
         for (String code : v.universe()) {
-            SddSymbol sym;
-            try {
-                sym = SddSymbol.valueOf(code);
-            } catch (RuntimeException e) {
-                log.warn("HTS [{}] scan: unknown symbol {}", v.name(), code);
-                continue;
+            String epic;
+            boolean skipPivot;
+            if (okx) {
+                com.adam.server.broker.okx.OkxSymbol sym;
+                try {
+                    sym = com.adam.server.broker.okx.OkxSymbol.valueOf(code);
+                } catch (RuntimeException e) {
+                    log.warn("HTS [{}] scan: unknown OKX symbol {}", v.name(), code);
+                    continue;
+                }
+                epic = market.resolveEpic(sym.instId());
+                skipPivot = true; // crypto trades 24/7 — no session pivot
+            } else {
+                SddSymbol sym;
+                try {
+                    sym = SddSymbol.valueOf(code);
+                } catch (RuntimeException e) {
+                    log.warn("HTS [{}] scan: unknown symbol {}", v.name(), code);
+                    continue;
+                }
+                epic = sym.epic(properties);
+                skipPivot = sym.skipPivot();
             }
-            String epic = sym.epic(properties);
             try {
                 List<Candle> entryTf = HtsCandles.fetch(market, epic, v.ltf(), fromEntry, now);
                 List<Candle> h1 = v.ltf() == com.adam.server.broker.Resolution.H1
                         ? entryTf
                         : HtsCandles.fetch(market, epic, com.adam.server.broker.Resolution.H1, fromH1, now);
-                HtsScan signal = haHunt.evaluate(v, code, epic, entryTf, h1, now, sym.skipPivot());
+                HtsScan signal = haHunt.evaluate(v, code, epic, entryTf, h1, now, skipPivot);
                 if (signal != null) {
                     found.add(signal);
                     persist(signal);
@@ -312,18 +328,70 @@ public class HtsScanService {
                     // Long-only variant: a short is emitted (persisted + e-mailed)
                     // for visibility but NOT executed.
                     boolean observeOnly = v.longOnly() && signal.direction() != Direction.BUY;
+                    String skipNote = observeOnly ? " — OBSERVE ONLY (short, not executed)" : "";
+                    if (!observeOnly && okx && fundingBlocks(v, market, epic, signal.direction())) {
+                        observeOnly = true;
+                        skipNote = " — OBSERVE ONLY (funding crowding, not executed)";
+                    }
                     if (!observeOnly) {
                         execution.executeSignal(signal);
                     }
                     log.info("HTS [{}] signal {} {} entry {} stop {} target {} (hunt {}){}",
                             v.label(), signal.symbol(), signal.direction(), signal.entry(),
-                            signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear",
-                            observeOnly ? " — OBSERVE ONLY (short, not executed)" : "");
+                            signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear", skipNote);
                 }
             } catch (RuntimeException e) {
                 log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
             }
         }
+    }
+
+    /**
+     * OKX funding-rate crowding gate for {@link HtsVariant#HA_OKX}. Blocks (returns
+     * true) when the last settled funding rate is extreme in the signal's
+     * direction — a long above {@code app.okx.hts-funding-long-max}, a short below
+     * {@code app.okx.hts-funding-short-min} (fractions per ~8&nbsp;h period). On a
+     * funding API failure it honours {@code app.okx.hts-funding-fail-open}
+     * (default {@code false} = block, "fail closed"). Persist + mail happen
+     * regardless; only the {@code executeSignal} call is suppressed.
+     */
+    private boolean fundingBlocks(HtsVariant v, BrokerClient market, String epic, Direction dir) {
+        if (!(market instanceof com.adam.server.broker.okx.OkxBrokerClient okxClient)) {
+            return false;
+        }
+        double rate;
+        try {
+            rate = okxClient.fundingRate(epic);
+        } catch (RuntimeException e) {
+            boolean block = !properties.getOkx().isHtsFundingFailOpen();
+            log.warn("HTS [{}] {} funding rate unavailable ({}) — {}", v.name(), epic,
+                    e.getClass().getSimpleName(), block ? "skipping entry (fail closed)" : "allowing entry");
+            return block;
+        }
+        double longMax = properties.getOkx().getHtsFundingLongMax();
+        double shortMin = properties.getOkx().getHtsFundingShortMin();
+        double threshold = dir == Direction.BUY ? longMax : shortMin;
+        boolean crowded = fundingCrowded(dir, rate, longMax, shortMin);
+        if (crowded) {
+            log.info("HTS [{}] {} {} entry skipped — funding_crowding (rate {} vs {})",
+                    v.name(), epic, dir, rate, threshold);
+            mailer.sendThrottled("hts-okx-funding-" + epic,
+                    "HA_OKX entry skipped — funding crowding " + epic,
+                    "The HA_OKX " + dir + " signal on " + epic + " was NOT executed: OKX funding rate "
+                            + rate + " is past the " + (dir == Direction.BUY ? "long" : "short")
+                            + " crowding threshold " + threshold + ". The signal is persisted; this is informational.\n\n"
+                            + "(further funding skips for this instrument within 30 min are suppressed)");
+        }
+        return crowded;
+    }
+
+    /**
+     * Pure crowding test: a long is crowded when funding {@code rate} exceeds
+     * {@code longMax}; a short when it is below {@code shortMin}. Rates are
+     * fractions per funding period (OKX ~8&nbsp;h).
+     */
+    static boolean fundingCrowded(Direction dir, double rate, double longMax, double shortMin) {
+        return dir == Direction.BUY ? rate > longMax : rate < shortMin;
     }
 
     private void scanVariant(HtsVariant v, List<HtsInstrument> universe, BrokerClient market,
