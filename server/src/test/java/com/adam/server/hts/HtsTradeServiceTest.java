@@ -2,9 +2,11 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.broker.BrokerException;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.broker.model.Candle;
+import com.adam.server.broker.model.MarketPrice;
 import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
@@ -166,6 +168,47 @@ class HtsTradeServiceTest {
         assertThat(t.getRMultiple()).isEqualTo(-1.0);
         assertThat(t.getCloseReason()).isEqualTo("STOP");
         verify(sink).onClose(t);
+    }
+
+    @Test
+    void manageEstimatesRFromMarkPriceWhenNoTransactionReferenceMatches() {
+        // Capital's tx `reference` is the closing deal's id, not our opening one,
+        // so matchPnl misses — applyClose must still produce an R from the mark price.
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0); // leg = 2.0
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of());
+        when(broker.transactionHistory(any(), any(), any(Duration.class)))
+                .thenReturn(List.of(new BrokerTransaction(bar.plusSeconds(600), "TRADE", "DE40",
+                        -7.0, "o-some-other-close", "unrelated close")));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 101.0, 101.0, bar));
+
+        service.manage();                 // 1st miss — deferred
+        int touched = service.manage();   // 2nd — closed
+
+        assertThat(touched).isEqualTo(1);
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getExitPrice()).isEqualTo(101.0);
+        assertThat(t.getRMultiple()).isEqualTo(0.5);       // (101 - 100) / 2
+        assertThat(t.getPnl()).isNull();                   // R estimated, cash not known
+        assertThat(t.getCloseReason()).isEqualTo("MANUAL");
+    }
+
+    @Test
+    void manageAssumesStopOutWhenNoTransactionAndNoMarkPrice() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of());
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice(anyString())).thenThrow(new BrokerException("no price"));
+
+        service.manage();
+        service.manage();
+
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getExitPrice()).isEqualTo(98.0);      // fell back to the stop level
+        assertThat(t.getRMultiple()).isEqualTo(-1.0);
+        assertThat(t.getCloseReason()).isEqualTo("STOP");
+        assertThat(t.getPnl()).isNull();
     }
 
     @Test
