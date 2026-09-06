@@ -165,6 +165,20 @@ class HtsExecutionGateTest {
     }
 
     @Test
+    void executionFailureMailCarriesTheBrokerMessageNotJustBrokerException() {
+        when(broker.placeMarketOrder(any())).thenThrow(
+                new com.adam.server.broker.BrokerException(
+                        "OKX /api/v5/trade/order failed: code=51010 msg=Account level too low"));
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(mailer).sendThrottled(eq("exec-hts"), anyString(), body.capture());
+        assertThat(body.getValue()).contains("code=51010").contains("Account level too low");
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+    }
+
+    @Test
     void doesNotPersistWhenTheBrokerRejectsTheDeal() {
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
                 "ref1", "D9", "REJECTED", "REJECTED", "RISKY_TRADE_PREVENTED",
