@@ -54,8 +54,9 @@ import java.util.List;
  * direction is decided (steps 3–7 — hunt gate, RMA-stacked, WITH confirm, daily
  * pivot, universe/side, fill cap — are identical either way).
  * MMS ({@link Strategy#MMS}) runs {@link MmsEngine}: fade a TMA/ATR envelope
- * after a closed-bar band touch + first reactive candle; opposite-band TP;
- * fixed %-of-price SL; sequential delever after a full SL.
+ * after a closed-bar band touch + first reactive candle; opposite-band or
+ * 1:1 TP; mandatory %-of-price SL (no trail); sequential delever after a
+ * full base SL (add-on wick stops do not cut the unit).
  */
 public enum HtsVariant {
 
@@ -92,13 +93,15 @@ public enum HtsVariant {
 
     /**
      * MastermindZX MMS mean-reversion — TMA ± ATR envelope on the entry TF
-     * (default M15; prefer M10–M30 for algo, H1 for manual base; do not use M5).
-     * TP mode {@link com.adam.server.hts.MmsEngine.TpMode#OPPOSITE_BAND} (site
-     * prose) or {@link com.adam.server.hts.MmsEngine.TpMode#FIXED_1R} (MT5
-     * tester clips). Universe: BTC (Capital {@code BTCUSD} / OKX
-     * {@code BTC-USDT-SWAP} if remapped), XAU/GOLD, US100/NQ. Both sides.
-     * Parked — not scanned, not executed. Site: https://mastermindzx.pl/
-     * (BTCUSDT monthly-optimised backtests; no WR copied into code).
+     * (default M15; prefer M10–M30 for algo, H1 for a manual base; exclude M5
+     * as noise; H4 = trend/range context, D1 = bias/sizing — not entry TFs).
+     * TP {@link com.adam.server.hts.MmsEngine.TpMode#OPPOSITE_BAND} (site) or
+     * {@link com.adam.server.hts.MmsEngine.TpMode#FIXED_1R} (tester clips).
+     * Mandatory SL, no trail. Optional one-bar add-on ×1 (default off).
+     * Universe: BTC (Capital {@code BTCUSD} / OKX {@code BTC-USDT-SWAP} if
+     * remapped), XAU/GOLD, US100/NQ. Both sides. Parked — not scanned, not
+     * executed. Site: https://mastermindzx.pl/ (BTCUSDT monthly-optimised
+     * backtests; no WR copied into code).
      */
     MMS(Books.DEMO, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
 

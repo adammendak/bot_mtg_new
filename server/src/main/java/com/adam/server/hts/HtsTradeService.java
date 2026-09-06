@@ -120,6 +120,42 @@ public class HtsTradeService {
     }
 
     /**
+     * Oldest OPEN row — the MMS base. A later add-on (higher id) is ignored so
+     * {@link MmsEngine#evaluateAdd} always measures the confirming bar from the
+     * original setup, not from the add itself.
+     */
+    public HtsTradeEntity openTrade(HtsVariant variant, String symbol) {
+        if (variant == null || symbol == null) {
+            return null;
+        }
+        java.util.List<HtsTradeEntity> rows =
+                trades.findByVariantAndSymbolAndStatusOrderByIdDesc(variant.name(), symbol, "OPEN");
+        return rows == null || rows.isEmpty() ? null : rows.getLast();
+    }
+
+    /**
+     * One MMS add-on on top of a single open base, only when the add-on flag is
+     * on and this setup has not already taken (or stopped) an add.
+     */
+    public boolean allowMmsAddOn(HtsScan s) {
+        return s != null && canScanMmsAddOn(s.variant(), s.symbol());
+    }
+
+    /**
+     * Scan-side gate: flag on, not blocked, exactly one OPEN row (the base).
+     * A second OPEN means the add is already on; do not emit another.
+     */
+    public boolean canScanMmsAddOn(HtsVariant variant, String symbol) {
+        if (variant == null || variant.strategy() != HtsVariant.Strategy.MMS || symbol == null) {
+            return false;
+        }
+        if (!mms.params().addOnEnabled() || mms.addonBlocked(variant, symbol)) {
+            return false;
+        }
+        return trades.countByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN") == 1;
+    }
+
+    /**
      * REQUIRES_NEW: the broker order has already been placed by the time this is
      * called, so the {@code hts_trades} row must be committed independently — a
      * failure here (or a rollback elsewhere in the scan pass) must not leave a
@@ -478,6 +514,7 @@ public class HtsTradeService {
             t.setExitPrice(buy ? t.getEntry() + move : t.getEntry() - move);
             t.setRMultiple(round(move / leg));
             stampReason(t, move / leg, leg, preset);
+            notifyMmsClose(t);
             return;
         }
 
@@ -496,11 +533,24 @@ public class HtsTradeService {
                 double rr = move / leg;
                 t.setRMultiple(round(rr));
                 stampReason(t, rr, leg, preset);
+                notifyMmsClose(t);
                 return;
             }
         }
         if (!preset) {
             t.setCloseReason("UNKNOWN");
+        }
+        notifyMmsClose(t);
+    }
+
+    private void notifyMmsClose(HtsTradeEntity t) {
+        if (!isMms(t) || t.getBarTime() == null) {
+            return;
+        }
+        try {
+            mms.onClosed(HtsVariant.valueOf(t.getVariant()), t.getSymbol(), t.getBarTime(), t.getCloseReason());
+        } catch (RuntimeException ignored) {
+            // close bookkeeping must never fail the reconcile
         }
     }
 
@@ -543,19 +593,26 @@ public class HtsTradeService {
     }
 
     /**
-     * Sequential delever for MMS: ×0.1 after a full SL on this variant/symbol,
-     * ×1 after a winning opposite-band TP. No history → ×1.
+     * Sequential delever for MMS: ×0.1 after a <em>full</em> SL outside the
+     * bands, ×1 after a winning TP. Add-on wick / 1% stops are skipped — they
+     * must not cut the unit or change the base SL. No history → ×1.
      */
     public double mmsRiskUnit(HtsVariant variant, String symbol) {
         if (variant == null || symbol == null) {
             return MmsEngine.RISK_UNIT_FULL;
         }
-        HtsTradeEntity last = trades.findFirstByVariantAndSymbolAndStatusOrderByIdDesc(
-                variant.name(), symbol, "CLOSED");
-        if (last == null) {
+        java.util.List<HtsTradeEntity> closed =
+                trades.findByVariantAndSymbolAndStatusOrderByIdDesc(variant.name(), symbol, "CLOSED");
+        if (closed == null || closed.isEmpty()) {
             return MmsEngine.RISK_UNIT_FULL;
         }
-        return MmsEngine.riskUnitAfter(last.getCloseReason(), last.getRMultiple());
+        for (HtsTradeEntity last : closed) {
+            if (MmsEngine.addonSizedStop(last.getEntry(), last.getStopLevel())) {
+                continue; // add-on SL — keep looking for the base outcome
+            }
+            return MmsEngine.riskUnitAfter(last.getCloseReason(), last.getRMultiple());
+        }
+        return MmsEngine.RISK_UNIT_FULL;
     }
 
     /**

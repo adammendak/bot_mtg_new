@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * MastermindZX MMS mean-reversion engine ({@link HtsVariant#MMS}): fade an ATR
@@ -58,6 +60,7 @@ public class MmsEngine {
     public static final double STOCH_OS = 20.0;
     /** Add-on extra risk vs the base entry: must be ≤ 1%, typically &lt; 0.5%. */
     public static final double ADDON_MAX_EXTRA_PCT = 0.01;
+    public static final double ADDON_TYPICAL_EXTRA_PCT = 0.005;
     /** Stoch-filtered add-on uses a fixed 1% SL instead of the wick. */
     public static final double ADDON_STOCH_SL_PCT = 0.01;
 
@@ -118,6 +121,15 @@ public class MmsEngine {
     }
 
     private final Params params;
+    /** variant|symbol → add-on book for this setup (in-memory; resets on restart). */
+    private final Map<String, AddonMem> addons = new ConcurrentHashMap<>();
+
+    private static final class AddonMem {
+        Instant setupBar;
+        Instant addonBar;
+        boolean taken;
+        boolean stopped; // add-on SL hit — do not retry until a new base setup
+    }
 
     public MmsEngine() {
         this(Params.defaults());
@@ -142,6 +154,9 @@ public class MmsEngine {
         }
         if (code == null || !v.universe().contains(code)) {
             return null;
+        }
+        if (!algoTfOk(v.ltfMinutes())) {
+            return null; // exclude M5; algo is M10–M30 / H1
         }
         List<Candle> bars = closedOnly(entryTf, v.ltfMinutes(), now);
         int need = 2 * params.atrPeriod() + 2;
@@ -178,12 +193,146 @@ public class MmsEngine {
         double target = params.tpMode() == TpMode.FIXED_1R
                 ? (longDir ? entry + slDist : entry - slDist)
                 : (longDir ? env.upper()[i] : env.lower()[i]);
+        rememberBase(v, code, bar.time());
         log.info("MMS [{}] {} {} entry {} stop {} target {} ({} {} / {} SL)",
                 v.name(), code, longDir ? "LONG" : "SHORT",
                 round(entry), round(stop), round(target),
                 params.mode(), params.tpMode(), params.slMode());
         return new HtsScan(v, bar.time(), code, epic,
                 longDir ? Direction.BUY : Direction.SELL, entry, stop, target, longDir);
+    }
+
+    /**
+     * Optional add-on ×1 after one full confirming candle on a new interval.
+     * Default off. Rejected when the add-on was already taken or its SL already
+     * hit for this setup (wait for an entirely new base). Base SL is unchanged.
+     */
+    public HtsScan evaluateAdd(HtsVariant v, String code, String epic,
+                               List<Candle> entryTf, List<Candle> h1, Instant now,
+                               double baseEntry, boolean longDir, Instant baseBar, Double baseTarget) {
+        if (!params.addOnEnabled() || v == null || v.strategy() != HtsVariant.Strategy.MMS) {
+            return null;
+        }
+        if (code == null || !v.universe().contains(code) || !algoTfOk(v.ltfMinutes())) {
+            return null;
+        }
+        if (addonBlocked(v, code)) {
+            return null;
+        }
+        List<Candle> bars = closedOnly(entryTf, v.ltfMinutes(), now);
+        int i = confirmingBar(bars, baseBar, longDir);
+        if (i < 0) {
+            return null;
+        }
+        if (params.stochFilterEnabled()
+                && !stochAllows(h1, longDir, now, v.ltfMinutes() >= 60 ? v.ltfMinutes() : 60)) {
+            return null;
+        }
+        Candle bar = bars.get(i);
+        double wick = longDir ? bar.low() : bar.high();
+        double stop = addonStop(baseEntry, longDir, wick, params.stochFilterEnabled(),
+                params.addOnMaxExtraPct(), params.addOnStochSlPct());
+        if (Double.isNaN(stop) || bar.close() <= 0) {
+            return null;
+        }
+        double entry = bar.close();
+        double slDist = Math.abs(entry - stop);
+        if (slDist <= 0) {
+            return null;
+        }
+        AtrEnvelope.Series env = AtrEnvelope.of(bars, params.atrPeriod(), params.atrMult(), params.mode());
+        double target;
+        if (params.tpMode() == TpMode.FIXED_1R) {
+            target = longDir ? entry + slDist : entry - slDist;
+        } else if (baseTarget != null) {
+            target = baseTarget;
+        } else if (env.ready(i)) {
+            target = longDir ? env.upper()[i] : env.lower()[i];
+        } else {
+            return null;
+        }
+        rememberAddon(v, code, bar.time());
+        log.info("MMS [{}] {} ADD {} entry {} stop {} (wick extra ≤ {}%)",
+                v.name(), code, longDir ? "LONG" : "SHORT",
+                round(entry), round(stop), round(params.addOnMaxExtraPct() * 100.0));
+        return new HtsScan(v, bar.time(), code, epic,
+                longDir ? Direction.BUY : Direction.SELL, entry, stop, target, longDir);
+    }
+
+    /** Algo entry TFs: M10–M30 and H1. M5 is noise; H4/D1 are context only. */
+    static boolean algoTfOk(int ltfMinutes) {
+        return ltfMinutes >= 10 && ltfMinutes <= 60;
+    }
+
+    /**
+     * Index of the first closed bar after {@code baseBar} that is a same-colour
+     * confirming candle, or {@code -1}.
+     */
+    static int confirmingBar(List<Candle> bars, Instant baseBar, boolean longDir) {
+        if (bars == null || baseBar == null || bars.size() < 2) {
+            return -1;
+        }
+        int base = -1;
+        for (int i = 0; i < bars.size(); i++) {
+            if (bars.get(i).time() != null && bars.get(i).time().equals(baseBar)) {
+                base = i;
+                break;
+            }
+        }
+        int next = base >= 0 ? base + 1 : -1;
+        if (next < 0) {
+            for (int i = 0; i < bars.size(); i++) {
+                if (bars.get(i).time() != null && bars.get(i).time().isAfter(baseBar)) {
+                    next = i;
+                    break;
+                }
+            }
+        }
+        if (next < 0 || next != bars.size() - 1) {
+            return -1; // only the just-closed confirming bar
+        }
+        Candle c = bars.get(next);
+        boolean up = c.close() > c.open();
+        boolean down = c.close() < c.open();
+        return (longDir ? up : down) ? next : -1;
+    }
+
+    public boolean addonBlocked(HtsVariant v, String code) {
+        AddonMem m = addons.get(key(v, code));
+        return m != null && (m.taken || m.stopped);
+    }
+
+    void rememberBase(HtsVariant v, String code, Instant bar) {
+        AddonMem m = new AddonMem();
+        m.setupBar = bar;
+        addons.put(key(v, code), m);
+    }
+
+    void rememberAddon(HtsVariant v, String code, Instant bar) {
+        AddonMem m = addons.computeIfAbsent(key(v, code), k -> new AddonMem());
+        m.taken = true;
+        m.addonBar = bar;
+    }
+
+    /**
+     * Add-on SL hit → never retry adds on this setup; keep the base SL.
+     * A new {@link #evaluate} base resets the book.
+     */
+    public void onClosed(HtsVariant v, String code, Instant bar, String reason) {
+        if (v == null || code == null || reason == null) {
+            return;
+        }
+        AddonMem m = addons.get(key(v, code));
+        if (m == null || m.addonBar == null || bar == null || !m.addonBar.equals(bar)) {
+            return;
+        }
+        if ("STOP".equalsIgnoreCase(reason.trim())) {
+            m.stopped = true;
+        }
+    }
+
+    private static String key(HtsVariant v, String code) {
+        return v.name() + "|" + code;
     }
 
     /**
@@ -263,6 +412,18 @@ public class MmsEngine {
             return Double.NaN;
         }
         return localWick;
+    }
+
+    /**
+     * True when the stored stop is an add-on wick / stoch 1% SL (extra ≤
+     * {@link #ADDON_MAX_EXTRA_PCT}), not the full ~2% base stop. Used so an
+     * add-on STOP does not cut the sequential risk unit.
+     */
+    public static boolean addonSizedStop(Double entry, Double stop) {
+        if (entry == null || stop == null || entry <= 0) {
+            return false;
+        }
+        return Math.abs(entry - stop) / entry <= ADDON_MAX_EXTRA_PCT + 1e-12;
     }
 
     double stopLevel(double entry, boolean longDir, List<Candle> bars, Setup setup) {

@@ -16,7 +16,7 @@ Envelope: TMA (SMA-of-SMA) ± ATR × multiplier, or SMA ± ATR × multiplier (Bo
 | LONG | Price reaches the **lower** band, wait for close | First reactive candle **up** | LONG ×1 |
 
 - **SL is mandatory. No trailing. No instant break-even.**
-- **Risk:** ×1 ≈ 1% account risk for a ~1% price move. After a **full SL** (stop outside the bands / full base stop) the unit drops to **×0.1** until the first profitable setup restores **×1**. Site backtest discussion also mentions ×0.01 — that micro unit is documented only, not applied automatically.
+- **Risk:** ×1 ≈ 1% account risk for a ~1% price move. After a **full SL outside the bands** (the ~2% base stop, not an add-on wick) the unit drops to **×0.1** until the first profitable setup restores **×1**. Site backtest discussion also mentions ×0.01 — that micro unit is documented only, not applied automatically.
 - Timeframes: bot default **M15**. Prefer **M10–M30** for algo; **H1** for a manual base. **Exclude M5** (noise). H4 = trend/range context; D1 = bias / sizing. Capital already fetches M5 / M15 / H1; Pine notes M10 / M20 / M30.
 
 ## TP modes (`MmsEngine.TpMode`)
@@ -44,18 +44,19 @@ Neither filter is required for the written-site path.
 
 ## Add-ons (optional, default off)
 
-After **one full confirming candle** / new interval, an add-on ×1 may be taken:
+After **one full confirming candle** / new interval (the immediate next closed bar, same colour as the base), an add-on ×1 may be taken:
 
 - Add-on SL at the **local wick**. Extra move vs the base entry must be **≤ 1%**, typically **&lt; 0.5%**. Reject the add if the wick is wider.
 - Stoch-filtered add-ons use a **fixed 1% SL** instead of the wick.
-- If the add-on SL hits: **do not retry adds**. Keep the **base SL (~2%)**. Wait for an entirely new setup.
+- If the add-on SL hits: **do not retry adds**. Keep the **base SL (~2%)**. Wait for an entirely new setup. An add-on STOP does **not** cut the sequential risk unit — only a full base SL outside the bands does.
+- The add window is that single next interval. Later bars are not a second chance.
 
-Execution stacking is still blocked by the existing one-position gate while this flag is off (and while MMS is parked).
+`MmsEngine.evaluateAdd` encodes the confirming-candle + wick-cap + no-retry book. The execution gate allows **one** add only when `addOnEnabled` is on, exactly one OPEN base exists, and this setup has not already taken or stopped an add. Flag default **off**; MMS is parked.
 
 ## Parameterization notes
 
 - Example **BB M15** from the site (not the bot default): period **41**, deviation **3.2**, SL **1.7%** (`Params.siteBbM15Example()`).
-- Adaptive talk on the site uses the prior **3 days'** params — not implemented.
+- Adaptive talk on the site uses the prior **3 days'** params — documented only, not implemented.
 - Bot default remains TMA(20) ± 2.0×ATR, SL 2%, `OPPOSITE_BAND`, `PCT`.
 
 ## Discipline (document only)
@@ -90,6 +91,6 @@ Same defaults on all three names:
 | Envelope | TMA ± 2.0 × ATR(20) |
 | TP | `OPPOSITE_BAND` (tester clips: `FIXED_1R`) |
 | SL | `PCT` 2% of entry (tester clips: `WICK_EXTREME`) |
-| Risk unit | ×1, then ×0.1 after a full SL until a winning TP |
-| Add-on / H1 stoch / Stoch cross | off |
+| Risk unit | ×1, then ×0.1 after a full base SL until a winning TP (add-on SL does not cut) |
+| Add-on / H1 stoch / Stoch cross | off (add-on extra ≤ 1%, typically &lt; 0.5%; one next-interval add, no retry) |
 | Live / execution | off (parked) |

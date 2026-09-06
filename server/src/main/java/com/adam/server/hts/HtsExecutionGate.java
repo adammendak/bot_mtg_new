@@ -127,9 +127,10 @@ public class HtsExecutionGate {
         if (trades.alreadyExecuted(s)) {
             return; // persisted across a restart within the same signal bar
         }
-        if (trades.hasOpenPosition(s.variant(), s.symbol())) {
+        if (trades.hasOpenPosition(s.variant(), s.symbol()) && !trades.allowMmsAddOn(s)) {
             // One position per signal, actively managed — never stack a new entry
-            // every bar while the previous one is still open.
+            // every bar while the previous one is still open. MMS may add ×1
+            // once when the optional add-on flag is on and this setup is clean.
             log.info("HTS [{}] execution skipped {} {} — a position for this model/symbol is already open",
                     s.variant().name(), s.symbol(), s.direction());
             placed.remove(key);
@@ -239,8 +240,9 @@ public class HtsExecutionGate {
 
             double stopDist = Math.abs(s.entry() - s.stopLevel());
             // Cash at risk if the entry stop is hit = riskPercent of account equity.
-            // MMS ×1 ≈ 1% account for a 1% price move; after a full SL the unit
-            // drops to ×0.1 until a winning opposite-band TP restores ×1.
+            // MMS ×1 ≈ 1% account for a 1% price move; after a full SL outside
+            // the bands the unit drops to ×0.1 until the first profitable setup
+            // restores ×1. An add-on wick SL does not cut the unit.
             boolean mms = s.variant().strategy() == HtsVariant.Strategy.MMS;
             double riskUnit = mms ? trades.mmsRiskUnit(s.variant(), s.symbol()) : 1.0;
             double cash = risk.riskAmount(account, live) * properties.getHtsRiskPercent() * riskUnit;

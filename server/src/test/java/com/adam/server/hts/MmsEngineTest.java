@@ -188,6 +188,71 @@ class MmsEngineTest {
     }
 
     @Test
+    void algoTfExcludesM5AndAllowsM15AndH1() {
+        assertThat(MmsEngine.algoTfOk(5)).isFalse();
+        assertThat(MmsEngine.algoTfOk(10)).isTrue();
+        assertThat(MmsEngine.algoTfOk(15)).isTrue();
+        assertThat(MmsEngine.algoTfOk(30)).isTrue();
+        assertThat(MmsEngine.algoTfOk(60)).isTrue();
+        assertThat(MmsEngine.algoTfOk(240)).isFalse();
+    }
+
+    @Test
+    void siteBbM15ExampleIsDocumentedNotDefault() {
+        MmsEngine.Params ex = MmsEngine.Params.siteBbM15Example();
+        assertThat(ex.atrPeriod()).isEqualTo(41);
+        assertThat(ex.atrMult()).isEqualTo(3.2);
+        assertThat(ex.slPct()).isEqualTo(0.017);
+        assertThat(ex.mode()).isEqualTo(AtrEnvelope.Mode.BB_ATR);
+        assertThat(MmsEngine.Params.defaults().atrPeriod()).isEqualTo(20);
+    }
+
+    @Test
+    void confirmingBarIsTheNextSameColourClosedInterval() {
+        Instant touchT = t0.plusSeconds(80 * 900L);
+        Instant reactT = touchT.plusSeconds(900);
+        Instant confirmT = reactT.plusSeconds(900);
+        Instant now = confirmT.plusSeconds(900);
+        List<Candle> bars = baseThen(
+                new Candle(touchT, 100.5, 112, 100, 101, 0),
+                new Candle(reactT, 101, 101.2, 98.5, 99.0, 0));
+        bars.add(new Candle(confirmT, 99.0, 99.1, 98.4, 98.5, 0)); // next interval, still down
+        assertThat(MmsEngine.confirmingBar(MmsEngine.closedOnly(bars, 15, now), reactT, false))
+                .isEqualTo(bars.size() - 1);
+        assertThat(MmsEngine.confirmingBar(MmsEngine.closedOnly(bars, 15, now), reactT, true))
+                .isEqualTo(-1);
+    }
+
+    @Test
+    void evaluateAddFiresOnceThenBlocksAfterAddonStop() {
+        MmsEngine addOn = new MmsEngine(new MmsEngine.Params(
+                MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
+                AtrEnvelope.Mode.TMA_ATR, MmsEngine.TpMode.OPPOSITE_BAND, MmsEngine.SlMode.PCT,
+                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT));
+        Instant touchT = t0.plusSeconds(80 * 900L);
+        Instant reactT = touchT.plusSeconds(900);
+        Instant confirmT = reactT.plusSeconds(900);
+        Instant now = confirmT.plusSeconds(900);
+        List<Candle> bars = baseThen(
+                new Candle(touchT, 100.5, 112, 100, 101, 0),
+                new Candle(reactT, 101, 101.2, 98.5, 99.0, 0));
+        bars.add(new Candle(confirmT, 99.0, 99.2, 98.55, 98.6, 0)); // extra 99-98.55=0.45% of 99
+
+        HtsScan add = addOn.evaluateAdd(HtsVariant.MMS, "BTC", "BTCUSD", bars, null, now,
+                99.0, false, reactT, 95.0);
+        assertThat(add).isNotNull();
+        assertThat(add.stopLevel()).isEqualTo(99.2); // short wick high
+        assertThat(addOn.addonBlocked(HtsVariant.MMS, "BTC")).isTrue();
+        assertThat(addOn.evaluateAdd(HtsVariant.MMS, "BTC", "BTCUSD", bars, null, now,
+                99.0, false, reactT, 95.0)).isNull();
+
+        addOn.onClosed(HtsVariant.MMS, "BTC", confirmT, "STOP");
+        assertThat(addOn.addonBlocked(HtsVariant.MMS, "BTC")).isTrue(); // no retry
+        addOn.rememberBase(HtsVariant.MMS, "BTC", confirmT.plusSeconds(900));
+        assertThat(addOn.addonBlocked(HtsVariant.MMS, "BTC")).isFalse(); // new setup
+    }
+
+    @Test
     void addonStopRejectsAWickWiderThanOnePercentAndUsesFixedSlWhenStochFiltered() {
         assertThat(MmsEngine.addonStop(100, true, 98.8, false, 0.01, 0.01)).isNaN(); // 1.2% > 1%
         assertThat(MmsEngine.addonStop(100, true, 99.6, false, 0.01, 0.01))
@@ -195,6 +260,11 @@ class MmsEngineTest {
         assertThat(MmsEngine.addonStop(100, true, 98.0, false, 0.01, 0.01)).isNaN(); // 2%
         assertThat(MmsEngine.addonStop(100, true, 98.0, true, 0.01, 0.01))
                 .isCloseTo(99.0, within(1e-9)); // stoch-filtered add: fixed 1%
+        assertThat(MmsEngine.addonStop(100, true, 99.2, false, 0.01, 0.01))
+                .isCloseTo(99.2, within(1e-9)); // 0.8% — over typical 0.5%, still ≤ 1%
+        assertThat(MmsEngine.addonSizedStop(100.0, 99.4)).isTrue();
+        assertThat(MmsEngine.addonSizedStop(100.0, 98.0)).isFalse(); // full 2% base
+        assertThat(MmsEngine.addonSizedStop(100.0, 99.0)).isTrue();  // stoch 1%
     }
 
     @Test

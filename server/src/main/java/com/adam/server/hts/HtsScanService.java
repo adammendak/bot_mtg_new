@@ -326,6 +326,14 @@ public class HtsScanService {
                             : HtsCandles.fetch(market, epic, com.adam.server.broker.Resolution.H1, fromH1, now);
                 }
                 HtsScan signal = mms.evaluate(v, code, epic, entryTf, h1, now);
+                if (signal == null && trades.canScanMmsAddOn(v, code)) {
+                    com.adam.server.persistence.HtsTradeEntity base = trades.openTrade(v, code);
+                    if (base != null && base.getEntry() != null) {
+                        boolean buy = "BUY".equalsIgnoreCase(base.getDirection());
+                        signal = mms.evaluateAdd(v, code, epic, entryTf, h1, now,
+                                base.getEntry(), buy, base.getBarTime(), base.getTargetLevel());
+                    }
+                }
                 if (signal != null) {
                     found.add(signal);
                     persist(signal);
