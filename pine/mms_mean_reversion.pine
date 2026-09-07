@@ -23,6 +23,9 @@ slPct     = input.float(2.0, "Stop loss % of price (when SL=PCT)", minval=0.1, s
 tfNote    = input.string("M15", "Entry TF note (bot default M15; prefer M10–M30; not M5)", group="Timeframe")
 reactWin  = input.int(8, "Reaction window (bars after touch)", minval=1, maxval=32, group="Entry")
 addOn     = input.bool(false, "Add-on ×1 after the next confirming candle (bot default off)", group="Optional")
+htfGate   = input.bool(true,  "HTF campaign gate: trade only WITH the H4 trend (default on)", group="HTF gate")
+htfSma    = input.int(50, "HTF SMA period", minval=5, group="HTF gate")
+htfD1     = input.bool(false, "Also require the D1 campaign to agree", group="HTF gate")
 stochFlt  = input.bool(false, "H1 Stoch(14,3,3) extreme for entries and adds (default off)", group="Optional")
 stochX    = input.bool(false, "Entry-TF Stoch OB/OS + %K/%D cross (tester BB clip, default off)", group="Optional")
 stochLen  = input.int(14, "Stoch length", minval=2, group="Optional")
@@ -80,10 +83,27 @@ h1k = request.security(syminfo.tickerid, "60", ta.sma(ta.stoch(close, high, low,
 stochOkLong  = not stochFlt or h1k <= 20
 stochOkShort = not stochFlt or h1k >= 80
 
+// ── HTF campaign gate — MMS refinement: MR both-sides, but only WITH the trend.
+// campaignDir: +1 bull-only (HA-close bullish OR close>SMA), -1 bear-only,
+// 0 unclear (HA and SMA disagree). LONG needs +1, SHORT needs -1.
+campDir(_haC, _haO, _close, _sma) =>
+    _bull = (_haC >= _haO) or (_close > _sma)
+    _bear = (_haC <  _haO) or (_close < _sma)
+    (_bull and _bear) ? 0 : (_bull ? 1 : -1)
+haT = ticker.heikinashi(syminfo.tickerid)
+[h4haO, h4haC] = request.security(haT, "240", [open[1], close[1]], lookahead=barmerge.lookahead_off)
+[h4c, h4sma]   = request.security(syminfo.tickerid, "240", [close[1], ta.sma(close, htfSma)[1]], lookahead=barmerge.lookahead_off)
+[d1haO, d1haC] = request.security(haT, "D", [open[1], close[1]], lookahead=barmerge.lookahead_off)
+[d1c, d1sma]   = request.security(syminfo.tickerid, "D", [close[1], ta.sma(close, htfSma)[1]], lookahead=barmerge.lookahead_off)
+dir4 = na(h4sma) ? na : campDir(h4haC, h4haO, h4c, h4sma)
+dir1 = na(d1sma) ? na : campDir(d1haC, d1haO, d1c, d1sma)
+campOkLong  = not htfGate or na(dir4) or (dir4 == 1  and (not htfD1 or na(dir1) or dir1 == 1))
+campOkShort = not htfGate or na(dir4) or (dir4 == -1 and (not htfD1 or na(dir1) or dir1 == -1))
+
 shortRaw = barstate.isconfirmed and upperSetup and reactDown
 longRaw  = barstate.isconfirmed and lowerSetup and reactUp
-shortEntry = shortRaw and stochXOkShort and stochOkShort
-longEntry  = longRaw and stochXOkLong and stochOkLong
+shortEntry = shortRaw and stochXOkShort and stochOkShort and campOkShort
+longEntry  = longRaw and stochXOkLong and stochOkLong and campOkLong
 
 plotshape(touchUpper and barstate.isconfirmed, title="Upper band touch", style=shape.triangledown,
      location=location.abovebar, color=color.new(color.red, 30), size=size.tiny)

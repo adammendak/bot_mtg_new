@@ -138,7 +138,7 @@ class MmsEngineTest {
         MmsEngine fixed = new MmsEngine(new MmsEngine.Params(
                 MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
                 AtrEnvelope.Mode.TMA_ATR, MmsEngine.TpMode.FIXED_1R, MmsEngine.SlMode.PCT,
-                false, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW));
+                false, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW, true, MmsEngine.HTF_SMA, false));
         Instant touchT = t0.plusSeconds(80 * 900L);
         Instant reactT = touchT.plusSeconds(900);
         Instant now = reactT.plusSeconds(900);
@@ -228,7 +228,7 @@ class MmsEngineTest {
         MmsEngine addOn = new MmsEngine(new MmsEngine.Params(
                 MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
                 AtrEnvelope.Mode.TMA_ATR, MmsEngine.TpMode.OPPOSITE_BAND, MmsEngine.SlMode.PCT,
-                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW));
+                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW, true, MmsEngine.HTF_SMA, false));
         Instant touchT = t0.plusSeconds(80 * 900L);
         Instant reactT = touchT.plusSeconds(900);
         Instant confirmT = reactT.plusSeconds(900);
@@ -291,6 +291,37 @@ class MmsEngineTest {
         assertThat(e.tradesSymbol("XAU")).isFalse();
         // blank subset = no restriction
         assertThat(new MmsEngine().tradesSymbol("XAU")).isTrue();
+    }
+
+    @Test
+    void campaignDirIsWithTrendAndSkipsWhenHaAndSmaDisagree() {
+        int sma = 5;
+        // 60 rising bars: close well above SMA, HA bullish → bull-only (+1)
+        java.util.List<Candle> up = new java.util.ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            double c = 100 + i * 2.0;
+            up.add(new Candle(t0.plusSeconds(i * 14400L), c - 1, c + 1, c - 2, c, 0));
+        }
+        assertThat(MmsEngine.campaignDir(up, sma)).isEqualTo(1);
+
+        // 60 falling bars → bear-only (-1)
+        java.util.List<Candle> dn = new java.util.ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            double c = 300 - i * 2.0;
+            dn.add(new Candle(t0.plusSeconds(i * 14400L), c + 1, c + 2, c - 1, c, 0));
+        }
+        assertThat(MmsEngine.campaignDir(dn, sma)).isEqualTo(-1);
+
+        // flat chop: HA colour and the SMA side disagree bar-to-bar → 0 (unclear)
+        java.util.List<Candle> chop = new java.util.ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            double c = 200 + (i % 2 == 0 ? 3 : -3);
+            double o = 200 + (i % 2 == 0 ? -3 : 3); // alternating direction each bar
+            chop.add(new Candle(t0.plusSeconds(i * 14400L), o, Math.max(o, c) + 1, Math.min(o, c) - 1, c, 0));
+        }
+        assertThat(MmsEngine.campaignDir(chop, sma)).isEqualTo(0);
+
+        assertThat(MmsEngine.campaignDir(up.subList(0, 3), sma)).isEqualTo(0); // too few bars
     }
 
     @Test

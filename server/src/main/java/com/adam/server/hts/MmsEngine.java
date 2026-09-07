@@ -3,7 +3,11 @@ package com.adam.server.hts;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.sdd.AtrEnvelope;
+import com.adam.server.sdd.HeikenAshi;
+import com.adam.server.sdd.Resample;
+import com.adam.server.sdd.Sma;
 import com.adam.server.sdd.Stochastic;
+import com.adam.server.sdd.Wilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -63,6 +67,8 @@ public class MmsEngine {
     public static final double ADDON_TYPICAL_EXTRA_PCT = 0.005;
     /** Stoch-filtered add-on uses a fixed 1% SL instead of the wick. */
     public static final double ADDON_STOCH_SL_PCT = 0.01;
+    /** HTF campaign gate SMA period (site: H4 = campaign, D1 = bias). */
+    public static final int HTF_SMA = 50;
 
     /** Site prose vs MT5 tester clips. */
     public enum TpMode { OPPOSITE_BAND, FIXED_1R }
@@ -87,33 +93,36 @@ public class MmsEngine {
             boolean stochCrossEnabled,
             double addOnMaxExtraPct,
             double addOnStochSlPct,
-            int reactionWindow
+            int reactionWindow,
+            boolean htfGateEnabled,
+            int htfSma,
+            boolean htfUseD1
     ) {
         public static Params defaults() {
             return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR,
                     TpMode.OPPOSITE_BAND, SlMode.PCT, false, false, false,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW, true, HTF_SMA, false);
         }
 
         /** MT5 tester: 1:1 RR, SL beyond the piercing wick. */
         public static Params testerFixed1r() {
             return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR,
                     TpMode.FIXED_1R, SlMode.WICK_EXTREME, false, false, false,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW, true, HTF_SMA, false);
         }
 
         /** Tester clip: BB pierce + Stoch OB/OS + reversal close + %K/%D cross, 1:1 RR. */
         public static Params testerBbStoch() {
             return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.BB_ATR,
                     TpMode.FIXED_1R, SlMode.WICK_EXTREME, false, false, true,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW, true, HTF_SMA, false);
         }
 
         /** Documented site BB M15 example (period 41, deviation 3.2, SL 1.7%) — not the live default. */
         public static Params siteBbM15Example() {
             return new Params(41, 3.2, 0.017, AtrEnvelope.Mode.BB_ATR,
                     TpMode.OPPOSITE_BAND, SlMode.PCT, false, false, false,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW, true, HTF_SMA, false);
         }
 
         /** Build from {@code app.mms.*} env config (bad enum text falls back to the site default). */
@@ -122,6 +131,7 @@ public class MmsEngine {
                 return defaults();
             }
             int win = m.getReactionWindow() > 0 ? m.getReactionWindow() : REACTION_WINDOW;
+            int hsma = m.getHtfSma() > 0 ? m.getHtfSma() : HTF_SMA;
             return new Params(
                     m.getAtrPeriod() > 0 ? m.getAtrPeriod() : ATR_PERIOD,
                     m.getAtrMult() > 0 ? m.getAtrMult() : ATR_MULT,
@@ -130,7 +140,8 @@ public class MmsEngine {
                     parseEnum(TpMode.class, m.getTpMode(), TpMode.OPPOSITE_BAND),
                     parseEnum(SlMode.class, m.getSlMode(), SlMode.PCT),
                     m.isAddOnEnabled(), m.isStochFilterEnabled(), m.isStochCrossEnabled(),
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, win);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, win,
+                    m.isHtfGateEnabled(), hsma, m.isHtfUseD1());
         }
 
         private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw, E fallback) {
@@ -221,6 +232,9 @@ public class MmsEngine {
             return null;
         }
         boolean longDir = setup.longDir();
+        if (!campaignAllows(h1, longDir, now)) {
+            return null; // against the HTF campaign (or the campaign is unclear) — skip
+        }
         if (params.stochFilterEnabled()
                 && !stochAllows(h1, longDir, now, v.ltfMinutes() >= 60 ? v.ltfMinutes() : 60)) {
             return null;
@@ -271,6 +285,9 @@ public class MmsEngine {
         int i = confirmingBar(bars, baseBar, longDir);
         if (i < 0) {
             return null;
+        }
+        if (!campaignAllows(h1, longDir, now)) {
+            return null; // campaign turned against the base — no add
         }
         if (params.stochFilterEnabled()
                 && !stochAllows(h1, longDir, now, v.ltfMinutes() >= 60 ? v.ltfMinutes() : 60)) {
@@ -569,6 +586,65 @@ public class MmsEngine {
             return bars.subList(0, bars.size() - 1);
         }
         return bars;
+    }
+
+    /**
+     * HTF campaign gate (default on). The MMS refinement: MR stays, but you do
+     * not trade against the higher-TF campaign. From the H1 feed, resample H4
+     * (and D1 if {@code htfUseD1}) and require the trade to be <em>with</em> that
+     * trend — a LONG needs an H4 that is bull (last closed HA bullish OR close
+     * &gt; SMA{@code htfSma}), a SHORT needs an H4 that is bear; if both signals
+     * fire (HA and SMA disagree) the campaign is unclear → skip. With
+     * {@code htfUseD1}, H4 and D1 must both agree.
+     *
+     * <p>Off ({@code htfGateEnabled == false}) or not enough H1 history to build
+     * SMA{@code htfSma} on H4 → gate does not block. Insufficient history is only
+     * a start-up condition; for BTC (24/7) it clears within a day.
+     */
+    boolean campaignAllows(List<Candle> h1, boolean longDir, Instant now) {
+        if (!params.htfGateEnabled() || h1 == null || h1.isEmpty()) {
+            return true;
+        }
+        int want = longDir ? 1 : -1;
+        List<Candle> h4 = Resample.toHours(h1, 4, now);
+        if (h4.size() < params.htfSma() + 2) {
+            return true; // not enough HTF history yet — start-up only, don't block
+        }
+        int dir4 = campaignDir(h4, params.htfSma());
+        if (dir4 == 0 || dir4 != want) {
+            return false; // campaign unclear, or against the trade — skip
+        }
+        if (params.htfUseD1()) {
+            int dir1 = campaignDir(Resample.toHours(h1, 24, now), params.htfSma());
+            if (dir1 != 0 && dir1 != want) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Campaign direction of a timeframe series: {@code +1} bull-only
+     * ({@code close > SMA} and last HA bar not bearish, or both), {@code -1}
+     * bear-only, {@code 0} unclear (HA and SMA disagree) or not enough bars.
+     */
+    static int campaignDir(List<Candle> tf, int sma) {
+        if (tf == null || tf.size() < sma + 2) {
+            return 0;
+        }
+        int i = tf.size() - 1;
+        double close = tf.get(i).close();
+        double[] ma = Sma.of(Wilder.closes(tf), sma);
+        if (Double.isNaN(ma[i])) {
+            return 0;
+        }
+        boolean haBull = HeikenAshi.from(tf).get(i).bullish();
+        boolean bull = haBull || close > ma[i];
+        boolean bear = !haBull || close < ma[i];
+        if (bull && bear) {
+            return 0; // HA and SMA disagree — flat / unclear
+        }
+        return bull ? 1 : -1;
     }
 
     /**

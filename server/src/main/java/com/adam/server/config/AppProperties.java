@@ -306,6 +306,16 @@ public class AppProperties {
         private int reactionWindow = 8;
         /** CSV subset of the MMS universe (BTC,XAU,US100). Blank = all. */
         private String symbols = "";
+        /**
+         * HTF campaign gate (site: H4 = campaign context, D1 = bias): trade with
+         * the higher-TF trend only — LONG only when H4 is bull (HA close bullish
+         * OR close &gt; SMA), SHORT only when H4 is bear; conflicting = skip. On
+         * by default (the MMS refinement).
+         */
+        private boolean htfGateEnabled = true;
+        private int htfSma = 50;
+        /** Also require the D1 campaign to agree (default: H4 only). */
+        private boolean htfUseD1 = false;
 
         public int getAtrPeriod() {
             return atrPeriod;
@@ -393,6 +403,30 @@ public class AppProperties {
 
         public void setSymbols(String symbols) {
             this.symbols = symbols;
+        }
+
+        public boolean isHtfGateEnabled() {
+            return htfGateEnabled;
+        }
+
+        public void setHtfGateEnabled(boolean htfGateEnabled) {
+            this.htfGateEnabled = htfGateEnabled;
+        }
+
+        public int getHtfSma() {
+            return htfSma;
+        }
+
+        public void setHtfSma(int htfSma) {
+            this.htfSma = htfSma;
+        }
+
+        public boolean isHtfUseD1() {
+            return htfUseD1;
+        }
+
+        public void setHtfUseD1(boolean htfUseD1) {
+            this.htfUseD1 = htfUseD1;
         }
 
         /** Parsed {@link #symbols} — empty set means "no restriction". */

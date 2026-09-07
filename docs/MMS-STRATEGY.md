@@ -74,6 +74,24 @@ After **one full confirming candle** / new interval (the immediate next closed b
 | `MMS_STOCH_CROSS_ENABLED` | `false` | entry-TF %K/%D cross gate |
 | `MMS_REACTION_WINDOW` | `8` | closed bars after a touch that still accept the first reaction |
 | `MMS_SYMBOLS` | *(blank = all)* | CSV subset, e.g. `MMS_SYMBOLS=BTC` for a BTC-only forward test |
+| `MMS_HTF_GATE_ENABLED` | `true` | HTF campaign gate — both-sides MR but only *with* the H4 trend |
+| `MMS_HTF_SMA` | `50` | SMA period for the campaign check |
+| `MMS_HTF_USE_D1` | `false` | also require the D1 campaign to agree |
+
+### HTF campaign gate (the MMS refinement — on by default)
+
+The site: **H4 = campaign context, D1 = bias**. This is a *direction filter on
+top of the same entry*, not a new trigger. From the H1 feed the engine resamples
+H4 (and D1 if `MMS_HTF_USE_D1`) and requires the trade to be **with the trend**:
+
+- **LONG** only when H4 is *bull* — last closed H4 Heikin-Ashi close is bullish
+  **OR** H4 close `> SMA(MMS_HTF_SMA)`.
+- **SHORT** only when H4 is *bear* — H4 HA close bearish **OR** H4 close `< SMA`.
+- HA and SMA disagree (`bull && bear`) → **campaign unclear → skip**.
+- Not enough H1 history to build the H4 SMA → gate does not block (start-up only).
+
+So in a sustained H4 uptrend the shorts are dropped (you're not fading the
+campaign) and vice-versa. `MmsEngine.campaignDir` is the pure helper.
 
 Bad enum text falls back to the site default. `MmsEngine` reads these via
 `Params.fromConfig` at construction (restart to re-apply).

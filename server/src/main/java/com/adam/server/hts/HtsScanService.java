@@ -299,8 +299,12 @@ public class HtsScanService {
      */
     private void scanMms(HtsVariant v, BrokerClient market, Instant now, ZoneId zone, List<HtsScan> found) {
         Instant fromEntry = now.minus(v.ltfLookback());
-        Instant fromH1 = now.minus(java.time.Duration.ofDays(20));
-        boolean wantH1 = mms.params().stochFilterEnabled(); // optional H1 extreme for entries and adds
+        // H1 feeds the optional Stoch filter and the HTF campaign gate (H4/D1
+        // resampled). D1 SMA50 needs ~50 sessions of H1, so widen the window when
+        // the gate uses D1.
+        boolean wantH1 = mms.params().stochFilterEnabled() || mms.params().htfGateEnabled();
+        int h1Days = mms.params().htfGateEnabled() && mms.params().htfUseD1() ? 75 : 20;
+        Instant fromH1 = now.minus(java.time.Duration.ofDays(h1Days));
         java.util.Set<String> open = new java.util.HashSet<>();
         for (SddSymbol s : SddSymbol.htsUniverseFor(now, zone)) {
             open.add(s.code());

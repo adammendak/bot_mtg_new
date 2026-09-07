@@ -186,7 +186,7 @@ class HtsTradeServiceTest {
                 MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
                 com.adam.server.sdd.AtrEnvelope.Mode.TMA_ATR,
                 MmsEngine.TpMode.OPPOSITE_BAND, MmsEngine.SlMode.PCT,
-                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW));
+                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW, true, MmsEngine.HTF_SMA, false));
         service = new HtsTradeService(repo, books, engine, haHunt, addOn, props, risk, List.of(sink));
         assertThat(service.allowMmsAddOn(s)).isTrue();
         assertThat(service.canScanMmsAddOn(HtsVariant.MMS, "BTC")).isTrue();
