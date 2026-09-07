@@ -33,9 +33,10 @@ import java.util.List;
  *       only, plus a funding-rate crowding skip. OKX HA-hunt backtest dropped
  *       BTC (net loser) for XRP; execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
  *   <li>{@link #MMS} — MastermindZX mean-reversion (TMA/ATR envelope, M15
- *       default) on BTC / XAU / US100 → {@code demo} book. <b>Parked</b>:
- *       observe-only until unparked; never live by default. See
- *       {@code docs/MMS-STRATEGY.md}.</li>
+ *       default) on BTC / XAU / US100 → its own isolated {@code mms} book
+ *       ({@code MMS_ACCOUNT_NAME}, a dedicated Capital demo sub-account — no
+ *       sharing with HA4). <b>Parked</b>: does not scan or trade until unparked;
+ *       never live by default. See {@code docs/MMS-STRATEGY.md}.</li>
  * </ul>
  *
  * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST} and
@@ -103,7 +104,7 @@ public enum HtsVariant {
      * executed. Site: https://mastermindzx.pl/ (BTCUSDT monthly-optimised
      * backtests; no WR copied into code).
      */
-    MMS(Books.DEMO, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
+    MMS(Books.MMS, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
 
     /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, or {@link MmsEngine}. */
     public enum Strategy { RIBBON, HA_HUNT, MMS }

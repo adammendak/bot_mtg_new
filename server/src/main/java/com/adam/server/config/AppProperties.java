@@ -24,6 +24,8 @@ public class AppProperties {
     private String swingAccountName = "Account H1";
     private String demoAccountName = "Account m15";
     private String htsAccountName = "Account m5";
+    /** Capital.com demo sub-account reserved for the isolated MMS book. */
+    private String mmsAccountName = "Account MMS";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -183,6 +185,14 @@ public class AppProperties {
 
     public void setHtsAccountName(String htsAccountName) {
         this.htsAccountName = htsAccountName;
+    }
+
+    public String getMmsAccountName() {
+        return mmsAccountName;
+    }
+
+    public void setMmsAccountName(String mmsAccountName) {
+        this.mmsAccountName = mmsAccountName;
     }
 
     public double getLiveEquityRefuse() {
@@ -428,6 +438,7 @@ public class AppProperties {
         private final Endpoint glowne = new Endpoint();
         private final Endpoint swing = new Endpoint();
         private final Endpoint hts = new Endpoint();
+        private final Endpoint mms = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
@@ -435,6 +446,7 @@ public class AppProperties {
             glowne.setHost("https://api-capital.backend-capital.com");
             swing.setHost("https://demo-api-capital.backend-capital.com");
             hts.setHost("https://demo-api-capital.backend-capital.com");
+            mms.setHost("https://demo-api-capital.backend-capital.com");
         }
 
         public Endpoint getDemo() {
@@ -455,6 +467,10 @@ public class AppProperties {
 
         public Endpoint getHts() {
             return hts;
+        }
+
+        public Endpoint getMms() {
+            return mms;
         }
     }
 

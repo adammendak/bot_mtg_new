@@ -85,7 +85,7 @@ class ExecutionGateTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"),
-                new UnavailableBrokerClient("okx", "test"));
+                new UnavailableBrokerClient("okx", "test"), new UnavailableBrokerClient("mms", "test"));
         gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
 
         when(demoClient.book()).thenReturn("demo");
@@ -295,7 +295,7 @@ class ExecutionGateTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"),
-                new UnavailableBrokerClient("okx", "test"));
+                new UnavailableBrokerClient("okx", "test"), new UnavailableBrokerClient("mms", "test"));
         ExecutionGate liveGate = new ExecutionGate(props, liveBooks, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
 
         liveGate.executeBook("live", List.of(fullStack("GER40", "DE40", Direction.BUY, 100, 1, bar)),

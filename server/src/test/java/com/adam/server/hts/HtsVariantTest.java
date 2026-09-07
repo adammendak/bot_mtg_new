@@ -107,7 +107,7 @@ class HtsVariantTest {
         assertThat(HtsVariant.MMS.parked()).isTrue();
         assertThat(HtsVariant.MMS.live()).isFalse();
         assertThat(HtsVariant.MMS.longOnly()).isFalse();
-        assertThat(HtsVariant.MMS.book()).isEqualTo(com.adam.server.broker.Books.DEMO);
+        assertThat(HtsVariant.MMS.book()).isEqualTo(com.adam.server.broker.Books.MMS);
         assertThat(HtsVariant.MMS.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
         assertThat(HtsVariant.MMS.ltfMinutes()).isEqualTo(15);
         assertThat(HtsVariant.MMS.universe()).containsExactly("BTC", "XAU", "US100");

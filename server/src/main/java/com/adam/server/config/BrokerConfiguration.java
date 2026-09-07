@@ -107,6 +107,21 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("mmsBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalMmsBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint mms = properties.getCapital().getMms();
+        if (mms.getHost() == null || mms.getHost().isBlank()) {
+            mms.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "mms",
+                mms,
+                "Capital.com MMS credentials are not set (CAPITAL_MMS_API_KEY / CAPITAL_MMS_EMAIL / CAPITAL_MMS_PASSWORD)"
+        );
+    }
+
     @Bean("demoBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperDemoBroker(Clock clock) {
@@ -135,6 +150,12 @@ public class BrokerConfiguration {
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperHtsPlaceholder() {
         return new UnavailableBrokerClient("hts", "HTS book is not wired in paper mode");
+    }
+
+    @Bean("mmsBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperMmsPlaceholder() {
+        return new UnavailableBrokerClient("mms", "MMS book is not wired in paper mode");
     }
 
     /**

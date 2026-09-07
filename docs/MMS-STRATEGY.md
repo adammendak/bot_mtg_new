@@ -94,14 +94,25 @@ Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is oft
 
 `HtsVariant.MMS` is **parked**. It does not scan and cannot place orders.
 
-1. Unpark: remove `|| this == MMS` from `HtsVariant.parked()` (one line).
-2. Scan then follows `HTS_SCAN_ENABLED` / `hts.scan` (existing master switch).
-3. Demo fills still require `HTS_EXECUTION_ENABLED` / `hts.execution`. **Do not** turn on `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` for this variant. `MMS.live()` is false.
+MMS has its **own isolated book** `mms` — a dedicated Capital demo sub-account,
+**zero sharing** with HA4's `demo` ("Account m15"). Only the market-data candle
+scan is shared (candles are account-agnostic). Positions, free margin, day-P/L
+and the `hts_trades` book are all separate.
 
-Book when unparked: `demo` (“Account m15”), same book as HA4 — unpark only if
-you accept sharing that sub-account. For an isolated **BTC-only forward test**
-set `MMS_SYMBOLS=BTC` so only BTC is scanned (the 12-month backtest had BTC as
-the least-bad symbol; XAU was the worst — see `pr122-mms-review.md`).
+1. Create a fresh Capital demo sub-account (e.g. name it `Account MMS`) and an
+   API key scoped to it.
+2. Set on the host:
+   - `CAPITAL_MMS_API_KEY` / `CAPITAL_MMS_EMAIL` / `CAPITAL_MMS_PASSWORD`
+   - `MMS_ACCOUNT_NAME` if the sub-account is not literally `Account MMS`
+   - `MMS_SYMBOLS=BTC` for an isolated **BTC-only forward test** (12-month
+     backtest: BTC least-bad, XAU worst — see `pr122-mms-review.md`)
+3. Unpark: remove `|| this == MMS` from `HtsVariant.parked()` (one line).
+4. Scan then follows `HTS_SCAN_ENABLED` / `hts.scan`. Fills still require
+   `HTS_EXECUTION_ENABLED` / `hts.execution` (already on). **Do not** set
+   `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` — `MMS.live()` is false.
+
+Until `CAPITAL_MMS_*` is set the `mms` book shows disconnected and MMS cannot
+place orders even if unparked.
 
 ## Default params (BTC / XAU / US100)
 
