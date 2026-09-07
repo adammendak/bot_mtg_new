@@ -316,6 +316,8 @@ public class AppProperties {
         private int htfSma = 50;
         /** Also require the D1 campaign to agree (default: H4 only). */
         private boolean htfUseD1 = false;
+        /** E-mail each MMS signal. Off for the observe-only forward test (signals still land in hts_signals). */
+        private boolean mailEnabled = false;
 
         public int getAtrPeriod() {
             return atrPeriod;
@@ -427,6 +429,14 @@ public class AppProperties {
 
         public void setHtfUseD1(boolean htfUseD1) {
             this.htfUseD1 = htfUseD1;
+        }
+
+        public boolean isMailEnabled() {
+            return mailEnabled;
+        }
+
+        public void setMailEnabled(boolean mailEnabled) {
+            this.mailEnabled = mailEnabled;
         }
 
         /** Parsed {@link #symbols} — empty set means "no restriction". */

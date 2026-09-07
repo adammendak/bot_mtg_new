@@ -108,29 +108,38 @@ Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is oft
 | XAU | `GOLD` (`SDD_EPIC_XAU`) | Weekdays only (Warsaw weekend filter). |
 | US100 | `US100` (`SDD_EPIC_US100`) | NQ proxy on Capital. Weekdays only. |
 
-## How to toggle MMS
+## Current state — observe-only forward test (no account)
 
-`HtsVariant.MMS` is **parked**. It does not scan and cannot place orders.
+`HtsVariant.MMS` is **not parked**. On merge it runs as a **signal-only forward
+test**:
 
-MMS has its **own isolated book** `mms` — a dedicated Capital demo sub-account,
-**zero sharing** with HA4's `demo` ("Account m15"). Only the market-data candle
-scan is shared (candles are account-agnostic). Positions, free margin, day-P/L
-and the `hts_trades` book are all separate.
+- `scanMms` runs every M15 close on `MMS_SYMBOLS` (default **`BTC`**), using the
+  shared market-data broker for candles.
+- Every signal → a `hts_signals` row tagged `variant=MMS`. Query
+  `/api/hts/signals?variant=MMS`. The scorecard is **replayed from price**
+  (which came first, stop or target, R) — no `hts_trades` rows, no P/L feed.
+- **No mail** (`MMS_MAIL_ENABLED=false` — the inbox already carries HA4/HA12).
+- **No execution**: `HtsExecutionGate` skips the `mms` book while
+  `CAPITAL_MMS_*` is unset (`"mms broker not configured"`). Zero positions,
+  zero margin, no Capital sub-account needed.
 
-1. Create a fresh Capital demo sub-account (e.g. name it `Account MMS`) and an
-   API key scoped to it.
-2. Set on the host:
-   - `CAPITAL_MMS_API_KEY` / `CAPITAL_MMS_EMAIL` / `CAPITAL_MMS_PASSWORD`
-   - `MMS_ACCOUNT_NAME` if the sub-account is not literally `Account MMS`
-   - `MMS_SYMBOLS=BTC` for an isolated **BTC-only forward test** (12-month
-     backtest: BTC least-bad, XAU worst — see `pr122-mms-review.md`)
-3. Unpark: remove `|| this == MMS` from `HtsVariant.parked()` (one line).
-4. Scan then follows `HTS_SCAN_ENABLED` / `hts.scan`. Fills still require
-   `HTS_EXECUTION_ENABLED` / `hts.execution` (already on). **Do not** set
-   `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` — `MMS.live()` is false.
+The only cost is one extra Capital M15 (+H1 for the HTF gate) fetch per scan.
 
-Until `CAPITAL_MMS_*` is set the `mms` book shows disconnected and MMS cannot
-place orders even if unparked.
+## Promoting to a real (demo) forward test
+
+MMS has its **own isolated book** `mms` — no sharing with HA4's `demo`
+("Account m15"). To place demo orders:
+
+1. Create a fresh Capital demo sub-account (name it `Account MMS`) + an API key
+   scoped to it.
+2. Set on the host: `CAPITAL_MMS_API_KEY` / `_EMAIL` / `_PASSWORD`, and
+   `MMS_ACCOUNT_NAME` if the sub-account name differs.
+3. `HTS_EXECUTION_ENABLED` is already on → MMS then trades that sub-account.
+   **Do not** set `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` —
+   `MMS.live()` is false.
+
+To silence the whole thing again: put `|| this == MMS` back in
+`HtsVariant.parked()`.
 
 ## Default params (BTC / XAU / US100)
 

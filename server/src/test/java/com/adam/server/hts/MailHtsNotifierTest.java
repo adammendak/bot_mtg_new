@@ -28,7 +28,7 @@ class MailHtsNotifierTest {
     @Test
     void mailsEveryHaHuntSignalWithNoCooldown() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
 
         n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);
         n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);   // same setup — still mailed
@@ -40,7 +40,7 @@ class MailHtsNotifierTest {
     @Test
     void doesNotMailFastOrOkxOrLiveVariants() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
 
         n.onHtsSignal(signal(HtsVariant.FAST, "BTC"), null);
         n.onHtsSignal(signal(HtsVariant.FAST_OKX, "DOGE"), null);
@@ -53,7 +53,7 @@ class MailHtsNotifierTest {
     @Test
     void subjectAndBodyUseTheHuntLabelAndDoNotNpeOnNullHtf() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
 
         n.onHtsSignal(signal(HtsVariant.HA4, "USDJPY"), null);
 
@@ -61,19 +61,24 @@ class MailHtsNotifierTest {
     }
 
     @Test
-    void mailsMmsSignalsWithTheMeanReversionBody() {
+    void mmsSignalIsNotMailedByDefaultButIsWhenMailEnabled() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer);
+        com.adam.server.config.AppProperties props = new com.adam.server.config.AppProperties();
 
-        n.onHtsSignal(signal(HtsVariant.MMS, "BTC"), null);
+        // observe-only default: MMS signal persists elsewhere, no mail
+        new MailHtsNotifier(mailer, props).onHtsSignal(signal(HtsVariant.MMS, "BTC"), null);
+        verify(mailer, never()).send(anyString(), anyString());
 
+        // opt in
+        props.getMms().setMailEnabled(true);
+        new MailHtsNotifier(mailer, props).onHtsSignal(signal(HtsVariant.MMS, "BTC"), null);
         verify(mailer).send(contains("[MMS M15 TMA-ATR]"), contains("MMS mean-reversion entry"));
     }
 
     @Test
     void shortOnALongOnlyVariantIsMailedButMarkedObserveOnly() {
         Mailer mailer = mock(Mailer.class);
-        MailHtsNotifier n = new MailHtsNotifier(mailer);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
 
         n.onHtsSignal(shortSignal(HtsVariant.HA12, "US100"), null);
 

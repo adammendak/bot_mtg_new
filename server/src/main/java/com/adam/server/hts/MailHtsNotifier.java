@@ -1,5 +1,6 @@
 package com.adam.server.hts;
 
+import com.adam.server.config.AppProperties;
 import com.adam.server.scan.Mailer;
 import org.springframework.stereotype.Component;
 
@@ -7,12 +8,13 @@ import org.springframework.stereotype.Component;
  * E-mails HTS entry signals via the shared {@link Mailer} (a no-op until SMTP +
  * a recipient are configured).
  *
- * <p>HA-hunt strategies and {@link HtsVariant#MMS} mail — see
- * {@link HtsVariant#mailsSignals()}. They are sparse and each entry is a
- * one-bar event, so every signal is mailed with no cooldown. FAST (M5) and the
- * OKX crypto variants signal far too often to mail; CORE_LIVE fills are visible
- * on the dashboard. MMS is parked by default so a mail only happens after it
- * is unparked (or from a test).
+ * <p>HA-hunt strategies mail — see {@link HtsVariant#mailsSignals()}. They are
+ * sparse and each entry is a one-bar event, so every signal is mailed with no
+ * cooldown. FAST (M5) and the OKX crypto variants signal far too often to mail;
+ * CORE_LIVE fills are visible on the dashboard. {@link HtsVariant#MMS} also
+ * {@code mailsSignals()} but the mail is <b>off by default</b>
+ * ({@code app.mms.mail-enabled}) — the observe-only forward test just needs the
+ * {@code hts_signals} rows, not an inbox full of MR signals.
  *
  * <p>A short on a long-only variant is mailed too, marked
  * <b>OBSERVE ONLY</b> — the scan does not execute it.
@@ -21,15 +23,20 @@ import org.springframework.stereotype.Component;
 public class MailHtsNotifier implements HtsNotifier {
 
     private final Mailer mailer;
+    private final AppProperties properties;
 
-    public MailHtsNotifier(Mailer mailer) {
+    public MailHtsNotifier(Mailer mailer, AppProperties properties) {
         this.mailer = mailer;
+        this.properties = properties;
     }
 
     @Override
     public void onHtsSignal(HtsScan s, HtsSignalContext ctx) {
         if (s.variant() == null || !s.variant().mailsSignals()) {
             return;
+        }
+        if (s.variant().strategy() == HtsVariant.Strategy.MMS && !properties.getMms().isMailEnabled()) {
+            return; // observe-only: the signal is persisted, but not mailed
         }
         boolean observeOnly = isObserveOnly(s);
         boolean mms = s.variant().strategy() == HtsVariant.Strategy.MMS;

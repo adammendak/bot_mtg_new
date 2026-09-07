@@ -35,12 +35,15 @@ import java.util.List;
  *   <li>{@link #MMS} — MastermindZX mean-reversion (TMA/ATR envelope, M15
  *       default) on BTC / XAU / US100 → its own isolated {@code mms} book
  *       ({@code MMS_ACCOUNT_NAME}, a dedicated Capital demo sub-account — no
- *       sharing with HA4). <b>Parked</b>: does not scan or trade until unparked;
- *       never live by default. See {@code docs/MMS-STRATEGY.md}.</li>
+ *       sharing with HA4). <b>Observe-only forward test</b>: scanned, signals
+ *       land in {@code hts_signals}, mail off ({@code app.mms.mail-enabled}),
+ *       execution auto-skips while {@code CAPITAL_MMS_*} is unset. Backtest showed
+ *       no edge — collecting live signals before any account. {@code MMS_SYMBOLS}
+ *       defaults to {@code BTC}. See {@code docs/MMS-STRATEGY.md}.</li>
  * </ul>
  *
- * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST} and
- * {@link #MMS} are {@link #parked() parked} — kept in the enum but not
+ * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
+ * {@link #parked() parked} — kept in the enum but not
  * scanned. CORE/SWING (ribbon) gave zero signals through the forward test;
  * FAST churned every non-BTC symbol on M5 and was replaced by {@link #HA1} on
  * the same ("Account m5") book; {@link #HA4X} ("M15 band cross" entry) backtested
@@ -247,7 +250,7 @@ public enum HtsVariant {
      */
     public boolean parked() {
         return this == CORE || this == SWING || this == HA4X || this == FAST
-                || this == CORE_OKX || this == FAST_OKX || this == MMS;
+                || this == CORE_OKX || this == FAST_OKX;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */

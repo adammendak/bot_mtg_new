@@ -102,9 +102,9 @@ class HtsVariantTest {
     }
 
     @Test
-    void mmsIsAParkedMeanReversionVariantOnBtcXauUs100() {
+    void mmsIsAnUnparkedObserveOnlyMeanReversionVariantOnItsOwnBook() {
         assertThat(HtsVariant.MMS.strategy()).isEqualTo(HtsVariant.Strategy.MMS);
-        assertThat(HtsVariant.MMS.parked()).isTrue();
+        assertThat(HtsVariant.MMS.parked()).isFalse(); // observe-only forward test
         assertThat(HtsVariant.MMS.live()).isFalse();
         assertThat(HtsVariant.MMS.longOnly()).isFalse();
         assertThat(HtsVariant.MMS.book()).isEqualTo(com.adam.server.broker.Books.MMS);
