@@ -195,6 +195,28 @@ public class RiskPolicy {
     }
 
     /**
+     * "MMS" book pick — a fully isolated Capital.com DEMO sub-account for the
+     * MastermindZX mean-reversion variant. Accepts only the account named
+     * {@code MMS_ACCOUNT_NAME} ({@code app.mms-account-name}, default
+     * {@code "Account MMS"}); falls back to the preferred demo account if that
+     * name is absent.
+     */
+    public Account pickMmsAccount(List<Account> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        String name = properties.getMmsAccountName();
+        if (name != null && !name.isBlank()) {
+            for (Account a : accounts) {
+                if (!isFintokei(a.name()) && name.equals(a.name())) {
+                    return a;
+                }
+            }
+        }
+        return pickDemoAccount(accounts);
+    }
+
+    /**
      * "OKX" book pick — OKX exposes a single unified trading account, so this
      * returns the first account OKX reports (its only one).
      */
@@ -220,6 +242,9 @@ public class RiskPolicy {
         }
         if (com.adam.server.broker.Books.HTS.equalsIgnoreCase(book)) {
             return pickHtsAccount(accounts);
+        }
+        if (com.adam.server.broker.Books.MMS.equalsIgnoreCase(book)) {
+            return pickMmsAccount(accounts);
         }
         return pickDemoAccount(accounts);
     }

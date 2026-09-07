@@ -21,12 +21,14 @@ public final class Books {
     public static final String HTS = "hts";
     /** OKX (crypto exchange) account — SWAP (perpetual) instruments, scan + HTS execution. */
     public static final String OKX = "okx";
+    /** Separate Capital.com demo account reserved for the MMS mean-reversion variant — fully isolated from HA4's demo book. */
+    public static final String MMS = "mms";
 
     /** Wire / config alias accepted for {@link #GLOWNE}. */
     public static final String GLOWNE_ALIAS = "main";
 
-    /** All books, dashboard order (Demo | Live | Główne | Swing | HTS | OKX). */
-    public static final List<String> ALL = List.of(DEMO, LIVE, GLOWNE, SWING, HTS, OKX);
+    /** All books, dashboard order (Demo | Live | Główne | Swing | HTS | OKX | MMS). */
+    public static final List<String> ALL = List.of(DEMO, LIVE, GLOWNE, SWING, HTS, OKX, MMS);
 
     /**
      * Books the SDD-M15 execution gate may trade. Główne and Swing are never

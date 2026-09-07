@@ -42,7 +42,7 @@ class AccountQueryServiceTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"),
-                new UnavailableBrokerClient("okx", "test"));
+                new UnavailableBrokerClient("okx", "test"), new UnavailableBrokerClient("mms", "test"));
         service = new AccountQueryService(books, new RiskPolicy(props), props, true, true);
         when(demo.book()).thenReturn("demo");
         when(demo.id()).thenReturn("capital");

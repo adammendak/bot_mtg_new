@@ -22,6 +22,14 @@ public interface HtsTradeRepository extends JpaRepository<HtsTradeEntity, Long> 
     /** No stacking: does this variant already hold a position for the symbol? */
     boolean existsByVariantAndSymbolAndStatus(String variant, String symbol, String status);
 
+    /** OPEN / CLOSED rows for a variant+symbol (MMS base vs add-on, sequential delever). */
+    List<HtsTradeEntity> findByVariantAndSymbolAndStatusOrderByIdDesc(String variant, String symbol, String status);
+
+    /** Newest {@code n} rows for a variant+symbol+status — MMS delever / add-on lookback (bounded). */
+    List<HtsTradeEntity> findTop20ByVariantAndSymbolAndStatusOrderByIdDesc(String variant, String symbol, String status);
+
+    long countByVariantAndSymbolAndStatus(String variant, String symbol, String status);
+
     /** Today's realised P/L on a book — for the live day-halt. */
     List<HtsTradeEntity> findByBookAndStatusAndExitAtAfter(String book, String status, Instant since);
 }

@@ -84,7 +84,7 @@ class HtsTradeServiceTest {
                         new Candle(bar.minusSeconds(60), 100, 100, 100, 100, 0),
                         new Candle(bar, 100, 100, 100, 100, 0)));
         when(repo.save(any(HtsTradeEntity.class))).thenAnswer(i -> i.getArgument(0));
-        service = new HtsTradeService(repo, books, engine, haHunt, props, risk, List.of(sink));
+        service = new HtsTradeService(repo, books, engine, haHunt, new MmsEngine(), props, risk, List.of(sink));
     }
 
     // ---- recordOpen / idempotency / realised P/L ----
@@ -121,6 +121,84 @@ class HtsTradeServiceTest {
         assertThat(t.getLtf()).isEqualTo("M15");
         assertThat(t.getStatus()).isEqualTo("OPEN");
         verify(sink).onOpen(t);
+    }
+
+    @Test
+    void mmsRiskUnitDeleversAfterAStopAndRestoresAfterATarget() {
+        HtsTradeEntity stopped = new HtsTradeEntity();
+        stopped.setCloseReason("STOP");
+        stopped.setRMultiple(-1.0);
+        stopped.setEntry(100.0);
+        stopped.setStopLevel(98.0); // full ~2% base SL
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
+                .thenReturn(List.of(stopped));
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "BTC")).isEqualTo(0.1);
+
+        HtsTradeEntity won = new HtsTradeEntity();
+        won.setCloseReason("TARGET");
+        won.setRMultiple(1.2);
+        won.setEntry(100.0);
+        won.setStopLevel(98.0);
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
+                .thenReturn(List.of(won));
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "XAU")).isEqualTo(1.0);
+
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "US100", "CLOSED"))
+                .thenReturn(List.of());
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "US100")).isEqualTo(1.0);
+    }
+
+    @Test
+    void mmsRiskUnitIgnoresAnAddonStopAndReadsTheBaseOutcome() {
+        HtsTradeEntity addonStop = new HtsTradeEntity();
+        addonStop.setCloseReason("STOP");
+        addonStop.setRMultiple(-1.0);
+        addonStop.setEntry(100.0);
+        addonStop.setStopLevel(99.4); // 0.6% wick — add-on, must not cut ×1
+
+        HtsTradeEntity baseWin = new HtsTradeEntity();
+        baseWin.setCloseReason("TARGET");
+        baseWin.setRMultiple(1.1);
+        baseWin.setEntry(100.0);
+        baseWin.setStopLevel(98.0);
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
+                .thenReturn(List.of(addonStop, baseWin));
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "BTC")).isEqualTo(1.0);
+
+        HtsTradeEntity baseStop = new HtsTradeEntity();
+        baseStop.setCloseReason("STOP");
+        baseStop.setRMultiple(-1.0);
+        baseStop.setEntry(200.0);
+        baseStop.setStopLevel(196.0); // 2%
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
+                .thenReturn(List.of(addonStop, baseStop));
+        assertThat(service.mmsRiskUnit(HtsVariant.MMS, "XAU")).isEqualTo(0.1);
+    }
+
+    @Test
+    void allowMmsAddOnRequiresFlagExactlyOneOpenAndACleanBook() {
+        HtsScan s = new HtsScan(HtsVariant.MMS, bar, "BTC", "BTCUSD", Direction.SELL,
+                99.0, 99.4, 95.0, false);
+        when(repo.countByVariantAndSymbolAndStatus("MMS", "BTC", "OPEN")).thenReturn(1L);
+        assertThat(service.allowMmsAddOn(s)).isFalse(); // default engine: add-on off
+
+        MmsEngine addOn = new MmsEngine(new MmsEngine.Params(
+                MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
+                com.adam.server.sdd.AtrEnvelope.Mode.TMA_ATR,
+                MmsEngine.TpMode.OPPOSITE_BAND, MmsEngine.SlMode.PCT,
+                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW, true, MmsEngine.HTF_SMA, false));
+        service = new HtsTradeService(repo, books, engine, haHunt, addOn, props, risk, List.of(sink));
+        assertThat(service.allowMmsAddOn(s)).isTrue();
+        assertThat(service.canScanMmsAddOn(HtsVariant.MMS, "BTC")).isTrue();
+
+        when(repo.countByVariantAndSymbolAndStatus("MMS", "BTC", "OPEN")).thenReturn(2L);
+        assertThat(service.allowMmsAddOn(s)).isFalse(); // add already on
+
+        when(repo.countByVariantAndSymbolAndStatus("MMS", "BTC", "OPEN")).thenReturn(1L);
+        addOn.rememberAddon(HtsVariant.MMS, "BTC", bar);
+        assertThat(service.allowMmsAddOn(s)).isFalse(); // no retry
+        assertThat(service.allowMmsAddOn(new HtsScan(HtsVariant.HA4, bar, "XAU", "GOLD",
+                Direction.BUY, 1, 1, 1, true))).isFalse();
     }
 
     @Test

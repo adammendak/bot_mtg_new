@@ -24,6 +24,8 @@ public class AppProperties {
     private String swingAccountName = "Account H1";
     private String demoAccountName = "Account m15";
     private String htsAccountName = "Account m5";
+    /** Capital.com demo sub-account reserved for the isolated MMS book. */
+    private String mmsAccountName = "Account MMS";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -37,6 +39,7 @@ public class AppProperties {
     private int maxOpenNames = 4;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
+    private final Mms mms = new Mms();
 
     public String getBroker() {
         return broker;
@@ -184,6 +187,14 @@ public class AppProperties {
         this.htsAccountName = htsAccountName;
     }
 
+    public String getMmsAccountName() {
+        return mmsAccountName;
+    }
+
+    public void setMmsAccountName(String mmsAccountName) {
+        this.mmsAccountName = mmsAccountName;
+    }
+
     public double getLiveEquityRefuse() {
         return liveEquityRefuse;
     }
@@ -268,6 +279,182 @@ public class AppProperties {
         return sdd;
     }
 
+    public Mms getMms() {
+        return mms;
+    }
+
+    /**
+     * MastermindZX MMS mean-reversion tunables ({@link com.adam.server.hts.MmsEngine}).
+     * The site re-optimises {@code atrMult} / {@code atrPeriod} / {@code slPct}
+     * roughly monthly, so these are env-driven, not constants. {@code symbols}
+     * narrows the scan (e.g. a BTC-only forward test) without a code change.
+     */
+    public static class Mms {
+        private int atrPeriod = 20;
+        private double atrMult = 2.0;
+        private double slPct = 0.02;
+        /** {@code TMA_ATR} (default) or {@code BB_ATR}. */
+        private String mode = "TMA_ATR";
+        /** {@code OPPOSITE_BAND} (site) or {@code FIXED_1R} (MT5 tester clips). */
+        private String tpMode = "OPPOSITE_BAND";
+        /** {@code PCT} (site) or {@code WICK_EXTREME}. */
+        private String slMode = "PCT";
+        private boolean addOnEnabled = false;
+        private boolean stochFilterEnabled = false;
+        private boolean stochCrossEnabled = false;
+        /** Closed bars after a band touch that still accept the first reaction. */
+        private int reactionWindow = 8;
+        /** CSV subset of the MMS universe (BTC,XAU,US100). Blank = all. */
+        private String symbols = "";
+        /**
+         * HTF campaign gate (site: H4 = campaign context, D1 = bias): trade with
+         * the higher-TF trend only — LONG only when H4 is bull (HA close bullish
+         * OR close &gt; SMA), SHORT only when H4 is bear; conflicting = skip. On
+         * by default (the MMS refinement).
+         */
+        private boolean htfGateEnabled = true;
+        private int htfSma = 50;
+        /** Also require the D1 campaign to agree (default: H4 only). */
+        private boolean htfUseD1 = false;
+        /** E-mail each MMS signal. Off for the observe-only forward test (signals still land in hts_signals). */
+        private boolean mailEnabled = false;
+
+        public int getAtrPeriod() {
+            return atrPeriod;
+        }
+
+        public void setAtrPeriod(int atrPeriod) {
+            this.atrPeriod = atrPeriod;
+        }
+
+        public double getAtrMult() {
+            return atrMult;
+        }
+
+        public void setAtrMult(double atrMult) {
+            this.atrMult = atrMult;
+        }
+
+        public double getSlPct() {
+            return slPct;
+        }
+
+        public void setSlPct(double slPct) {
+            this.slPct = slPct;
+        }
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
+
+        public String getTpMode() {
+            return tpMode;
+        }
+
+        public void setTpMode(String tpMode) {
+            this.tpMode = tpMode;
+        }
+
+        public String getSlMode() {
+            return slMode;
+        }
+
+        public void setSlMode(String slMode) {
+            this.slMode = slMode;
+        }
+
+        public boolean isAddOnEnabled() {
+            return addOnEnabled;
+        }
+
+        public void setAddOnEnabled(boolean addOnEnabled) {
+            this.addOnEnabled = addOnEnabled;
+        }
+
+        public boolean isStochFilterEnabled() {
+            return stochFilterEnabled;
+        }
+
+        public void setStochFilterEnabled(boolean stochFilterEnabled) {
+            this.stochFilterEnabled = stochFilterEnabled;
+        }
+
+        public boolean isStochCrossEnabled() {
+            return stochCrossEnabled;
+        }
+
+        public void setStochCrossEnabled(boolean stochCrossEnabled) {
+            this.stochCrossEnabled = stochCrossEnabled;
+        }
+
+        public int getReactionWindow() {
+            return reactionWindow;
+        }
+
+        public void setReactionWindow(int reactionWindow) {
+            this.reactionWindow = reactionWindow;
+        }
+
+        public String getSymbols() {
+            return symbols;
+        }
+
+        public void setSymbols(String symbols) {
+            this.symbols = symbols;
+        }
+
+        public boolean isHtfGateEnabled() {
+            return htfGateEnabled;
+        }
+
+        public void setHtfGateEnabled(boolean htfGateEnabled) {
+            this.htfGateEnabled = htfGateEnabled;
+        }
+
+        public int getHtfSma() {
+            return htfSma;
+        }
+
+        public void setHtfSma(int htfSma) {
+            this.htfSma = htfSma;
+        }
+
+        public boolean isHtfUseD1() {
+            return htfUseD1;
+        }
+
+        public void setHtfUseD1(boolean htfUseD1) {
+            this.htfUseD1 = htfUseD1;
+        }
+
+        public boolean isMailEnabled() {
+            return mailEnabled;
+        }
+
+        public void setMailEnabled(boolean mailEnabled) {
+            this.mailEnabled = mailEnabled;
+        }
+
+        /** Parsed {@link #symbols} — empty set means "no restriction". */
+        public java.util.Set<String> symbolSet() {
+            if (symbols == null || symbols.isBlank()) {
+                return java.util.Set.of();
+            }
+            java.util.Set<String> out = new java.util.LinkedHashSet<>();
+            for (String s : symbols.split(",")) {
+                String t = s.trim().toUpperCase();
+                if (!t.isEmpty()) {
+                    out.add(t);
+                }
+            }
+            return out;
+        }
+    }
+
     public static class Scan {
         private String cron = "0 1,16,31,46 * * * *";
         private String zone = "Europe/Warsaw";
@@ -295,6 +482,7 @@ public class AppProperties {
         private final Endpoint glowne = new Endpoint();
         private final Endpoint swing = new Endpoint();
         private final Endpoint hts = new Endpoint();
+        private final Endpoint mms = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
@@ -302,6 +490,7 @@ public class AppProperties {
             glowne.setHost("https://api-capital.backend-capital.com");
             swing.setHost("https://demo-api-capital.backend-capital.com");
             hts.setHost("https://demo-api-capital.backend-capital.com");
+            mms.setHost("https://demo-api-capital.backend-capital.com");
         }
 
         public Endpoint getDemo() {
@@ -322,6 +511,10 @@ public class AppProperties {
 
         public Endpoint getHts() {
             return hts;
+        }
+
+        public Endpoint getMms() {
+            return mms;
         }
     }
 

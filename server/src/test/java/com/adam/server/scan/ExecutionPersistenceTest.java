@@ -121,7 +121,7 @@ class ExecutionPersistenceTest {
                 new UnavailableBrokerClient("glowne", "test"),
                 new UnavailableBrokerClient("swing", "test"),
                 new UnavailableBrokerClient("hts", "test"),
-                new UnavailableBrokerClient("okx", "test"));
+                new UnavailableBrokerClient("okx", "test"), new UnavailableBrokerClient("mms", "test"));
         gate = new ExecutionGate(props, books, risk, state, webhooks, telegram, monitor, com.adam.server.scan.Mailer.disabled());
 
         when(demoClient.book()).thenReturn("demo");

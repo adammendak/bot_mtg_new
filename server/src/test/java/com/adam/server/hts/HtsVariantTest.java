@@ -102,6 +102,28 @@ class HtsVariantTest {
     }
 
     @Test
+    void mmsIsAnUnparkedObserveOnlyMeanReversionVariantOnItsOwnBook() {
+        assertThat(HtsVariant.MMS.strategy()).isEqualTo(HtsVariant.Strategy.MMS);
+        assertThat(HtsVariant.MMS.parked()).isFalse(); // observe-only forward test
+        assertThat(HtsVariant.MMS.live()).isFalse();
+        assertThat(HtsVariant.MMS.longOnly()).isFalse();
+        assertThat(HtsVariant.MMS.book()).isEqualTo(com.adam.server.broker.Books.MMS);
+        assertThat(HtsVariant.MMS.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
+        assertThat(HtsVariant.MMS.ltfMinutes()).isEqualTo(15);
+        assertThat(HtsVariant.MMS.universe()).containsExactly("BTC", "XAU", "US100");
+        assertThat(HtsVariant.MMS.tradesSymbol("BTC")).isTrue();
+        assertThat(HtsVariant.MMS.tradesSymbol("XAU")).isTrue();
+        assertThat(HtsVariant.MMS.tradesSymbol("US100")).isTrue();
+        assertThat(HtsVariant.MMS.tradesSymbol("GER40")).isFalse();
+        assertThat(HtsVariant.MMS.htfLabel()).isEqualTo("M15");
+        assertThat(HtsVariant.MMS.label()).contains("TMA-ATR");
+        assertThat(HtsVariant.MMS.mailsSignals()).isTrue();
+        assertThat(HtsVariant.MMS.dueAtMinute(0)).isTrue();
+        assertThat(HtsVariant.MMS.dueAtMinute(16)).isTrue();
+        assertThat(HtsVariant.MMS.dueAtMinute(7)).isFalse();
+    }
+
+    @Test
     void ha4xMirrorsHa4ExceptTheEntryTrigger() {
         assertThat(HtsVariant.HA4.entryTrigger()).isEqualTo(HtsVariant.EntryTrigger.HA_FLIP);
         assertThat(HtsVariant.HA4X.entryTrigger()).isEqualTo(HtsVariant.EntryTrigger.BAND_CROSS);

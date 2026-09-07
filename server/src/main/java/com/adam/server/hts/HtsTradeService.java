@@ -58,6 +58,7 @@ public class HtsTradeService {
     private final BrokerBooks books;
     private final HtsEngine engine;
     private final HaHuntEngine haHunt;
+    private final MmsEngine mms;
     private final AppProperties properties;
     private final com.adam.server.sdd.RiskPolicy risk;
     private final List<HtsTradeSink> sinks;
@@ -65,12 +66,13 @@ public class HtsTradeService {
     private final Map<Long, Integer> reconcileMisses = new java.util.concurrent.ConcurrentHashMap<>();
 
     public HtsTradeService(HtsTradeRepository trades, BrokerBooks books, HtsEngine engine, HaHuntEngine haHunt,
-                           AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
+                           MmsEngine mms, AppProperties properties, com.adam.server.sdd.RiskPolicy risk,
                            List<HtsTradeSink> sinks) {
         this.trades = trades;
         this.books = books;
         this.engine = engine;
         this.haHunt = haHunt;
+        this.mms = mms;
         this.properties = properties;
         this.risk = risk;
         this.sinks = sinks;
@@ -115,6 +117,58 @@ public class HtsTradeService {
     public boolean hasOpenPosition(HtsVariant variant, String symbol) {
         return variant != null && symbol != null
                 && trades.existsByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN");
+    }
+
+    /**
+     * Oldest OPEN row — the MMS base. A later add-on (higher id) is ignored so
+     * {@link MmsEngine#evaluateAdd} always measures the confirming bar from the
+     * original setup, not from the add itself.
+     */
+    public HtsTradeEntity openTrade(HtsVariant variant, String symbol) {
+        if (variant == null || symbol == null) {
+            return null;
+        }
+        java.util.List<HtsTradeEntity> rows =
+                trades.findByVariantAndSymbolAndStatusOrderByIdDesc(variant.name(), symbol, "OPEN");
+        return rows == null || rows.isEmpty() ? null : rows.getLast();
+    }
+
+    /**
+     * One MMS add-on on top of a single open base, only when the add-on flag is
+     * on and this setup has not already taken (or stopped) an add.
+     */
+    public boolean allowMmsAddOn(HtsScan s) {
+        return s != null && canScanMmsAddOn(s.variant(), s.symbol());
+    }
+
+    /**
+     * Scan-side gate: flag on, not blocked, exactly one OPEN row (the base), and
+     * no add-on already resolved on this setup. {@link MmsEngine#addonBlocked}
+     * is in-memory (lost on restart), so also check the DB — a CLOSED
+     * add-on-sized row newer than the base means the add is done. When the base
+     * OPEN row is not visible yet, fall back to the in-memory / count gate only.
+     */
+    public boolean canScanMmsAddOn(HtsVariant variant, String symbol) {
+        if (variant == null || variant.strategy() != HtsVariant.Strategy.MMS || symbol == null) {
+            return false;
+        }
+        if (!mms.params().addOnEnabled() || mms.addonBlocked(variant, symbol)) {
+            return false;
+        }
+        if (trades.countByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN") != 1) {
+            return false;
+        }
+        HtsTradeEntity base = openTrade(variant, symbol);
+        if (base != null && base.getId() != null) {
+            for (HtsTradeEntity c : trades.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc(
+                    variant.name(), symbol, "CLOSED")) {
+                if (c.getId() != null && c.getId() > base.getId()
+                        && MmsEngine.addonSizedStop(c.getEntry(), c.getStopLevel())) {
+                    return false; // add already taken (and closed) on this base — restart-safe
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -253,6 +307,9 @@ public class HtsTradeService {
         if (v.strategy() == HtsVariant.Strategy.HA_HUNT) {
             return haHuntCloudExit(t, v, buy, market, candleCache);
         }
+        if (v.strategy() == HtsVariant.Strategy.MMS) {
+            return mmsExit(t, v, buy, market, candleCache);
+        }
         double entry = t.getEntry();
         double leg = Math.abs(entry - t.getStopLevel());
         if (leg <= 0) {
@@ -388,6 +445,57 @@ public class HtsTradeService {
         }
     }
 
+    /**
+     * MMS TP: no trail, no break-even. The broker holds the stop. We close the
+     * whole position when the last closed entry-TF bar hits the configured
+     * target — opposite envelope ({@link MmsEngine.TpMode#OPPOSITE_BAND}) or
+     * the stored 1:1 level ({@link MmsEngine.TpMode#FIXED_1R}). Pre-stamps
+     * TARGET so sequential delever restores ×1.
+     */
+    private boolean mmsExit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
+                            Map<String, List<Candle>> candleCache) {
+        if (t.getDealId() == null || t.getSize() == null) {
+            return false;
+        }
+        BrokerClient data = com.adam.server.broker.Books.OKX.equals(t.getBook())
+                ? books.forBook(com.adam.server.broker.Books.OKX)
+                : market;
+        String cacheKey = t.getEpic() + "|MMS|" + v.ltf().name();
+        List<Candle> entryTf = candleCache.get(cacheKey);
+        if (entryTf == null) {
+            try {
+                Instant now = Instant.now();
+                entryTf = HtsCandles.fetch(data, t.getEpic(), v.ltf(), now.minus(v.ltfLookback()), now);
+            } catch (Exception e) {
+                log.warn("HTS [{}] {}: entry-TF fetch for MMS TP failed ({})", v, t.getSymbol(),
+                        e.getClass().getSimpleName());
+                return false;
+            }
+            candleCache.put(cacheKey, entryTf);
+        }
+        Instant now = Instant.now();
+        boolean hit = mms.params().tpMode() == MmsEngine.TpMode.FIXED_1R
+                ? mms.fixed1rHit(v, entryTf, buy, t.getTargetLevel(), now)
+                : mms.oppositeBandHit(v, entryTf, buy, now);
+        if (!hit) {
+            return false;
+        }
+        selectBookAccount(t.getBook());
+        BrokerClient broker = books.forBook(t.getBook());
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        String how = mms.params().tpMode() == MmsEngine.TpMode.FIXED_1R ? "FIXED_1R" : "opposite-band";
+        try {
+            t.setCloseReason("TARGET");
+            trades.save(t);
+            broker.closePosition(t.getDealId(), remaining);
+            log.info("HTS [{}] {} MMS {} TP — no trail", v, t.getSymbol(), how);
+            return true;
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: MMS {} close failed ({})", v, t.getSymbol(), how, e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     // ---- close-out bookkeeping ----
 
     private void applyClose(HtsTradeEntity t, List<BrokerTransaction> tx) {
@@ -422,6 +530,7 @@ public class HtsTradeService {
             t.setExitPrice(buy ? t.getEntry() + move : t.getEntry() - move);
             t.setRMultiple(round(move / leg));
             stampReason(t, move / leg, leg, preset);
+            notifyMmsClose(t);
             return;
         }
 
@@ -440,11 +549,24 @@ public class HtsTradeService {
                 double rr = move / leg;
                 t.setRMultiple(round(rr));
                 stampReason(t, rr, leg, preset);
+                notifyMmsClose(t);
                 return;
             }
         }
         if (!preset) {
             t.setCloseReason("UNKNOWN");
+        }
+        notifyMmsClose(t);
+    }
+
+    private void notifyMmsClose(HtsTradeEntity t) {
+        if (!isMms(t) || t.getBarTime() == null) {
+            return;
+        }
+        try {
+            mms.onClosed(HtsVariant.valueOf(t.getVariant()), t.getSymbol(), t.getBarTime(), t.getCloseReason());
+        } catch (RuntimeException ignored) {
+            // close bookkeeping must never fail the reconcile
         }
     }
 
@@ -463,6 +585,8 @@ public class HtsTradeService {
             t.setCloseReason("RUNNER");
         } else if (isHaHunt(t)) {
             t.setCloseReason("CLOUD"); // HA-hunt: no TP1/trail — a non-stop exit is the cloud-hold flip
+        } else if (isMms(t)) {
+            t.setCloseReason("BAND");
         } else {
             t.setCloseReason("MANUAL");
         }
@@ -474,6 +598,37 @@ public class HtsTradeService {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    private static boolean isMms(HtsTradeEntity t) {
+        try {
+            return HtsVariant.valueOf(t.getVariant()).strategy() == HtsVariant.Strategy.MMS;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Sequential delever for MMS: ×0.1 after a <em>full</em> SL outside the
+     * bands, ×1 after a winning TP. Add-on wick / 1% stops are skipped — they
+     * must not cut the unit or change the base SL. No history → ×1.
+     */
+    public double mmsRiskUnit(HtsVariant variant, String symbol) {
+        if (variant == null || symbol == null) {
+            return MmsEngine.RISK_UNIT_FULL;
+        }
+        java.util.List<HtsTradeEntity> closed =
+                trades.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc(variant.name(), symbol, "CLOSED");
+        if (closed == null || closed.isEmpty()) {
+            return MmsEngine.RISK_UNIT_FULL;
+        }
+        for (HtsTradeEntity last : closed) {
+            if (MmsEngine.addonSizedStop(last.getEntry(), last.getStopLevel())) {
+                continue; // add-on SL — keep looking for the base outcome
+            }
+            return MmsEngine.riskUnitAfter(last.getCloseReason(), last.getRMultiple());
+        }
+        return MmsEngine.RISK_UNIT_FULL;
     }
 
     /**
