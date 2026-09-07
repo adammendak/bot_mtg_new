@@ -1,5 +1,5 @@
 //@version=5
-indicator("MMS Mean Reversion (MastermindZX)", overlay=true, max_labels_count=200, max_bars_back=500)
+indicator("MMS Mean Reversion (MastermindZX)", overlay=true, max_labels_count=200, max_bars_back=1000)
 
 // Bot-side sibling: HtsVariant.MMS / MmsEngine (closed-bar only, no lookahead).
 // Site: https://mastermindzx.pl/  — BTCUSDT backtests there are monthly-optimised.
@@ -91,12 +91,15 @@ campDir(_haC, _haO, _close, _sma) =>
     _bear = (_haC <  _haO) or (_close < _sma)
     (_bull and _bear) ? 0 : (_bull ? 1 : -1)
 haT = ticker.heikinashi(syminfo.tickerid)
+htfSmaClose = ta.sma(close, htfSma)
 [h4haO, h4haC] = request.security(haT, "240", [open[1], close[1]], lookahead=barmerge.lookahead_off)
-[h4c, h4sma]   = request.security(syminfo.tickerid, "240", [close[1], ta.sma(close, htfSma)[1]], lookahead=barmerge.lookahead_off)
+[h4c, h4sma]   = request.security(syminfo.tickerid, "240", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
 [d1haO, d1haC] = request.security(haT, "D", [open[1], close[1]], lookahead=barmerge.lookahead_off)
-[d1c, d1sma]   = request.security(syminfo.tickerid, "D", [close[1], ta.sma(close, htfSma)[1]], lookahead=barmerge.lookahead_off)
-dir4 = na(h4sma) ? na : campDir(h4haC, h4haO, h4c, h4sma)
-dir1 = na(d1sma) ? na : campDir(d1haC, d1haO, d1c, d1sma)
+[d1c, d1sma]   = request.security(syminfo.tickerid, "D", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
+d4raw = campDir(h4haC, h4haO, h4c, h4sma)   // hoisted: no user-fn call inside ?:
+d1raw = campDir(d1haC, d1haO, d1c, d1sma)
+dir4 = na(h4sma) ? int(na) : d4raw
+dir1 = na(d1sma) ? int(na) : d1raw
 campOkLong  = not htfGate or na(dir4) or (dir4 == 1  and (not htfD1 or na(dir1) or dir1 == 1))
 campOkShort = not htfGate or na(dir4) or (dir4 == -1 and (not htfD1 or na(dir1) or dir1 == -1))
 
