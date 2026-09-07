@@ -37,8 +37,9 @@ import java.util.Map;
  * <p><b>Entry</b> (long; short mirrors): the fast RMA band (high/low, 33) is
  * fully clear above the slow band (144) on both the execution timeframe and the
  * HTF; price pulled back into the fast band within the last {@link #PULLBACK_BARS}
- * bars; the current candle <b>body</b> closes back above the fast band's upper
- * edge. Optional gates: skip when the bands are consolidating (T2), and an ADX
+ * bars (unless {@code requirePullback=false}, in which case the first LTF body
+ * close beyond the fast band is enough); the current candle <b>body</b> closes
+ * back above the fast band's upper edge. Optional gates: skip when the bands are consolidating (T2), and an ADX
  * gate that is either a hard trend filter (T3) or a colour-zone permit that
  * still allows early, pre-cross entries (T3', {@code adxPermit}).
  *
@@ -100,8 +101,25 @@ public class HtsBacktestService {
             boolean supertrendTrail,
             boolean waveTrendFilter,
             // breakout entry: enter on a fresh band cross (HTF supporting), no pullback required
-            boolean breakoutEntry
+            boolean breakoutEntry,
+            // live default: require a 10-bar pullback-then-reclaim. false = enter on the
+            // first LTF body close beyond the fast band (other gates unchanged).
+            boolean requirePullback
     ) {
+        /** Back-compat: pullback gate on (live / T1 default). */
+        public Params(
+                Resolution htf, Resolution ltf, int days, int offsetDays, double rr, boolean runner,
+                boolean adxFilter, double adxThreshold, boolean skipConsolidation, boolean pivotTargets,
+                int maxNames, double stopBufferFrac, boolean adxPermit, double runnerLockR,
+                int splitEntries, int pyramidMax, int pyramidGapBars, double pyramidMinBufferR,
+                boolean supertrendTrail, boolean waveTrendFilter, boolean breakoutEntry
+        ) {
+            this(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold, skipConsolidation,
+                    pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR, splitEntries,
+                    pyramidMax, pyramidGapBars, pyramidMinBufferR, supertrendTrail, waveTrendFilter,
+                    breakoutEntry, true);
+        }
+
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
                     /*runner*/ false, /*adxFilter*/ false, /*adxThreshold*/ Adx.TREND_THRESHOLD,
@@ -109,7 +127,8 @@ public class HtsBacktestService {
                     /*stopBufferFrac*/ 0.25, /*adxPermit*/ false, /*runnerLockR*/ 1.0,
                     /*splitEntries*/ 1,
                     /*pyramidMax*/ 0, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
-                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false, /*breakoutEntry*/ false);
+                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false, /*breakoutEntry*/ false,
+                    /*requirePullback*/ true);
         }
 
         /** Copy overriding just the four swept axes (E-9). */
@@ -117,7 +136,14 @@ public class HtsBacktestService {
             return new Params(htf, ltf, days, offsetDays, rr, true, adxFilter, adxThreshold,
                     skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
                     splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
-                    supertrendTrail, waveTrendFilter, breakoutEntry);
+                    supertrendTrail, waveTrendFilter, breakoutEntry, requirePullback);
+        }
+
+        public Params withRequirePullback(boolean requirePullback) {
+            return new Params(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold,
+                    skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
+                    splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
+                    supertrendTrail, waveTrendFilter, breakoutEntry, requirePullback);
         }
     }
 
@@ -368,11 +394,13 @@ public class HtsBacktestService {
                     dir = -1;
                 }
             } else if (ltfUp && htfUp && !consolidating(lFast, lSlow, i, true, p.skipConsolidation())
-                    && pulledBack(ltf, lFast, i, true) && bar.close() > lFast.upper()[i]
+                    && (!p.requirePullback() || pulledBack(ltf, lFast, i, true))
+                    && bar.close() > lFast.upper()[i]
                     && adxOk(adx, i, true, p) && waveTrendOk(wt, i, true)) {
                 dir = 1;
             } else if (ltfDn && htfDn && !consolidating(lFast, lSlow, i, false, p.skipConsolidation())
-                    && pulledBack(ltf, lFast, i, false) && bar.close() < lFast.lower()[i]
+                    && (!p.requirePullback() || pulledBack(ltf, lFast, i, false))
+                    && bar.close() < lFast.lower()[i]
                     && adxOk(adx, i, false, p) && waveTrendOk(wt, i, false)) {
                 dir = -1;
             }
