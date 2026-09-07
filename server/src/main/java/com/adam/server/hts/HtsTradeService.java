@@ -142,8 +142,11 @@ public class HtsTradeService {
     }
 
     /**
-     * Scan-side gate: flag on, not blocked, exactly one OPEN row (the base).
-     * A second OPEN means the add is already on; do not emit another.
+     * Scan-side gate: flag on, not blocked, exactly one OPEN row (the base), and
+     * no add-on already resolved on this setup. {@link MmsEngine#addonBlocked}
+     * is in-memory (lost on restart), so also check the DB — a CLOSED
+     * add-on-sized row newer than the base means the add is done. When the base
+     * OPEN row is not visible yet, fall back to the in-memory / count gate only.
      */
     public boolean canScanMmsAddOn(HtsVariant variant, String symbol) {
         if (variant == null || variant.strategy() != HtsVariant.Strategy.MMS || symbol == null) {
@@ -152,7 +155,20 @@ public class HtsTradeService {
         if (!mms.params().addOnEnabled() || mms.addonBlocked(variant, symbol)) {
             return false;
         }
-        return trades.countByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN") == 1;
+        if (trades.countByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN") != 1) {
+            return false;
+        }
+        HtsTradeEntity base = openTrade(variant, symbol);
+        if (base != null && base.getId() != null) {
+            for (HtsTradeEntity c : trades.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc(
+                    variant.name(), symbol, "CLOSED")) {
+                if (c.getId() != null && c.getId() > base.getId()
+                        && MmsEngine.addonSizedStop(c.getEntry(), c.getStopLevel())) {
+                    return false; // add already taken (and closed) on this base — restart-safe
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -602,7 +618,7 @@ public class HtsTradeService {
             return MmsEngine.RISK_UNIT_FULL;
         }
         java.util.List<HtsTradeEntity> closed =
-                trades.findByVariantAndSymbolAndStatusOrderByIdDesc(variant.name(), symbol, "CLOSED");
+                trades.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc(variant.name(), symbol, "CLOSED");
         if (closed == null || closed.isEmpty()) {
             return MmsEngine.RISK_UNIT_FULL;
         }

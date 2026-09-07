@@ -306,7 +306,8 @@ public class HtsScanService {
             open.add(s.code());
         }
         for (String code : v.universe()) {
-            if (!open.contains(code) || !v.tradesSymbol(code)) {
+            // app.mms.symbols narrows the scan (e.g. a BTC-only forward test).
+            if (!open.contains(code) || !v.tradesSymbol(code) || !mms.tradesSymbol(code)) {
                 continue;
             }
             SddSymbol sym;

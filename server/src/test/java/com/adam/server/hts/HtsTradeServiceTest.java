@@ -130,7 +130,7 @@ class HtsTradeServiceTest {
         stopped.setRMultiple(-1.0);
         stopped.setEntry(100.0);
         stopped.setStopLevel(98.0); // full ~2% base SL
-        when(repo.findByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
                 .thenReturn(List.of(stopped));
         assertThat(service.mmsRiskUnit(HtsVariant.MMS, "BTC")).isEqualTo(0.1);
 
@@ -139,11 +139,11 @@ class HtsTradeServiceTest {
         won.setRMultiple(1.2);
         won.setEntry(100.0);
         won.setStopLevel(98.0);
-        when(repo.findByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
                 .thenReturn(List.of(won));
         assertThat(service.mmsRiskUnit(HtsVariant.MMS, "XAU")).isEqualTo(1.0);
 
-        when(repo.findByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "US100", "CLOSED"))
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "US100", "CLOSED"))
                 .thenReturn(List.of());
         assertThat(service.mmsRiskUnit(HtsVariant.MMS, "US100")).isEqualTo(1.0);
     }
@@ -161,7 +161,7 @@ class HtsTradeServiceTest {
         baseWin.setRMultiple(1.1);
         baseWin.setEntry(100.0);
         baseWin.setStopLevel(98.0);
-        when(repo.findByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "BTC", "CLOSED"))
                 .thenReturn(List.of(addonStop, baseWin));
         assertThat(service.mmsRiskUnit(HtsVariant.MMS, "BTC")).isEqualTo(1.0);
 
@@ -170,7 +170,7 @@ class HtsTradeServiceTest {
         baseStop.setRMultiple(-1.0);
         baseStop.setEntry(200.0);
         baseStop.setStopLevel(196.0); // 2%
-        when(repo.findByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
+        when(repo.findTop20ByVariantAndSymbolAndStatusOrderByIdDesc("MMS", "XAU", "CLOSED"))
                 .thenReturn(List.of(addonStop, baseStop));
         assertThat(service.mmsRiskUnit(HtsVariant.MMS, "XAU")).isEqualTo(0.1);
     }
@@ -186,7 +186,7 @@ class HtsTradeServiceTest {
                 MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
                 com.adam.server.sdd.AtrEnvelope.Mode.TMA_ATR,
                 MmsEngine.TpMode.OPPOSITE_BAND, MmsEngine.SlMode.PCT,
-                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT));
+                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW));
         service = new HtsTradeService(repo, books, engine, haHunt, addOn, props, risk, List.of(sink));
         assertThat(service.allowMmsAddOn(s)).isTrue();
         assertThat(service.canScanMmsAddOn(HtsVariant.MMS, "BTC")).isTrue();

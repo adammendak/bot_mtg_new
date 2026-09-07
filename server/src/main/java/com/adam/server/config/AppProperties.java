@@ -37,6 +37,7 @@ public class AppProperties {
     private int maxOpenNames = 4;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
+    private final Mms mms = new Mms();
 
     public String getBroker() {
         return broker;
@@ -266,6 +267,138 @@ public class AppProperties {
 
     public SddEpics getSdd() {
         return sdd;
+    }
+
+    public Mms getMms() {
+        return mms;
+    }
+
+    /**
+     * MastermindZX MMS mean-reversion tunables ({@link com.adam.server.hts.MmsEngine}).
+     * The site re-optimises {@code atrMult} / {@code atrPeriod} / {@code slPct}
+     * roughly monthly, so these are env-driven, not constants. {@code symbols}
+     * narrows the scan (e.g. a BTC-only forward test) without a code change.
+     */
+    public static class Mms {
+        private int atrPeriod = 20;
+        private double atrMult = 2.0;
+        private double slPct = 0.02;
+        /** {@code TMA_ATR} (default) or {@code BB_ATR}. */
+        private String mode = "TMA_ATR";
+        /** {@code OPPOSITE_BAND} (site) or {@code FIXED_1R} (MT5 tester clips). */
+        private String tpMode = "OPPOSITE_BAND";
+        /** {@code PCT} (site) or {@code WICK_EXTREME}. */
+        private String slMode = "PCT";
+        private boolean addOnEnabled = false;
+        private boolean stochFilterEnabled = false;
+        private boolean stochCrossEnabled = false;
+        /** Closed bars after a band touch that still accept the first reaction. */
+        private int reactionWindow = 8;
+        /** CSV subset of the MMS universe (BTC,XAU,US100). Blank = all. */
+        private String symbols = "";
+
+        public int getAtrPeriod() {
+            return atrPeriod;
+        }
+
+        public void setAtrPeriod(int atrPeriod) {
+            this.atrPeriod = atrPeriod;
+        }
+
+        public double getAtrMult() {
+            return atrMult;
+        }
+
+        public void setAtrMult(double atrMult) {
+            this.atrMult = atrMult;
+        }
+
+        public double getSlPct() {
+            return slPct;
+        }
+
+        public void setSlPct(double slPct) {
+            this.slPct = slPct;
+        }
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
+
+        public String getTpMode() {
+            return tpMode;
+        }
+
+        public void setTpMode(String tpMode) {
+            this.tpMode = tpMode;
+        }
+
+        public String getSlMode() {
+            return slMode;
+        }
+
+        public void setSlMode(String slMode) {
+            this.slMode = slMode;
+        }
+
+        public boolean isAddOnEnabled() {
+            return addOnEnabled;
+        }
+
+        public void setAddOnEnabled(boolean addOnEnabled) {
+            this.addOnEnabled = addOnEnabled;
+        }
+
+        public boolean isStochFilterEnabled() {
+            return stochFilterEnabled;
+        }
+
+        public void setStochFilterEnabled(boolean stochFilterEnabled) {
+            this.stochFilterEnabled = stochFilterEnabled;
+        }
+
+        public boolean isStochCrossEnabled() {
+            return stochCrossEnabled;
+        }
+
+        public void setStochCrossEnabled(boolean stochCrossEnabled) {
+            this.stochCrossEnabled = stochCrossEnabled;
+        }
+
+        public int getReactionWindow() {
+            return reactionWindow;
+        }
+
+        public void setReactionWindow(int reactionWindow) {
+            this.reactionWindow = reactionWindow;
+        }
+
+        public String getSymbols() {
+            return symbols;
+        }
+
+        public void setSymbols(String symbols) {
+            this.symbols = symbols;
+        }
+
+        /** Parsed {@link #symbols} — empty set means "no restriction". */
+        public java.util.Set<String> symbolSet() {
+            if (symbols == null || symbols.isBlank()) {
+                return java.util.Set.of();
+            }
+            java.util.Set<String> out = new java.util.LinkedHashSet<>();
+            for (String s : symbols.split(",")) {
+                String t = s.trim().toUpperCase();
+                if (!t.isEmpty()) {
+                    out.add(t);
+                }
+            }
+            return out;
+        }
     }
 
     public static class Scan {

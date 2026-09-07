@@ -59,6 +59,25 @@ After **one full confirming candle** / new interval (the immediate next closed b
 - Adaptive talk on the site uses the prior **3 days'** params — documented only, not implemented.
 - Bot default remains TMA(20) ± 2.0×ATR, SL 2%, `OPPOSITE_BAND`, `PCT`.
 
+### Config (`app.mms.*`) — the site re-optimises monthly, so these are env-driven
+
+| env | default | meaning |
+| --- | --- | --- |
+| `MMS_ATR_PERIOD` | `20` | envelope + Wilder-ATR period |
+| `MMS_ATR_MULT` | `2.0` | band width in ATRs |
+| `MMS_SL_PCT` | `0.02` | `%`-of-price base stop |
+| `MMS_MODE` | `TMA_ATR` | `TMA_ATR` or `BB_ATR` (SMA centre) |
+| `MMS_TP_MODE` | `OPPOSITE_BAND` | or `FIXED_1R` (1:1 from the stop) |
+| `MMS_SL_MODE` | `PCT` | or `WICK_EXTREME` |
+| `MMS_ADD_ON_ENABLED` | `false` | one-bar ×1 add-on |
+| `MMS_STOCH_FILTER_ENABLED` | `false` | H1 Stoch extreme gate |
+| `MMS_STOCH_CROSS_ENABLED` | `false` | entry-TF %K/%D cross gate |
+| `MMS_REACTION_WINDOW` | `8` | closed bars after a touch that still accept the first reaction |
+| `MMS_SYMBOLS` | *(blank = all)* | CSV subset, e.g. `MMS_SYMBOLS=BTC` for a BTC-only forward test |
+
+Bad enum text falls back to the site default. `MmsEngine` reads these via
+`Params.fromConfig` at construction (restart to re-apply).
+
 ## Discipline (document only)
 
 Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is often fake-marking — observation, not a setup hunt.
@@ -75,11 +94,14 @@ Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is oft
 
 `HtsVariant.MMS` is **parked**. It does not scan and cannot place orders.
 
-1. Unpark: remove `this == MMS` from `HtsVariant.parked()`.
+1. Unpark: remove `|| this == MMS` from `HtsVariant.parked()` (one line).
 2. Scan then follows `HTS_SCAN_ENABLED` / `hts.scan` (existing master switch).
 3. Demo fills still require `HTS_EXECUTION_ENABLED` / `hts.execution`. **Do not** turn on `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` for this variant. `MMS.live()` is false.
 
-Book when unparked: `demo` (“Account m15”), same book as HA4 — unpark only if you accept sharing that sub-account.
+Book when unparked: `demo` (“Account m15”), same book as HA4 — unpark only if
+you accept sharing that sub-account. For an isolated **BTC-only forward test**
+set `MMS_SYMBOLS=BTC` so only BTC is scanned (the 12-month backtest had BTC as
+the least-bad symbol; XAU was the worst — see `pr122-mms-review.md`).
 
 ## Default params (BTC / XAU / US100)
 

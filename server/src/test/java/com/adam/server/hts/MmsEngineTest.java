@@ -138,7 +138,7 @@ class MmsEngineTest {
         MmsEngine fixed = new MmsEngine(new MmsEngine.Params(
                 MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
                 AtrEnvelope.Mode.TMA_ATR, MmsEngine.TpMode.FIXED_1R, MmsEngine.SlMode.PCT,
-                false, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT));
+                false, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW));
         Instant touchT = t0.plusSeconds(80 * 900L);
         Instant reactT = touchT.plusSeconds(900);
         Instant now = reactT.plusSeconds(900);
@@ -228,7 +228,7 @@ class MmsEngineTest {
         MmsEngine addOn = new MmsEngine(new MmsEngine.Params(
                 MmsEngine.ATR_PERIOD, MmsEngine.ATR_MULT, MmsEngine.SL_PCT,
                 AtrEnvelope.Mode.TMA_ATR, MmsEngine.TpMode.OPPOSITE_BAND, MmsEngine.SlMode.PCT,
-                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT));
+                true, false, false, MmsEngine.ADDON_MAX_EXTRA_PCT, MmsEngine.ADDON_STOCH_SL_PCT, MmsEngine.REACTION_WINDOW));
         Instant touchT = t0.plusSeconds(80 * 900L);
         Instant reactT = touchT.plusSeconds(900);
         Instant confirmT = reactT.plusSeconds(900);
@@ -265,6 +265,32 @@ class MmsEngineTest {
         assertThat(MmsEngine.addonSizedStop(100.0, 99.4)).isTrue();
         assertThat(MmsEngine.addonSizedStop(100.0, 98.0)).isFalse(); // full 2% base
         assertThat(MmsEngine.addonSizedStop(100.0, 99.0)).isTrue();  // stoch 1%
+    }
+
+    @Test
+    void fromConfigBuildsParamsAndSymbolSubset() {
+        com.adam.server.config.AppProperties p = new com.adam.server.config.AppProperties();
+        p.getMms().setAtrMult(1.6);
+        p.getMms().setAtrPeriod(120);
+        p.getMms().setSlPct(0.018);
+        p.getMms().setTpMode("fixed_1r");        // case-insensitive
+        p.getMms().setMode("BB_ATR");
+        p.getMms().setReactionWindow(5);
+        p.getMms().setSymbols("btc, us100");
+        p.getMms().setTpMode("bogus");           // bad enum → site default
+
+        MmsEngine e = new MmsEngine(p);
+        assertThat(e.params().atrMult()).isEqualTo(1.6);
+        assertThat(e.params().atrPeriod()).isEqualTo(120);
+        assertThat(e.params().slPct()).isEqualTo(0.018);
+        assertThat(e.params().mode()).isEqualTo(AtrEnvelope.Mode.BB_ATR);
+        assertThat(e.params().tpMode()).isEqualTo(MmsEngine.TpMode.OPPOSITE_BAND); // "bogus" → fallback
+        assertThat(e.params().reactionWindow()).isEqualTo(5);
+        assertThat(e.tradesSymbol("BTC")).isTrue();
+        assertThat(e.tradesSymbol("us100")).isTrue();
+        assertThat(e.tradesSymbol("XAU")).isFalse();
+        // blank subset = no restriction
+        assertThat(new MmsEngine().tradesSymbol("XAU")).isTrue();
     }
 
     @Test

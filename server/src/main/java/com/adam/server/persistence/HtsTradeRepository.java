@@ -25,6 +25,9 @@ public interface HtsTradeRepository extends JpaRepository<HtsTradeEntity, Long> 
     /** OPEN / CLOSED rows for a variant+symbol (MMS base vs add-on, sequential delever). */
     List<HtsTradeEntity> findByVariantAndSymbolAndStatusOrderByIdDesc(String variant, String symbol, String status);
 
+    /** Newest {@code n} rows for a variant+symbol+status — MMS delever / add-on lookback (bounded). */
+    List<HtsTradeEntity> findTop20ByVariantAndSymbolAndStatusOrderByIdDesc(String variant, String symbol, String status);
+
     long countByVariantAndSymbolAndStatus(String variant, String symbol, String status);
 
     /** Today's realised P/L on a book — for the live day-halt. */

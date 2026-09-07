@@ -86,33 +86,62 @@ public class MmsEngine {
             boolean stochFilterEnabled,
             boolean stochCrossEnabled,
             double addOnMaxExtraPct,
-            double addOnStochSlPct
+            double addOnStochSlPct,
+            int reactionWindow
     ) {
         public static Params defaults() {
             return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR,
                     TpMode.OPPOSITE_BAND, SlMode.PCT, false, false, false,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
         }
 
         /** MT5 tester: 1:1 RR, SL beyond the piercing wick. */
         public static Params testerFixed1r() {
             return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.TMA_ATR,
                     TpMode.FIXED_1R, SlMode.WICK_EXTREME, false, false, false,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
         }
 
         /** Tester clip: BB pierce + Stoch OB/OS + reversal close + %K/%D cross, 1:1 RR. */
         public static Params testerBbStoch() {
             return new Params(ATR_PERIOD, ATR_MULT, SL_PCT, AtrEnvelope.Mode.BB_ATR,
                     TpMode.FIXED_1R, SlMode.WICK_EXTREME, false, false, true,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
         }
 
         /** Documented site BB M15 example (period 41, deviation 3.2, SL 1.7%) — not the live default. */
         public static Params siteBbM15Example() {
             return new Params(41, 3.2, 0.017, AtrEnvelope.Mode.BB_ATR,
                     TpMode.OPPOSITE_BAND, SlMode.PCT, false, false, false,
-                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT);
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, REACTION_WINDOW);
+        }
+
+        /** Build from {@code app.mms.*} env config (bad enum text falls back to the site default). */
+        public static Params fromConfig(com.adam.server.config.AppProperties.Mms m) {
+            if (m == null) {
+                return defaults();
+            }
+            int win = m.getReactionWindow() > 0 ? m.getReactionWindow() : REACTION_WINDOW;
+            return new Params(
+                    m.getAtrPeriod() > 0 ? m.getAtrPeriod() : ATR_PERIOD,
+                    m.getAtrMult() > 0 ? m.getAtrMult() : ATR_MULT,
+                    m.getSlPct() > 0 ? m.getSlPct() : SL_PCT,
+                    parseEnum(AtrEnvelope.Mode.class, m.getMode(), AtrEnvelope.Mode.TMA_ATR),
+                    parseEnum(TpMode.class, m.getTpMode(), TpMode.OPPOSITE_BAND),
+                    parseEnum(SlMode.class, m.getSlMode(), SlMode.PCT),
+                    m.isAddOnEnabled(), m.isStochFilterEnabled(), m.isStochCrossEnabled(),
+                    ADDON_MAX_EXTRA_PCT, ADDON_STOCH_SL_PCT, win);
+        }
+
+        private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw, E fallback) {
+            if (raw == null || raw.isBlank()) {
+                return fallback;
+            }
+            try {
+                return Enum.valueOf(type, raw.trim().toUpperCase());
+            } catch (RuntimeException e) {
+                return fallback;
+            }
         }
     }
 
@@ -121,6 +150,8 @@ public class MmsEngine {
     }
 
     private final Params params;
+    /** Configured symbol subset (blank config = empty = no restriction). */
+    private final java.util.Set<String> symbolSubset;
     /** variant|symbol → add-on book for this setup (in-memory; resets on restart). */
     private final Map<String, AddonMem> addons = new ConcurrentHashMap<>();
 
@@ -132,15 +163,32 @@ public class MmsEngine {
     }
 
     public MmsEngine() {
-        this(Params.defaults());
+        this(Params.defaults(), java.util.Set.of());
+    }
+
+    /** Spring wiring: build {@link Params} + the symbol subset from {@code app.mms.*}. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public MmsEngine(com.adam.server.config.AppProperties props) {
+        this(Params.fromConfig(props == null ? null : props.getMms()),
+                props == null ? java.util.Set.of() : props.getMms().symbolSet());
     }
 
     public MmsEngine(Params params) {
+        this(params, java.util.Set.of());
+    }
+
+    public MmsEngine(Params params, java.util.Set<String> symbolSubset) {
         this.params = params == null ? Params.defaults() : params;
+        this.symbolSubset = symbolSubset == null ? java.util.Set.of() : java.util.Set.copyOf(symbolSubset);
     }
 
     public Params params() {
         return params;
+    }
+
+    /** Whether the configured {@code app.mms.symbols} subset (if any) admits this code. */
+    public boolean tradesSymbol(String code) {
+        return code != null && (symbolSubset.isEmpty() || symbolSubset.contains(code.toUpperCase()));
     }
 
     /**
@@ -168,7 +216,7 @@ public class MmsEngine {
         if (!env.ready(i)) {
             return null;
         }
-        Setup setup = reactionSetup(bars, env, i);
+        Setup setup = reactionSetup(bars, env, i, params.reactionWindow());
         if (setup == null) {
             return null;
         }
@@ -448,11 +496,15 @@ public class MmsEngine {
      * @return {@code TRUE} long, {@code FALSE} short, {@code null} no entry
      */
     static Boolean reactionEntry(List<Candle> bars, AtrEnvelope.Series env, int i) {
-        Setup s = reactionSetup(bars, env, i);
+        Setup s = reactionSetup(bars, env, i, REACTION_WINDOW);
         return s == null ? null : s.longDir();
     }
 
     static Setup reactionSetup(List<Candle> bars, AtrEnvelope.Series env, int i) {
+        return reactionSetup(bars, env, i, REACTION_WINDOW);
+    }
+
+    static Setup reactionSetup(List<Candle> bars, AtrEnvelope.Series env, int i, int window) {
         if (i < 1 || !env.ready(i)) {
             return null;
         }
@@ -462,7 +514,7 @@ public class MmsEngine {
         if (!reactUp && !reactDown) {
             return null;
         }
-        int from = Math.max(0, i - REACTION_WINDOW);
+        int from = Math.max(0, i - window);
         Integer upperTouch = null;
         Integer lowerTouch = null;
         for (int j = i - 1; j >= from; j--) {
