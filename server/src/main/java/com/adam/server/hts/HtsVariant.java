@@ -34,12 +34,10 @@ import java.util.List;
  *       BTC (net loser) for XRP; execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
  *   <li>{@link #MMS} — MastermindZX mean-reversion (TMA/ATR envelope, M15
  *       default) on BTC / XAU / US100 → its own isolated {@code mms} book
- *       ({@code MMS_ACCOUNT_NAME}, a dedicated Capital demo sub-account — no
- *       sharing with HA4). <b>Observe-only forward test</b>: scanned, signals
- *       land in {@code hts_signals}, mail off ({@code app.mms.mail-enabled}),
- *       execution auto-skips while {@code CAPITAL_MMS_*} is unset. Backtest showed
- *       no edge — collecting live signals before any account. {@code MMS_SYMBOLS}
- *       defaults to {@code BTC}. See {@code docs/MMS-STRATEGY.md}.</li>
+ *       ("Account MMS" / {@code MMS_ACCOUNT_NAME}; never HA4's
+ *       "Account m15"). Unparked: scanned like the other active variants.
+ *       Demo fills honour {@code HTS_EXECUTION_ENABLED}; {@code live()} is
+ *       false. See {@code docs/MMS-STRATEGY.md}.</li>
  * </ul>
  *
  * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
@@ -49,8 +47,8 @@ import java.util.List;
  * the same ("Account m5") book; {@link #HA4X} ("M15 band cross" entry) backtested
  * to PF ~1.2 IS / ~0.8 in the recent regime, MaxDD ~30% — the HA-flip vs
  * band-cross A/B was decided on the numbers, {@link #HA12} took its book.
- * {@link #MMS} is parked so it cannot place orders until someone explicitly
- * unparks it; execution still honours {@code HTS_EXECUTION_ENABLED}.
+ * {@link #MMS} is unparked on its own {@code mms} book ("Account MMS");
+ * execution still honours {@code HTS_EXECUTION_ENABLED}. {@code live()} is false.
  *
  * <p>Ribbon variants ({@link Strategy#RIBBON}) run {@link HtsEngine};
  * HA-hunt variants ({@link Strategy#HA_HUNT}) run {@link HaHuntEngine} with a
@@ -103,9 +101,10 @@ public enum HtsVariant {
      * {@link com.adam.server.hts.MmsEngine.TpMode#FIXED_1R} (tester clips).
      * Mandatory SL, no trail. Optional one-bar add-on ×1 (default off).
      * Universe: BTC (Capital {@code BTCUSD} / OKX {@code BTC-USDT-SWAP} if
-     * remapped), XAU/GOLD, US100/NQ. Both sides. Parked — not scanned, not
-     * executed. Site: https://mastermindzx.pl/ (BTCUSDT monthly-optimised
-     * backtests; no WR copied into code).
+     * remapped), XAU/GOLD, US100/NQ. Both sides. Unparked on book
+     * {@link com.adam.server.broker.Books#MMS} ("Account MMS") — not scanned
+     * onto HA4's demo book. Site: https://mastermindzx.pl/ (BTCUSDT
+     * monthly-optimised backtests; no WR copied into code).
      */
     MMS(Books.MMS, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
 

@@ -83,9 +83,21 @@ class RiskPolicyTest {
     }
 
     @Test
-    void swingPickerFallsBackWhenNamedAccountAbsent() {
-        Account demo = new Account("1", "Account", "PLN", 1000, 1000, 0, true);
-        assertThat(risk.pickSwingAccount(List.of(demo))).isEqualTo(demo);
+    void mmsPickerRequiresAccountMmsAndNeverFallsBackToM15() {
+        Account m15 = new Account("1", "Account m15", "PLN", 1000, 1000, 0, true);
+        Account m5 = new Account("2", "Account m5", "PLN", 1000, 1000, 0, false);
+        Account h1 = new Account("3", "Account H1", "PLN", 1000, 1000, 0, false);
+        Account mms = new Account("4", "Account MMS", "PLN", 1000, 1000, 0, false);
+        assertThat(risk.pickMmsAccount(List.of(m15, m5, h1, mms))).isEqualTo(mms);
+        assertThat(risk.pickForBook(com.adam.server.broker.Books.MMS, List.of(m15, m5, h1, mms)))
+                .isEqualTo(mms);
+        assertThat(risk.pickMmsAccount(List.of(m15, m5, h1))).isNull();
+        assertThat(risk.pickForBook(com.adam.server.broker.Books.DEMO, List.of(m15, m5, h1, mms)))
+                .isEqualTo(m15);
+        assertThat(risk.pickForBook(com.adam.server.broker.Books.HTS, List.of(m15, m5, h1, mms)))
+                .isEqualTo(m5);
+        assertThat(risk.pickForBook(com.adam.server.broker.Books.SWING, List.of(m15, m5, h1, mms)))
+                .isEqualTo(h1);
     }
 
     @Test

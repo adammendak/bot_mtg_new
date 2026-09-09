@@ -198,22 +198,23 @@ public class RiskPolicy {
      * "MMS" book pick — a fully isolated Capital.com DEMO sub-account for the
      * MastermindZX mean-reversion variant. Accepts only the account named
      * {@code MMS_ACCOUNT_NAME} ({@code app.mms-account-name}, default
-     * {@code "Account MMS"}); falls back to the preferred demo account if that
-     * name is absent.
+     * {@code "Account MMS"}). Never falls back to {@code Account m15} / the
+     * demo book — missing name means no MMS account, not a shared HA4 book.
      */
     public Account pickMmsAccount(List<Account> accounts) {
         if (accounts == null || accounts.isEmpty()) {
             return null;
         }
         String name = properties.getMmsAccountName();
-        if (name != null && !name.isBlank()) {
-            for (Account a : accounts) {
-                if (!isFintokei(a.name()) && name.equals(a.name())) {
-                    return a;
-                }
+        if (name == null || name.isBlank()) {
+            name = "Account MMS";
+        }
+        for (Account a : accounts) {
+            if (!isFintokei(a.name()) && name.equals(a.name())) {
+                return a;
             }
         }
-        return pickDemoAccount(accounts);
+        return null;
     }
 
     /**
@@ -229,8 +230,9 @@ public class RiskPolicy {
 
     /**
      * The demo sub-account a book trades on: {@code demo} → "Account m15",
-     * {@code swing} → "Account H1", {@code hts} → "Account m5", {@code okx} → the
-     * OKX unified account, anything else → the preferred demo account. Used by the
+     * {@code swing} → "Account H1", {@code hts} → "Account m5", {@code mms} →
+     * "Account MMS" (no fallback onto m15), {@code okx} → the OKX unified
+     * account, anything else → the preferred demo account. Used by the
      * HTS engine, which now runs one timeframe model per account.
      */
     public Account pickForBook(String book, List<Account> accounts) {
