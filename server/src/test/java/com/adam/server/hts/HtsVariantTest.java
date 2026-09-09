@@ -102,12 +102,20 @@ class HtsVariantTest {
     }
 
     @Test
-    void mmsIsAnUnparkedObserveOnlyMeanReversionVariantOnItsOwnBook() {
+    void mmsIsUnparkedOnItsOwnAccountMmsBook() {
         assertThat(HtsVariant.MMS.strategy()).isEqualTo(HtsVariant.Strategy.MMS);
-        assertThat(HtsVariant.MMS.parked()).isFalse(); // observe-only forward test
+        assertThat(HtsVariant.MMS.parked()).isFalse();
         assertThat(HtsVariant.MMS.live()).isFalse();
         assertThat(HtsVariant.MMS.longOnly()).isFalse();
         assertThat(HtsVariant.MMS.book()).isEqualTo(com.adam.server.broker.Books.MMS);
+        // other HTS parked/active flags unchanged
+        assertThat(HtsVariant.CORE.parked()).isTrue();
+        assertThat(HtsVariant.FAST.parked()).isTrue();
+        assertThat(HtsVariant.SWING.parked()).isTrue();
+        assertThat(HtsVariant.HA4.parked()).isFalse();
+        assertThat(HtsVariant.HA12.parked()).isFalse();
+        assertThat(HtsVariant.CORE_LIVE.parked()).isFalse();
+        assertThat(HtsVariant.HA4.book()).isEqualTo(com.adam.server.broker.Books.DEMO);
         assertThat(HtsVariant.MMS.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
         assertThat(HtsVariant.MMS.ltfMinutes()).isEqualTo(15);
         assertThat(HtsVariant.MMS.universe()).containsExactly("BTC", "XAU", "US100");
