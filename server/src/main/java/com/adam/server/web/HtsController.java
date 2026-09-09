@@ -78,6 +78,7 @@ public class HtsController {
             @RequestParam(name = "supertrendTrail", defaultValue = "false") boolean supertrendTrail,
             @RequestParam(name = "waveTrendFilter", defaultValue = "false") boolean waveTrendFilter,
             @RequestParam(name = "breakout", defaultValue = "false") boolean breakout,
+            @RequestParam(name = "sessionFilter", defaultValue = "false") boolean sessionFilter,
             @RequestParam(name = "format", defaultValue = "csv") String format,
             Authentication authentication
     ) {
@@ -92,7 +93,7 @@ public class HtsController {
                 skipConsolidation, pivotTargets, maxNames, stopBuf, adxPermit, runnerLock,
                 Math.max(1, split),
                 Math.max(0, pyramidMax), Math.max(1, pyramidGap), pyramidMinBuf,
-                supertrendTrail, waveTrendFilter, breakout);
+                supertrendTrail, waveTrendFilter, breakout, sessionFilter);
         if ("summary".equalsIgnoreCase(format) || "json".equalsIgnoreCase(format)) {
             return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)
                     .body(backtest.summary(p));

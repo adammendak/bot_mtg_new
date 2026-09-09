@@ -100,8 +100,25 @@ public class HtsBacktestService {
             boolean supertrendTrail,
             boolean waveTrendFilter,
             // breakout entry: enter on a fresh band cross (HTF supporting), no pullback required
-            boolean breakoutEntry
+            boolean breakoutEntry,
+            // FAST-style session cut: skip non-BTC entries outside Warsaw 08:00–22:00 weekdays.
+            // BTC is always allowed (matches live weekend-BTC / 24/7).
+            boolean sessionFilter
     ) {
+        /** Back-compat: session filter off. */
+        public Params(
+                Resolution htf, Resolution ltf, int days, int offsetDays, double rr, boolean runner,
+                boolean adxFilter, double adxThreshold, boolean skipConsolidation, boolean pivotTargets,
+                int maxNames, double stopBufferFrac, boolean adxPermit, double runnerLockR,
+                int splitEntries, int pyramidMax, int pyramidGapBars, double pyramidMinBufferR,
+                boolean supertrendTrail, boolean waveTrendFilter, boolean breakoutEntry
+        ) {
+            this(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold, skipConsolidation,
+                    pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR, splitEntries,
+                    pyramidMax, pyramidGapBars, pyramidMinBufferR, supertrendTrail, waveTrendFilter,
+                    breakoutEntry, false);
+        }
+
         public static Params core(int days, int offsetDays, double rr) {
             return new Params(Resolution.H4, Resolution.M15, days, offsetDays, rr,
                     /*runner*/ false, /*adxFilter*/ false, /*adxThreshold*/ Adx.TREND_THRESHOLD,
@@ -109,7 +126,8 @@ public class HtsBacktestService {
                     /*stopBufferFrac*/ 0.25, /*adxPermit*/ false, /*runnerLockR*/ 1.0,
                     /*splitEntries*/ 1,
                     /*pyramidMax*/ 0, /*pyramidGapBars*/ 5, /*pyramidMinBufferR*/ 0.5,
-                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false, /*breakoutEntry*/ false);
+                    /*supertrendTrail*/ false, /*waveTrendFilter*/ false, /*breakoutEntry*/ false,
+                    /*sessionFilter*/ false);
         }
 
         /** Copy overriding just the four swept axes (E-9). */
@@ -117,7 +135,35 @@ public class HtsBacktestService {
             return new Params(htf, ltf, days, offsetDays, rr, true, adxFilter, adxThreshold,
                     skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
                     splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
-                    supertrendTrail, waveTrendFilter, breakoutEntry);
+                    supertrendTrail, waveTrendFilter, breakoutEntry, sessionFilter);
+        }
+
+        public Params withAdx(boolean adxFilter, boolean adxPermit) {
+            return new Params(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold,
+                    skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
+                    splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
+                    supertrendTrail, waveTrendFilter, breakoutEntry, sessionFilter);
+        }
+
+        public Params withRunnerLockR(double runnerLockR) {
+            return new Params(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold,
+                    skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
+                    splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
+                    supertrendTrail, waveTrendFilter, breakoutEntry, sessionFilter);
+        }
+
+        public Params withSessionFilter(boolean sessionFilter) {
+            return new Params(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold,
+                    skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
+                    splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
+                    supertrendTrail, waveTrendFilter, breakoutEntry, sessionFilter);
+        }
+
+        public Params withRr(double rr, boolean runner) {
+            return new Params(htf, ltf, days, offsetDays, rr, runner, adxFilter, adxThreshold,
+                    skipConsolidation, pivotTargets, maxNames, stopBufferFrac, adxPermit, runnerLockR,
+                    splitEntries, pyramidMax, pyramidGapBars, pyramidMinBufferR,
+                    supertrendTrail, waveTrendFilter, breakoutEntry, sessionFilter);
         }
     }
 
@@ -379,6 +425,9 @@ public class HtsBacktestService {
             if (dir == null) {
                 continue;
             }
+            if (!sessionAllows(bar.time(), code, p.sessionFilter())) {
+                continue;
+            }
             boolean buy = dir > 0;
             double entry = bar.close();
             // structural stop = far edge of the fast band, pushed slightly further
@@ -420,6 +469,26 @@ public class HtsBacktestService {
             return false;
         }
         return buy ? fast.lower()[k] > slow.upper()[k] : fast.upper()[k] < slow.lower()[k];
+    }
+
+    /**
+     * FAST session cut: Europe/Warsaw weekdays {@code [08:00, 22:00)}. BTC is
+     * never filtered (live weekend-BTC / 24/7). Off = always allow.
+     */
+    static boolean sessionAllows(Instant time, String code, boolean enabled) {
+        if (!enabled || time == null) {
+            return true;
+        }
+        if ("BTC".equals(code)) {
+            return true;
+        }
+        var z = time.atZone(ZONE);
+        var day = z.getDayOfWeek();
+        if (day == java.time.DayOfWeek.SATURDAY || day == java.time.DayOfWeek.SUNDAY) {
+            return false;
+        }
+        var t = z.toLocalTime();
+        return !t.isBefore(java.time.LocalTime.of(8, 0)) && t.isBefore(java.time.LocalTime.of(22, 0));
     }
 
     private static boolean pulledBack(List<Candle> ltf, Band.Series fast, int i, boolean buy) {
@@ -504,12 +573,12 @@ public class HtsBacktestService {
      * <p>{@code runner=false}: whole position to {@code rr × stopDist}.
      *
      * <p>{@code runner=true}: half takes the fixed {@code rr} target (the videos
-     * use 1:2); the other half is the runner. When {@code lockR > 0} the runner's
-     * stop, <b>once TP1 is filled</b>, ratchets up to {@code entry ± lockR×stopDist}
-     * (a locked profit — „przycina do 1% zysku") and then trails the far edge of
-     * the fast band, whichever is higher. The runner still exits for good when a
-     * candle body closes beyond the slow band. {@code lockR ≤ 0} = no lock/trail,
-     * runner just held to the slow-band body-close.
+     * use 1:2); the other half is the runner. <b>Once TP1 is filled</b> the runner
+     * always trails the far edge of the fast band, never worse than the original
+     * structural stop. When {@code lockR > 0} that trail is also floored at
+     * {@code entry ± lockR×stopDist} (live default +1R). {@code lockR ≤ 0} = no
+     * +1R lock — original stop + trail only (SDD lesson). The runner still exits
+     * for good when a candle body closes beyond the slow band.
      */
     private static Replayed replayRr(Cand c, double rr, boolean runner, double lockR, boolean stTrail) {
         boolean buy = c.buy;
@@ -533,8 +602,9 @@ public class HtsBacktestService {
             return mtm(c, c.ltf.get(end - 1), end - 1, buy, stopDist);
         }
 
-        boolean lockTrail = lockR > 0;
-        double lockLevel = buy ? c.entry + lockR * stopDist : c.entry - lockR * stopDist;
+        double lockLevel = lockR > 0
+                ? (buy ? c.entry + lockR * stopDist : c.entry - lockR * stopDist)
+                : c.stop;
         double runnerStop = c.stop;
         Double rA = null;
         Double rB = null;
@@ -557,14 +627,16 @@ public class HtsBacktestService {
                 }
             }
 
-            // half B — runner
+            // half B — runner: after TP1 trail the fast band (never worse).
+            // lockR > 0 also floors the trail at entry ± lockR (live +1R).
             if (rB == null) {
-                boolean afterTp1 = lockTrail && rA != null && rA > 0;
+                boolean afterTp1 = rA != null && rA > 0;
                 if (afterTp1) {
                     double edge = trailEdge(c, i, buy, stTrail);
+                    double floor = lockR > 0 ? lockLevel : c.stop;
                     runnerStop = buy
-                            ? Math.max(runnerStop, Math.max(lockLevel, edge))
-                            : Math.min(runnerStop, Math.min(lockLevel, edge));
+                            ? Math.max(runnerStop, Math.max(floor, edge))
+                            : Math.min(runnerStop, Math.min(floor, edge));
                 }
                 double effStop = afterTp1 ? runnerStop : c.stop;
                 if (buy ? b.low() <= effStop : b.high() >= effStop) {
@@ -740,7 +812,9 @@ public class HtsBacktestService {
         double sizeFrac = (double) nf / n;
 
         double target = buy ? c.entry + rr * origDist : c.entry - rr * origDist;
-        double lockLevel = buy ? c.entry + lockR * origDist : c.entry - lockR * origDist;
+        double lockLevel = lockR > 0
+                ? (buy ? c.entry + lockR * origDist : c.entry - lockR * origDist)
+                : c.stop;
         double runnerStop = c.stop;
         Double rA = null;
         Double rB = null;
@@ -761,12 +835,13 @@ public class HtsBacktestService {
                 }
             }
             if (rB == null) {
-                boolean afterTp1 = lockR > 0 && rA != null && rA > 0;
+                boolean afterTp1 = rA != null && rA > 0;
                 if (afterTp1) {
                     double edge = trailEdge(c, i, buy, stTrail);
+                    double floor = lockR > 0 ? lockLevel : c.stop;
                     runnerStop = buy
-                            ? Math.max(runnerStop, Math.max(lockLevel, edge))
-                            : Math.min(runnerStop, Math.min(lockLevel, edge));
+                            ? Math.max(runnerStop, Math.max(floor, edge))
+                            : Math.min(runnerStop, Math.min(floor, edge));
                 }
                 double effStop = afterTp1 ? runnerStop : c.stop;
                 if (buy ? b.low() <= effStop : b.high() >= effStop) {
