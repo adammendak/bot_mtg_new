@@ -51,7 +51,7 @@ After **one full confirming candle** / new interval (the immediate next closed b
 - If the add-on SL hits: **do not retry adds**. Keep the **base SL (~2%)**. Wait for an entirely new setup. An add-on STOP does **not** cut the sequential risk unit — only a full base SL outside the bands does.
 - The add window is that single next interval. Later bars are not a second chance.
 
-`MmsEngine.evaluateAdd` encodes the confirming-candle + wick-cap + no-retry book. The execution gate allows **one** add only when `addOnEnabled` is on, exactly one OPEN base exists, and this setup has not already taken or stopped an add. Flag default **off**; MMS is parked.
+`MmsEngine.evaluateAdd` encodes the confirming-candle + wick-cap + no-retry book. The execution gate allows **one** add only when `addOnEnabled` is on, exactly one OPEN base exists, and this setup has not already taken or stopped an add. Flag default **off**.
 
 ## Parameterization notes
 
@@ -104,42 +104,21 @@ Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is oft
 
 | Code | Capital epic (env override) | Notes |
 | --- | --- | --- |
-| BTC | `BTCUSD` (`SDD_EPIC_BTC`) | Weekend-open. OKX perpetual is already mapped as `BTC-USDT-SWAP` via `OkxSymbol.BTC` — not scanned by this parked Capital variant. |
+| BTC | `BTCUSD` (`SDD_EPIC_BTC`) | Weekend-open. OKX perpetual is already mapped as `BTC-USDT-SWAP` via `OkxSymbol.BTC` — not scanned by this Capital variant. |
 | XAU | `GOLD` (`SDD_EPIC_XAU`) | Weekdays only (Warsaw weekend filter). |
 | US100 | `US100` (`SDD_EPIC_US100`) | NQ proxy on Capital. Weekdays only. |
 
-## Current state — observe-only forward test (no account)
+## How to toggle MMS
 
-`HtsVariant.MMS` is **not parked**. On merge it runs as a **signal-only forward
-test**:
+`HtsVariant.MMS` is **unparked**. It scans and monitors like the other unparked HTS variants.
 
-- `scanMms` runs every M15 close on `MMS_SYMBOLS` (default **`BTC`**), using the
-  shared market-data broker for candles.
-- Every signal → a `hts_signals` row tagged `variant=MMS`. Query
-  `/api/hts/signals?variant=MMS`. The scorecard is **replayed from price**
-  (which came first, stop or target, R) — no `hts_trades` rows, no P/L feed.
-- **No mail** (`MMS_MAIL_ENABLED=false` — the inbox already carries HA4/HA12).
-- **No execution**: `HtsExecutionGate` skips the `mms` book while
-  `CAPITAL_MMS_*` is unset (`"mms broker not configured"`). Zero positions,
-  zero margin, no Capital sub-account needed.
+Book: isolated `mms` → Capital demo **`Account MMS`** (`MMS_ACCOUNT_NAME`). It does **not** share **Account m15** with HA4 / CORE (no fallback onto that sub-account).
 
-The only cost is one extra Capital M15 (+H1 for the HTF gate) fetch per scan.
+1. Scan follows existing `HTS_SCAN_ENABLED` / `hts.scan`.
+2. Demo fills follow existing `HTS_EXECUTION_ENABLED` / `hts.execution`.
+3. `MMS.live()` is false. Do **not** turn on `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` for this variant.
 
-## Promoting to a real (demo) forward test
-
-MMS has its **own isolated book** `mms` — no sharing with HA4's `demo`
-("Account m15"). To place demo orders:
-
-1. Create a fresh Capital demo sub-account (name it `Account MMS`) + an API key
-   scoped to it.
-2. Set on the host: `CAPITAL_MMS_API_KEY` / `_EMAIL` / `_PASSWORD`, and
-   `MMS_ACCOUNT_NAME` if the sub-account name differs.
-3. `HTS_EXECUTION_ENABLED` is already on → MMS then trades that sub-account.
-   **Do not** set `EXECUTION_ENABLED` (SDD) or `HTS_LIVE_EXECUTION_ENABLED` —
-   `MMS.live()` is false.
-
-To silence the whole thing again: put `|| this == MMS` back in
-`HtsVariant.parked()`.
+To silence again: add `|| this == MMS` to `HtsVariant.parked()`.
 
 ## Default params (BTC / XAU / US100)
 
@@ -153,4 +132,4 @@ Same defaults on all three names:
 | SL | `PCT` 2% of entry (tester clips: `WICK_EXTREME`) |
 | Risk unit | ×1, then ×0.1 after a full base SL until a winning TP (add-on SL does not cut) |
 | Add-on / H1 stoch / Stoch cross | off (add-on extra ≤ 1%, typically &lt; 0.5%; one next-interval add, no retry) |
-| Live / execution | off (parked) |
+| Live / execution | unparked, demo **Account MMS**, `live()` false |
