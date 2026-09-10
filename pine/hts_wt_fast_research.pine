@@ -16,7 +16,7 @@ strategy("HTS FAST + WaveTrend (RESEARCH)", overlay=true,
      pyramiding=0,
      margin_long=100,
      margin_short=100,
-     max_labels_count=200,
+     max_labels_count=500,
      max_bars_back=500)
 
 tfNote   = input.string("M5", "Chart TF note (intended M5; HTF = H1)", group="Timeframe")
@@ -93,8 +93,14 @@ tpShort = close - tpR * distShort
 slOkLong  = distLong > 0
 slOkShort = distShort > 0
 
-plotshape(longEntry,  title="LONG",  style=shape.arrowup,   location=location.belowbar, color=color.lime, size=size.small, text="L")
-plotshape(shortEntry, title="SHORT", style=shape.arrowdown, location=location.abovebar, color=color.red,  size=size.small, text="S")
+plotshape(longEntry,  title="LONG arrow",  style=shape.arrowup,   location=location.belowbar, color=color.lime, size=size.normal)
+plotshape(shortEntry, title="SHORT arrow", style=shape.arrowdown, location=location.abovebar, color=color.red,  size=size.normal)
+if longEntry
+    label.new(bar_index, low, "LONG", yloc=yloc.belowbar, style=label.style_label_up,
+         color=color.lime, textcolor=color.white, size=size.normal)
+if shortEntry
+    label.new(bar_index, high, "SHORT", yloc=yloc.abovebar, style=label.style_label_down,
+         color=color.red, textcolor=color.white, size=size.normal)
 plot(longEntry  ? slLong  : na, "Long SL",  color=color.maroon, style=plot.style_circles, linewidth=2)
 plot(shortEntry ? slShort : na, "Short SL", color=color.maroon, style=plot.style_circles, linewidth=2)
 plot(longEntry  ? tpLong  : na, "Long TP",  color=color.teal,   style=plot.style_circles, linewidth=2)
