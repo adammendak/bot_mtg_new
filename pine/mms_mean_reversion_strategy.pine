@@ -1,22 +1,41 @@
 //@version=5
-indicator("MMS Mean Reversion (MastermindZX)", overlay=true, max_labels_count=500, max_bars_back=1000)
+// MMS Mean Reversion — Strategy Tester companion (not the live overlay).
+// Research/tester sibling of pine/mms_mean_reversion.pine and Java MmsEngine.
+// Bot default TF: M15 (prefer M10–M30). Do not run on M5 (noise).
+// Closed-bar only (process_orders_on_close, no lookahead). No trail / no BE.
+// Docs: docs/MMS-STRATEGY.md
+//
+// Opposite-band TP limitation: TradingView cannot rest a *moving* far-band
+// limit without using the current bar's ATR (intra-bar lookahead). This script
+// monitors closed bars like MmsEngine.oppositeBandHit and market-closes when
+// the far envelope is touched. FIXED_1R uses strategy.exit stop+limit from the
+// entry bar. Sequential ×0.1 risk-unit after a full SL is not modelled here.
+strategy("MMS Mean Reversion Strategy", overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     process_orders_on_close=true,
+     calc_on_every_tick=false,
+     pyramiding=1,
+     margin_long=100,
+     margin_short=100,
+     max_labels_count=500,
+     max_bars_back=1000)
 
-// Bot-side sibling: HtsVariant.MMS / MmsEngine (closed-bar only, no lookahead).
 // Site: https://mastermindzx.pl/  — BTCUSDT backtests there are monthly-optimised.
 // Written site = OPPOSITE_BAND TP; MT5 tester clips on BTCUSD = FIXED_1R.
-// Algo TFs: M10–M30 (bot default M15). H1 = manual base. Exclude M5 (noise).
 // H4 = trend/range context; D1 = bias/sizing — not entry TFs.
 // Site BB M15 example (not default): period 41, deviation 3.2, SL 1.7%.
 // Add-on: next interval only, SL at local wick, extra ≤ 1% (typically < 0.5%).
 // Stoch-filtered add = fixed 1% SL. Add SL hit → no retry; keep base ~2% SL.
-// No trail. Full SL outside bands → size ×0.1 until first profitable setup.
-// Discipline (manual): prefer spot/P2P over CFD; avoid overnight; Monday D1/W1 observation.
 
 atrPeriod = input.int(20, "ATR / MA period", minval=2, group="Envelope")
 atrMult   = input.float(2.0, "ATR multiplier", minval=0.1, step=0.1, group="Envelope")
 mode      = input.string("TMA_ATR", "Envelope type", options=["TMA_ATR", "BB_ATR"], group="Envelope")
 tpMode    = input.string("OPPOSITE_BAND", "TP mode", options=["OPPOSITE_BAND", "FIXED_1R"], group="Risk",
-     tooltip="OPPOSITE_BAND = written site. FIXED_1R = MT5 tester clips (1:1 from SL).")
+     tooltip="OPPOSITE_BAND = written site (closed-bar far-band close). FIXED_1R = MT5 tester clips (1:1 from SL).")
 slMode    = input.string("PCT", "SL mode", options=["PCT", "WICK_EXTREME"], group="Risk",
      tooltip="PCT = % of entry (site ~2%). WICK_EXTREME = beyond piercing/reaction wick (tester).")
 slPct     = input.float(2.0, "Stop loss % of price (when SL=PCT)", minval=0.1, step=0.1, group="Risk")
@@ -84,8 +103,6 @@ stochOkLong  = not stochFlt or h1k <= 20
 stochOkShort = not stochFlt or h1k >= 80
 
 // ── HTF campaign gate — MMS refinement: MR both-sides, but only WITH the trend.
-// campaignDir: +1 bull-only (HA-close bullish OR close>SMA), -1 bear-only,
-// 0 unclear (HA and SMA disagree). LONG needs +1, SHORT needs -1.
 campDir(_haC, _haO, _close, _sma) =>
     _bull = (_haC >= _haO) or (_close > _sma)
     _bear = (_haC <  _haO) or (_close < _sma)
@@ -96,7 +113,7 @@ htfSmaClose = ta.sma(close, htfSma)
 [h4c, h4sma]   = request.security(syminfo.tickerid, "240", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
 [d1haO, d1haC] = request.security(haT, "D", [open[1], close[1]], lookahead=barmerge.lookahead_off)
 [d1c, d1sma]   = request.security(syminfo.tickerid, "D", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
-d4raw = campDir(h4haC, h4haO, h4c, h4sma)   // hoisted: no user-fn call inside ?:
+d4raw = campDir(h4haC, h4haO, h4c, h4sma)
 d1raw = campDir(d1haC, d1haO, d1c, d1sma)
 dir4 = na(h4sma) ? int(na) : d4raw
 dir1 = na(d1sma) ? int(na) : d1raw
@@ -150,11 +167,82 @@ addShort = addOn and barstate.isconfirmed and shortEntry[1] and reactDown and no
 plotshape(addLong,  title="Add LONG",  style=shape.circle, location=location.belowbar, color=color.aqua, size=size.tiny)
 plotshape(addShort, title="Add SHORT", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
+var float posSl = na
+var float posTp = na
+var float addSl = na
+var float addTp = na
+var bool  addTaken = false
+
+flat = strategy.position_size == 0
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+
+if longEntry and flat
+    posSl := slLong
+    posTp := tpLong
+    addTaken := false
+    addSl := na
+    addTp := na
+    strategy.entry("Long", strategy.long, comment="MMS LONG")
+
+if shortEntry and flat
+    posSl := slShort
+    posTp := tpShort
+    addTaken := false
+    addSl := na
+    addTp := na
+    strategy.entry("Short", strategy.short, comment="MMS SHORT")
+
+// Add window is the single next closed bar after the reaction (longEntry[1] /
+// shortEntry[1]); no retry after that, matching the overlay / MmsEngine.
+baseEntry = close[1]
+if addLong and inLong and not addTaken
+    addTaken := true
+    addSl := stochFlt ? baseEntry * 0.99 : low
+    addTp := tpMode == "FIXED_1R" ? close + (close - addSl) : posTp
+    strategy.entry("LongAdd", strategy.long, comment="MMS ADD")
+
+if addShort and inShort and not addTaken
+    addTaken := true
+    addSl := stochFlt ? baseEntry * 1.01 : high
+    addTp := tpMode == "FIXED_1R" ? close - (addSl - close) : posTp
+    strategy.entry("ShortAdd", strategy.short, comment="MMS ADD")
+
+fixedTp = tpMode == "FIXED_1R"
+if inLong and not na(posSl)
+    if fixedTp
+        strategy.exit("XL", from_entry="Long", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="1R")
+    else
+        strategy.exit("XL", from_entry="Long", stop=posSl, comment_loss="SL")
+    if addTaken and not na(addSl)
+        if fixedTp
+            strategy.exit("XLA", from_entry="LongAdd", stop=addSl, limit=addTp, comment_loss="ADD SL", comment_profit="1R")
+        else
+            strategy.exit("XLA", from_entry="LongAdd", stop=addSl, comment_loss="ADD SL")
+    // Closed-bar far-band TP (no intra-bar moving limit — see header).
+    if not fixedTp and barstate.isconfirmed and not na(upper) and high >= upper
+        strategy.close("Long", comment="BAND")
+        strategy.close("LongAdd", comment="BAND")
+
+if inShort and not na(posSl)
+    if fixedTp
+        strategy.exit("XS", from_entry="Short", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="1R")
+    else
+        strategy.exit("XS", from_entry="Short", stop=posSl, comment_loss="SL")
+    if addTaken and not na(addSl)
+        if fixedTp
+            strategy.exit("XSA", from_entry="ShortAdd", stop=addSl, limit=addTp, comment_loss="ADD SL", comment_profit="1R")
+        else
+            strategy.exit("XSA", from_entry="ShortAdd", stop=addSl, comment_loss="ADD SL")
+    if not fixedTp and barstate.isconfirmed and not na(lower) and low <= lower
+        strategy.close("Short", comment="BAND")
+        strategy.close("ShortAdd", comment="BAND")
+
 alertcondition(longEntry,  title="MMS LONG",  message="MMS LONG — band touch + first up candle")
 alertcondition(shortEntry, title="MMS SHORT", message="MMS SHORT — band touch + first down candle")
 
 var table info = table.new(position.top_right, 1, 3, bgcolor=color.new(color.black, 70))
 if barstate.islast
-    table.cell(info, 0, 0, "MMS  " + tfNote + "  " + mode + "  " + tpMode, text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 0, "MMS STRAT  " + tfNote + "  " + mode + "  " + tpMode, text_color=color.white, text_size=size.small)
     table.cell(info, 0, 1, "SL " + slMode + " " + str.tostring(slPct) + "%   ATR " + str.tostring(atrPeriod) + "×" + str.tostring(atrMult), text_color=color.silver, text_size=size.tiny)
     table.cell(info, 0, 2, "add " + (addOn ? "ON" : "off") + "  H1stoch " + (stochFlt ? "ON" : "off") + "  cross " + (stochX ? "ON" : "off"), text_color=color.gray, text_size=size.tiny)

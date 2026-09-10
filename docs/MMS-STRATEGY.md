@@ -1,6 +1,6 @@
 # MMS — MastermindZX mean-reversion
 
-Closed-bar port of the [MastermindZX MMS](https://mastermindzx.pl/) rules for BTC, XAU/GOLD and US100/NQ. Bot engine: `MmsEngine` / `HtsVariant.MMS`. Pine overlay: `pine/mms_mean_reversion.pine`.
+Closed-bar port of the [MastermindZX MMS](https://mastermindzx.pl/) rules for BTC, XAU/GOLD and US100/NQ. Bot engine: `MmsEngine` / `HtsVariant.MMS`. Pine files are listed under [Pine](#pine).
 
 Site BTCUSDT backtests are monthly-optimised. This repo does not copy win-rate numbers from those runs.
 
@@ -107,6 +107,18 @@ Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is oft
 | BTC | `BTCUSD` (`SDD_EPIC_BTC`) | Weekend-open. OKX perpetual is already mapped as `BTC-USDT-SWAP` via `OkxSymbol.BTC` — not scanned by this Capital variant. |
 | XAU | `GOLD` (`SDD_EPIC_XAU`) | Weekdays only (Warsaw weekend filter). |
 | US100 | `US100` (`SDD_EPIC_US100`) | NQ proxy on Capital. Weekdays only. |
+
+## Pine
+
+| File | Role | Chart TF |
+| --- | --- | --- |
+| `pine/mms_mean_reversion.pine` | Overlay (signals only, no orders) | **M15** |
+| `pine/mms_mean_reversion_strategy.pine` | Strategy Tester companion (same inputs as overlay / `MmsEngine`) | **M15** |
+| `pine/mms_mean_reversion_rsi_research.pine` | **RESEARCH** — site core (TMA±ATR, SL 2%, opposite-band TP) + Wilder RSI(14) pivot filter | **M15** |
+
+Related (not MMS): `pine/hts_wt_fast_research.pine` — **RESEARCH** HTS FAST M5 / H1 HA+RMA stack + LazyBear WaveTrend. Does not change Java `HtsEngine` / FAST.
+
+Strategy Tester: paste a `strategy()` file into TradingView’s Pine Editor → Add to chart → open **Strategy Tester**. MMS scripts use **M15** (not M5); the HTS+WT research script uses **M5**. Opposite-band TP is a closed-bar close (TV cannot rest a moving far-band limit without intra-bar lookahead); `FIXED_1R` on the MMS companion uses `strategy.exit` stop + limit from the entry bar.
 
 ## How to toggle MMS
 
