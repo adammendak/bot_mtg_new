@@ -1,0 +1,127 @@
+//@version=5
+// HTS FAST + WaveTrend — RESEARCH only (not live HtsEngine / FAST).
+// Chart TF: M5. HTF via request.security: H1 (closed HA + RMA close stack).
+// LTF: HA flip + RMA(high/low) bandsClear + LazyBear WaveTrend (n1=10, n2=21).
+// SL: fast-band far edge ± 0.25×width. TP: 2R full. No trail / no BE.
+// Closed-bar only (process_orders_on_close, no lookahead).
+// Docs: docs/MMS-STRATEGY.md (Pine section). Java HTS/FAST is unchanged.
+strategy("HTS FAST + WaveTrend (RESEARCH)", overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     process_orders_on_close=true,
+     calc_on_every_tick=false,
+     pyramiding=0,
+     margin_long=100,
+     margin_short=100,
+     max_labels_count=200,
+     max_bars_back=500)
+
+tfNote   = input.string("M5", "Chart TF note (intended M5; HTF = H1)", group="Timeframe")
+htfTf    = input.timeframe("60", "HTF", group="Timeframe", tooltip="H1. Closed-bar HA + RMA(close) stack.")
+fastLen  = input.int(33, "RMA fast", minval=2, group="RMA")
+slowLen  = input.int(144, "RMA slow", minval=2, group="RMA")
+stopBuf  = input.float(0.25, "SL buffer × fast-band width", minval=0.0, step=0.05, group="Risk")
+tpR      = input.float(2.0, "TP = R ×", minval=0.5, step=0.5, group="Risk")
+wtN1     = input.int(10, "WaveTrend n1 (ESA)", minval=2, group="WaveTrend")
+wtN2     = input.int(21, "WaveTrend n2 (TCI / wt1)", minval=2, group="WaveTrend")
+wtSm     = input.int(4, "WaveTrend wt2 SMA", minval=1, group="WaveTrend")
+wtOs     = input.float(-60, "WT oversold (long: wt1 < this)", step=1, group="WaveTrend",
+     tooltip="Hard extreme -60. Soft alternative -50.")
+wtOb     = input.float(60, "WT overbought (short: wt1 > this)", step=1, group="WaveTrend",
+     tooltip="Hard extreme +60. Soft alternative +50.")
+
+// ── LTF Heikin-Ashi (chart TF) ───────────────────────────────────────────────
+haClose = (open + high + low + close) / 4.0
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2.0 : (haOpen[1] + haClose[1]) / 2.0
+haBull = haClose >= haOpen
+haFlip = haBull != haBull[1]
+
+// ── LTF RMA bands (high/low) — bandsClear = fast fully clear of slow ─────────
+rfHi = ta.rma(high, fastLen)
+rfLo = ta.rma(low, fastLen)
+rsHi = ta.rma(high, slowLen)
+rsLo = ta.rma(low, slowLen)
+fUp = math.max(rfHi, rfLo)
+fLo = math.min(rfHi, rfLo)
+sUp = math.max(rsHi, rsLo)
+sLo = math.min(rsHi, rsLo)
+bandsClearLong  = not na(fLo) and not na(sUp) and fLo > sUp
+bandsClearShort = not na(fUp) and not na(sLo) and fUp < sLo
+bandW = math.max(0.0, fUp - fLo)
+
+plot(fUp, "Fast RMA high", color=color.new(color.teal, 20))
+plot(fLo, "Fast RMA low", color=color.new(color.teal, 20))
+plot(sUp, "Slow RMA high", color=color.new(color.orange, 50))
+plot(sLo, "Slow RMA low", color=color.new(color.orange, 50))
+
+// ── LazyBear WaveTrend (public formula; not Market Cipher) ───────────────────
+ap  = hlc3
+esa = ta.ema(ap, wtN1)
+d   = ta.ema(math.abs(ap - esa), wtN1)
+ci  = (ap - esa) / (0.015 * math.max(d, 1e-10))
+wt1 = ta.ema(ci, wtN2)
+wt2 = ta.sma(wt1, wtSm)
+wtCrossUp = ta.crossover(wt1, wt2)
+wtCrossDn = ta.crossunder(wt1, wt2)
+wtLong  = wtCrossUp and wt1 < wtOs
+wtShort = wtCrossDn and wt1 > wtOb
+
+// ── HTF H1: closed HA bull/bear + RMA(close) stack ───────────────────────────
+haT = ticker.heikinashi(syminfo.tickerid)
+htfHaBull = request.security(haT, htfTf, close[1] >= open[1], lookahead=barmerge.lookahead_off)
+htfRmaFast = request.security(syminfo.tickerid, htfTf, ta.rma(close, fastLen)[1], lookahead=barmerge.lookahead_off)
+htfRmaSlow = request.security(syminfo.tickerid, htfTf, ta.rma(close, slowLen)[1], lookahead=barmerge.lookahead_off)
+htfStackLong  = not na(htfRmaFast) and not na(htfRmaSlow) and htfRmaFast > htfRmaSlow
+htfStackShort = not na(htfRmaFast) and not na(htfRmaSlow) and htfRmaFast < htfRmaSlow
+htfLong  = htfHaBull     and htfStackLong
+htfShort = (not htfHaBull) and htfStackShort
+
+confirmed = barstate.isconfirmed
+longEntry  = confirmed and haFlip and haBull     and bandsClearLong  and wtLong  and htfLong
+shortEntry = confirmed and haFlip and not haBull and bandsClearShort and wtShort and htfShort
+
+slLong  = fLo - stopBuf * bandW
+slShort = fUp + stopBuf * bandW
+distLong  = close - slLong
+distShort = slShort - close
+tpLong  = close + tpR * distLong
+tpShort = close - tpR * distShort
+slOkLong  = distLong > 0
+slOkShort = distShort > 0
+
+plotshape(longEntry,  title="LONG",  style=shape.arrowup,   location=location.belowbar, color=color.lime, size=size.small, text="L")
+plotshape(shortEntry, title="SHORT", style=shape.arrowdown, location=location.abovebar, color=color.red,  size=size.small, text="S")
+plot(longEntry  ? slLong  : na, "Long SL",  color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? slShort : na, "Short SL", color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(longEntry  ? tpLong  : na, "Long TP",  color=color.teal,   style=plot.style_circles, linewidth=2)
+plot(shortEntry ? tpShort : na, "Short TP", color=color.teal,   style=plot.style_circles, linewidth=2)
+
+var float posSl = na
+var float posTp = na
+flat = strategy.position_size == 0
+
+if longEntry and flat and slOkLong
+    posSl := slLong
+    posTp := tpLong
+    strategy.entry("Long", strategy.long, comment="HTS-WT LONG")
+
+if shortEntry and flat and slOkShort
+    posSl := slShort
+    posTp := tpShort
+    strategy.entry("Short", strategy.short, comment="HTS-WT SHORT")
+
+if strategy.position_size > 0 and not na(posSl)
+    strategy.exit("XL", from_entry="Long", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="2R")
+if strategy.position_size < 0 and not na(posSl)
+    strategy.exit("XS", from_entry="Short", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="2R")
+
+var table info = table.new(position.top_right, 1, 3, bgcolor=color.new(color.black, 70))
+if barstate.islast
+    table.cell(info, 0, 0, "HTS-WT RESEARCH  " + tfNote + " / H1", text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 1, "RMA " + str.tostring(fastLen) + "/" + str.tostring(slowLen) + "  WT " + str.tostring(wtN1) + "/" + str.tostring(wtN2) + "  OS " + str.tostring(wtOs), text_color=color.silver, text_size=size.tiny)
+    htfTxt = htfLong ? "H1 BULL stack" : htfShort ? "H1 BEAR stack" : "H1 unclear"
+    table.cell(info, 0, 2, htfTxt + "  bands " + (bandsClearLong ? "L" : "") + (bandsClearShort ? "S" : "") + (not bandsClearLong and not bandsClearShort ? "overlap" : ""), text_color=color.gray, text_size=size.tiny)

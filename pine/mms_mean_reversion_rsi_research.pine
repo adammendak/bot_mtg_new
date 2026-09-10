@@ -1,0 +1,155 @@
+//@version=5
+// MMS Mean Reversion + RSI — RESEARCH only (does not replace the overlay / bot).
+// Core (written site): TMA(20) = SMA(SMA(close,20),20) ± 2.0 × Wilder ATR(20);
+// SL = 2% of entry; TP = OPPOSITE_BAND (closed-bar far-band close).
+// Extra filter: Wilder RSI(14) — long if a pivot low ≤35 in the last 3 bars
+// and RSI is turning up; short if a pivot high ≥70 and RSI is turning down.
+// Bot default TF: M15 (prefer M10–M30). Not M5. No trail / no BE.
+// Docs: docs/MMS-STRATEGY.md. Java MmsEngine / prod defaults unchanged.
+strategy("MMS Mean Reversion + RSI (RESEARCH)", overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     process_orders_on_close=true,
+     calc_on_every_tick=false,
+     pyramiding=0,
+     margin_long=100,
+     margin_short=100,
+     max_labels_count=200,
+     max_bars_back=1000)
+
+atrPeriod = input.int(20, "ATR / TMA period", minval=2, group="Envelope")
+atrMult   = input.float(2.0, "ATR multiplier", minval=0.1, step=0.1, group="Envelope")
+slPct     = input.float(2.0, "Stop loss % of entry", minval=0.1, step=0.1, group="Risk")
+tfNote    = input.string("M15", "Entry TF note (bot default M15; not M5)", group="Timeframe")
+reactWin  = input.int(8, "Reaction window (bars after touch)", minval=1, maxval=32, group="Entry")
+rsiLen    = input.int(14, "RSI length (Wilder)", minval=2, group="RSI filter")
+rsiOs     = input.float(35, "RSI pivot-low ≤ (long)", minval=1, maxval=50, step=1, group="RSI filter")
+rsiOb     = input.float(70, "RSI pivot-high ≥ (short)", minval=50, maxval=99, step=1, group="RSI filter")
+rsiLook   = input.int(3, "Pivot lookback (bars)", minval=1, maxval=8, group="RSI filter")
+htfGate   = input.bool(true,  "HTF campaign gate: trade only WITH the H4 trend", group="HTF gate")
+htfSma    = input.int(50, "HTF SMA period", minval=5, group="HTF gate")
+htfD1     = input.bool(false, "Also require the D1 campaign to agree", group="HTF gate")
+
+// TMA = SMA-of-SMA; ta.atr is Wilder ATR.
+tma    = ta.sma(ta.sma(close, atrPeriod), atrPeriod)
+atrVal = ta.atr(atrPeriod)
+upper  = tma + atrMult * atrVal
+lower  = tma - atrMult * atrVal
+
+plot(tma, "TMA", color=color.new(color.gray, 0), linewidth=1)
+uPlot  = plot(upper, "Upper", color=color.new(color.red, 0))
+lPlot  = plot(lower, "Lower", color=color.new(color.teal, 0))
+fill(uPlot, lPlot, color=color.new(color.blue, 92), title="ATR envelope")
+
+touchUpper = not na(upper) and high >= upper
+touchLower = not na(lower) and low  <= lower
+
+upperSetup = false
+lowerSetup = false
+if not na(upper)
+    for i = 1 to reactWin
+        if high[i] >= upper[i]
+            upperSetup := true
+            break
+        if close[i] < open[i]
+            break
+if not na(lower)
+    for i = 1 to reactWin
+        if low[i] <= lower[i]
+            lowerSetup := true
+            break
+        if close[i] > open[i]
+            break
+
+reactDown = close < open
+reactUp   = close > open
+
+// Wilder RSI (ta.rsi). Pivot = local extreme vs both neighbours, inside lookback.
+rsi = ta.rsi(close, rsiLen)
+rsiTurnUp = rsi > rsi[1]
+rsiTurnDn = rsi < rsi[1]
+rsiPivotOs = false
+rsiPivotOb = false
+if not na(rsi)
+    for i = 1 to rsiLook
+        pl = rsi[i] <= rsi[i + 1] and rsi[i] <= rsi[i - 1]
+        ph = rsi[i] >= rsi[i + 1] and rsi[i] >= rsi[i - 1]
+        if pl and rsi[i] <= rsiOs
+            rsiPivotOs := true
+        if ph and rsi[i] >= rsiOb
+            rsiPivotOb := true
+rsiOkLong  = rsiPivotOs and rsiTurnUp
+rsiOkShort = rsiPivotOb and rsiTurnDn
+
+campDir(_haC, _haO, _close, _sma) =>
+    _bull = (_haC >= _haO) or (_close > _sma)
+    _bear = (_haC <  _haO) or (_close < _sma)
+    (_bull and _bear) ? 0 : (_bull ? 1 : -1)
+haT = ticker.heikinashi(syminfo.tickerid)
+htfSmaClose = ta.sma(close, htfSma)
+[h4haO, h4haC] = request.security(haT, "240", [open[1], close[1]], lookahead=barmerge.lookahead_off)
+[h4c, h4sma]   = request.security(syminfo.tickerid, "240", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
+[d1haO, d1haC] = request.security(haT, "D", [open[1], close[1]], lookahead=barmerge.lookahead_off)
+[d1c, d1sma]   = request.security(syminfo.tickerid, "D", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
+d4raw = campDir(h4haC, h4haO, h4c, h4sma)
+d1raw = campDir(d1haC, d1haO, d1c, d1sma)
+dir4 = na(h4sma) ? int(na) : d4raw
+dir1 = na(d1sma) ? int(na) : d1raw
+campOkLong  = not htfGate or na(dir4) or (dir4 == 1  and (not htfD1 or na(dir1) or dir1 == 1))
+campOkShort = not htfGate or na(dir4) or (dir4 == -1 and (not htfD1 or na(dir1) or dir1 == -1))
+
+shortRaw = barstate.isconfirmed and upperSetup and reactDown
+longRaw  = barstate.isconfirmed and lowerSetup and reactUp
+shortEntry = shortRaw and rsiOkShort and campOkShort
+longEntry  = longRaw  and rsiOkLong  and campOkLong
+
+plotshape(touchUpper and barstate.isconfirmed, title="Upper band touch", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.red, 30), size=size.tiny)
+plotshape(touchLower and barstate.isconfirmed, title="Lower band touch", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.teal, 30), size=size.tiny)
+plotshape(shortEntry, title="SHORT reaction", style=shape.arrowdown,
+     location=location.abovebar, color=color.red, size=size.small, text="S")
+plotshape(longEntry, title="LONG reaction", style=shape.arrowup,
+     location=location.belowbar, color=color.lime, size=size.small, text="L")
+
+slLong  = close * (1.0 - slPct * 0.01)
+slShort = close * (1.0 + slPct * 0.01)
+tpLong  = upper
+tpShort = lower
+
+plot(longEntry  ? slLong  : na, "Long SL",  color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? slShort : na, "Short SL", color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(longEntry  ? tpLong  : na, "Long TP",  color=color.teal, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? tpShort : na, "Short TP", color=color.teal, style=plot.style_circles, linewidth=2)
+
+var float posSl = na
+flat = strategy.position_size == 0
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+
+if longEntry and flat
+    posSl := slLong
+    strategy.entry("Long", strategy.long, comment="MMS-RSI LONG")
+
+if shortEntry and flat
+    posSl := slShort
+    strategy.entry("Short", strategy.short, comment="MMS-RSI SHORT")
+
+if inLong and not na(posSl)
+    strategy.exit("XL", from_entry="Long", stop=posSl, comment_loss="SL")
+    if barstate.isconfirmed and not na(upper) and high >= upper
+        strategy.close("Long", comment="BAND")
+
+if inShort and not na(posSl)
+    strategy.exit("XS", from_entry="Short", stop=posSl, comment_loss="SL")
+    if barstate.isconfirmed and not na(lower) and low <= lower
+        strategy.close("Short", comment="BAND")
+
+var table info = table.new(position.top_right, 1, 3, bgcolor=color.new(color.black, 70))
+if barstate.islast
+    table.cell(info, 0, 0, "MMS+RSI RESEARCH  " + tfNote, text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 1, "TMA " + str.tostring(atrPeriod) + "×" + str.tostring(atrMult) + "  SL " + str.tostring(slPct) + "%  OPPOSITE_BAND", text_color=color.silver, text_size=size.tiny)
+    table.cell(info, 0, 2, "RSI " + str.tostring(rsiLen) + "  OS≤" + str.tostring(rsiOs) + "  OB≥" + str.tostring(rsiOb) + "  look " + str.tostring(rsiLook), text_color=color.gray, text_size=size.tiny)
