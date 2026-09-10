@@ -1,6 +1,6 @@
 # MMS — MastermindZX mean-reversion
 
-Closed-bar port of the [MastermindZX MMS](https://mastermindzx.pl/) rules for BTC, XAU/GOLD and US100/NQ. Bot engine: `MmsEngine` / `HtsVariant.MMS`. Pine overlay: `pine/mms_mean_reversion.pine`.
+Closed-bar port of the [MastermindZX MMS](https://mastermindzx.pl/) rules for BTC, XAU/GOLD and US100/NQ. Bot engine: `MmsEngine` / `HtsVariant.MMS`. Pine overlay: `pine/mms_mean_reversion.pine`. Strategy Tester sibling: `pine/mms_mean_reversion_strategy.pine`.
 
 Site BTCUSDT backtests are monthly-optimised. This repo does not copy win-rate numbers from those runs.
 
@@ -107,6 +107,12 @@ Prefer spot / P2P over CFD. Avoid overnight when possible. Monday D1 / W1 is oft
 | BTC | `BTCUSD` (`SDD_EPIC_BTC`) | Weekend-open. OKX perpetual is already mapped as `BTC-USDT-SWAP` via `OkxSymbol.BTC` — not scanned by this Capital variant. |
 | XAU | `GOLD` (`SDD_EPIC_XAU`) | Weekdays only (Warsaw weekend filter). |
 | US100 | `US100` (`SDD_EPIC_US100`) | NQ proxy on Capital. Weekdays only. |
+
+## Pine
+
+Overlay (signals only, no orders): `pine/mms_mean_reversion.pine`.
+
+Strategy Tester: paste `pine/mms_mean_reversion_strategy.pine` into TradingView’s Pine Editor → Add to chart → open **Strategy Tester**. Use the chart TF **M15** (bot default; not M5). Inputs match the overlay / `MmsEngine`. Opposite-band TP is a closed-bar close (TV cannot rest a moving far-band limit without intra-bar lookahead); `FIXED_1R` uses `strategy.exit` stop + limit from the entry bar.
 
 ## How to toggle MMS
 

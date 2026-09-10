@@ -1,0 +1,242 @@
+//@version=5
+// MMS Mean Reversion — Strategy Tester companion (not the live overlay).
+// Research/tester sibling of pine/mms_mean_reversion.pine and Java MmsEngine.
+// Bot default TF: M15 (prefer M10–M30). Do not run on M5 (noise).
+// Closed-bar only (process_orders_on_close, no lookahead). No trail / no BE.
+// Docs: docs/MMS-STRATEGY.md
+//
+// Opposite-band TP limitation: TradingView cannot rest a *moving* far-band
+// limit without using the current bar's ATR (intra-bar lookahead). This script
+// monitors closed bars like MmsEngine.oppositeBandHit and market-closes when
+// the far envelope is touched. FIXED_1R uses strategy.exit stop+limit from the
+// entry bar. Sequential ×0.1 risk-unit after a full SL is not modelled here.
+strategy("MMS Mean Reversion Strategy", overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     process_orders_on_close=true,
+     calc_on_every_tick=false,
+     pyramiding=1,
+     margin_long=100,
+     margin_short=100,
+     max_labels_count=200,
+     max_bars_back=1000)
+
+// Site: https://mastermindzx.pl/  — BTCUSDT backtests there are monthly-optimised.
+// Written site = OPPOSITE_BAND TP; MT5 tester clips on BTCUSD = FIXED_1R.
+// H4 = trend/range context; D1 = bias/sizing — not entry TFs.
+// Site BB M15 example (not default): period 41, deviation 3.2, SL 1.7%.
+// Add-on: next interval only, SL at local wick, extra ≤ 1% (typically < 0.5%).
+// Stoch-filtered add = fixed 1% SL. Add SL hit → no retry; keep base ~2% SL.
+
+atrPeriod = input.int(20, "ATR / MA period", minval=2, group="Envelope")
+atrMult   = input.float(2.0, "ATR multiplier", minval=0.1, step=0.1, group="Envelope")
+mode      = input.string("TMA_ATR", "Envelope type", options=["TMA_ATR", "BB_ATR"], group="Envelope")
+tpMode    = input.string("OPPOSITE_BAND", "TP mode", options=["OPPOSITE_BAND", "FIXED_1R"], group="Risk",
+     tooltip="OPPOSITE_BAND = written site (closed-bar far-band close). FIXED_1R = MT5 tester clips (1:1 from SL).")
+slMode    = input.string("PCT", "SL mode", options=["PCT", "WICK_EXTREME"], group="Risk",
+     tooltip="PCT = % of entry (site ~2%). WICK_EXTREME = beyond piercing/reaction wick (tester).")
+slPct     = input.float(2.0, "Stop loss % of price (when SL=PCT)", minval=0.1, step=0.1, group="Risk")
+tfNote    = input.string("M15", "Entry TF note (bot default M15; prefer M10–M30; not M5)", group="Timeframe")
+reactWin  = input.int(8, "Reaction window (bars after touch)", minval=1, maxval=32, group="Entry")
+addOn     = input.bool(false, "Add-on ×1 after the next confirming candle (bot default off)", group="Optional")
+htfGate   = input.bool(true,  "HTF campaign gate: trade only WITH the H4 trend (default on)", group="HTF gate")
+htfSma    = input.int(50, "HTF SMA period", minval=5, group="HTF gate")
+htfD1     = input.bool(false, "Also require the D1 campaign to agree", group="HTF gate")
+stochFlt  = input.bool(false, "H1 Stoch(14,3,3) extreme for entries and adds (default off)", group="Optional")
+stochX    = input.bool(false, "Entry-TF Stoch OB/OS + %K/%D cross (tester BB clip, default off)", group="Optional")
+stochLen  = input.int(14, "Stoch length", minval=2, group="Optional")
+stochK    = input.int(3, "Stoch %K smooth", minval=1, group="Optional")
+stochD    = input.int(3, "Stoch %D smooth", minval=1, group="Optional")
+
+tma    = ta.sma(ta.sma(close, atrPeriod), atrPeriod)
+smaMid = ta.sma(close, atrPeriod)
+centre = mode == "TMA_ATR" ? tma : smaMid
+atrVal = ta.atr(atrPeriod)
+upper  = centre + atrMult * atrVal
+lower  = centre - atrMult * atrVal
+
+plot(centre, "Centre", color=color.new(color.gray, 0), linewidth=1)
+uPlot  = plot(upper, "Upper", color=color.new(color.red, 0))
+lPlot  = plot(lower, "Lower", color=color.new(color.teal, 0))
+fill(uPlot, lPlot, color=color.new(color.blue, 92), title="ATR envelope")
+
+touchUpper = not na(upper) and high >= upper
+touchLower = not na(lower) and low  <= lower
+
+upperSetup = false
+lowerSetup = false
+touchHi = high
+touchLo = low
+if not na(upper)
+    for i = 1 to reactWin
+        if high[i] >= upper[i]
+            upperSetup := true
+            touchHi := high[i]
+            break
+        if close[i] < open[i]
+            break
+if not na(lower)
+    for i = 1 to reactWin
+        if low[i] <= lower[i]
+            lowerSetup := true
+            touchLo := low[i]
+            break
+        if close[i] > open[i]
+            break
+
+reactDown = close < open
+reactUp   = close > open
+k = ta.sma(ta.stoch(close, high, low, stochLen), stochK)
+d = ta.sma(k, stochD)
+crossDn = ta.crossunder(k, d)
+crossUp = ta.crossover(k, d)
+extremeShort = k[1] >= 80 or k >= 80
+extremeLong  = k[1] <= 20 or k <= 20
+stochXOkShort = not stochX or (extremeShort and crossDn)
+stochXOkLong  = not stochX or (extremeLong and crossUp)
+
+h1k = request.security(syminfo.tickerid, "60", ta.sma(ta.stoch(close, high, low, stochLen), stochK), lookahead=barmerge.lookahead_off)
+stochOkLong  = not stochFlt or h1k <= 20
+stochOkShort = not stochFlt or h1k >= 80
+
+// ── HTF campaign gate — MMS refinement: MR both-sides, but only WITH the trend.
+campDir(_haC, _haO, _close, _sma) =>
+    _bull = (_haC >= _haO) or (_close > _sma)
+    _bear = (_haC <  _haO) or (_close < _sma)
+    (_bull and _bear) ? 0 : (_bull ? 1 : -1)
+haT = ticker.heikinashi(syminfo.tickerid)
+htfSmaClose = ta.sma(close, htfSma)
+[h4haO, h4haC] = request.security(haT, "240", [open[1], close[1]], lookahead=barmerge.lookahead_off)
+[h4c, h4sma]   = request.security(syminfo.tickerid, "240", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
+[d1haO, d1haC] = request.security(haT, "D", [open[1], close[1]], lookahead=barmerge.lookahead_off)
+[d1c, d1sma]   = request.security(syminfo.tickerid, "D", [close[1], htfSmaClose[1]], lookahead=barmerge.lookahead_off)
+d4raw = campDir(h4haC, h4haO, h4c, h4sma)
+d1raw = campDir(d1haC, d1haO, d1c, d1sma)
+dir4 = na(h4sma) ? int(na) : d4raw
+dir1 = na(d1sma) ? int(na) : d1raw
+campOkLong  = not htfGate or na(dir4) or (dir4 == 1  and (not htfD1 or na(dir1) or dir1 == 1))
+campOkShort = not htfGate or na(dir4) or (dir4 == -1 and (not htfD1 or na(dir1) or dir1 == -1))
+
+shortRaw = barstate.isconfirmed and upperSetup and reactDown
+longRaw  = barstate.isconfirmed and lowerSetup and reactUp
+shortEntry = shortRaw and stochXOkShort and stochOkShort and campOkShort
+longEntry  = longRaw and stochXOkLong and stochOkLong and campOkLong
+
+plotshape(touchUpper and barstate.isconfirmed, title="Upper band touch", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.red, 30), size=size.tiny)
+plotshape(touchLower and barstate.isconfirmed, title="Lower band touch", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.teal, 30), size=size.tiny)
+plotshape(shortEntry, title="SHORT reaction", style=shape.arrowdown,
+     location=location.abovebar, color=color.red, size=size.small, text="S")
+plotshape(longEntry, title="LONG reaction", style=shape.arrowup,
+     location=location.belowbar, color=color.lime, size=size.small, text="L")
+
+wickSlLong  = math.min(touchLo, low)
+wickSlShort = math.max(touchHi, high)
+pctSlLong   = close * (1.0 - slPct * 0.01)
+pctSlShort  = close * (1.0 + slPct * 0.01)
+slLong  = slMode == "WICK_EXTREME" and wickSlLong < close ? wickSlLong : pctSlLong
+slShort = slMode == "WICK_EXTREME" and wickSlShort > close ? wickSlShort : pctSlShort
+distLong  = close - slLong
+distShort = slShort - close
+tpLong  = tpMode == "FIXED_1R" ? close + distLong  : upper
+tpShort = tpMode == "FIXED_1R" ? close - distShort : lower
+
+plot(longEntry  ? slLong  : na, "Long SL",  color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? slShort : na, "Short SL", color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(longEntry  ? tpLong  : na, "Long TP",  color=color.teal, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? tpShort : na, "Short TP", color=color.teal, style=plot.style_circles, linewidth=2)
+
+// Confirming add: the immediate next closed bar after a reaction entry, same colour,
+// wick extra vs that entry close ≤ 1% (typically < 0.5%; hard cap matches the bot).
+addonExtraL = close[1] > 0 ? (close[1] - low) / close[1] : na
+addonExtraS = close[1] > 0 ? (high - close[1]) / close[1] : na
+addLong  = addOn and barstate.isconfirmed and longEntry[1] and reactUp and not longEntry
+     and addonExtraL > 0 and addonExtraL <= 0.01
+addShort = addOn and barstate.isconfirmed and shortEntry[1] and reactDown and not shortEntry
+     and addonExtraS > 0 and addonExtraS <= 0.01
+plotshape(addLong,  title="Add LONG",  style=shape.circle, location=location.belowbar, color=color.aqua, size=size.tiny)
+plotshape(addShort, title="Add SHORT", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
+
+var float posSl = na
+var float posTp = na
+var float addSl = na
+var float addTp = na
+var bool  addTaken = false
+
+flat = strategy.position_size == 0
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+
+if longEntry and flat
+    posSl := slLong
+    posTp := tpLong
+    addTaken := false
+    addSl := na
+    addTp := na
+    strategy.entry("Long", strategy.long, comment="MMS LONG")
+
+if shortEntry and flat
+    posSl := slShort
+    posTp := tpShort
+    addTaken := false
+    addSl := na
+    addTp := na
+    strategy.entry("Short", strategy.short, comment="MMS SHORT")
+
+// Add window is the single next closed bar after the reaction (longEntry[1] /
+// shortEntry[1]); no retry after that, matching the overlay / MmsEngine.
+baseEntry = close[1]
+if addLong and inLong and not addTaken
+    addTaken := true
+    addSl := stochFlt ? baseEntry * 0.99 : low
+    addTp := tpMode == "FIXED_1R" ? close + (close - addSl) : posTp
+    strategy.entry("LongAdd", strategy.long, comment="MMS ADD")
+
+if addShort and inShort and not addTaken
+    addTaken := true
+    addSl := stochFlt ? baseEntry * 1.01 : high
+    addTp := tpMode == "FIXED_1R" ? close - (addSl - close) : posTp
+    strategy.entry("ShortAdd", strategy.short, comment="MMS ADD")
+
+fixedTp = tpMode == "FIXED_1R"
+if inLong and not na(posSl)
+    if fixedTp
+        strategy.exit("XL", from_entry="Long", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="1R")
+    else
+        strategy.exit("XL", from_entry="Long", stop=posSl, comment_loss="SL")
+    if addTaken and not na(addSl)
+        if fixedTp
+            strategy.exit("XLA", from_entry="LongAdd", stop=addSl, limit=addTp, comment_loss="ADD SL", comment_profit="1R")
+        else
+            strategy.exit("XLA", from_entry="LongAdd", stop=addSl, comment_loss="ADD SL")
+    // Closed-bar far-band TP (no intra-bar moving limit — see header).
+    if not fixedTp and barstate.isconfirmed and not na(upper) and high >= upper
+        strategy.close("Long", comment="BAND")
+        strategy.close("LongAdd", comment="BAND")
+
+if inShort and not na(posSl)
+    if fixedTp
+        strategy.exit("XS", from_entry="Short", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="1R")
+    else
+        strategy.exit("XS", from_entry="Short", stop=posSl, comment_loss="SL")
+    if addTaken and not na(addSl)
+        if fixedTp
+            strategy.exit("XSA", from_entry="ShortAdd", stop=addSl, limit=addTp, comment_loss="ADD SL", comment_profit="1R")
+        else
+            strategy.exit("XSA", from_entry="ShortAdd", stop=addSl, comment_loss="ADD SL")
+    if not fixedTp and barstate.isconfirmed and not na(lower) and low <= lower
+        strategy.close("Short", comment="BAND")
+        strategy.close("ShortAdd", comment="BAND")
+
+alertcondition(longEntry,  title="MMS LONG",  message="MMS LONG — band touch + first up candle")
+alertcondition(shortEntry, title="MMS SHORT", message="MMS SHORT — band touch + first down candle")
+
+var table info = table.new(position.top_right, 1, 3, bgcolor=color.new(color.black, 70))
+if barstate.islast
+    table.cell(info, 0, 0, "MMS STRAT  " + tfNote + "  " + mode + "  " + tpMode, text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 1, "SL " + slMode + " " + str.tostring(slPct) + "%   ATR " + str.tostring(atrPeriod) + "×" + str.tostring(atrMult), text_color=color.silver, text_size=size.tiny)
+    table.cell(info, 0, 2, "add " + (addOn ? "ON" : "off") + "  H1stoch " + (stochFlt ? "ON" : "off") + "  cross " + (stochX ? "ON" : "off"), text_color=color.gray, text_size=size.tiny)
