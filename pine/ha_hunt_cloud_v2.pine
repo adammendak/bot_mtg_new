@@ -1,0 +1,416 @@
+//@version=6
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HA-Hunt Cloud v2 — NEW TradingView script (does not replace ha_hunt_cloud.pine).
+// Paste this as a separate indicator. The original HA-Hunt Cloud stays as-is.
+//
+// PUT IT ON the variant's ENTRY timeframe, NORMAL candles (HA is computed inside):
+//   HA4 → 15-minute chart    HA12 → 1-hour chart    HA1 → 5-minute chart
+// For M5 bands use Variant **HA1 — H1 hunt / M5 entry** on an M5 chart.
+// Default HA4 on M5 still draws chart-TF (M5) ribbons, but hunt/WITH stay H4/H1
+// — not the HA1 / M5-entry path the bot uses for M5.
+// Band cross uses THIS chart's high/low RMA bands (same as
+// HaHuntEngine.bandCrossDirection on the entry TF). It is not a separate M5
+// request.security — only HA1 on an M5 chart is "M5 bands".
+//
+// Mirrors com.adam.server.hts.HaHuntEngine, with one Band-cross difference:
+//   1. hunt regime  = last CLOSED higher-TF Heikin-Ashi colour
+//   2. entry-TF direction:
+//        "HA flip + stack" = entry-TF HA colour changed on the just-closed bar
+//                            AND entry-TF close is RMA-stacked (c > RMA33 > RMAslow)
+//        "Band cross"      = first bar close beyond the fast RMA *band*.
+//                            bandCrossStrict (default OFF) also requires the fast
+//                            band fully clear of the slow band (engine / HA4X).
+//                            Default off: fire on a close poke beyond fUp/fLo even
+//                            while the bands still overlap (what you see as an M5 "cross").
+//   3. direction == hunt regime colour
+//   4. HA flip + stack: entry-TF close vs RMA(close) 33/slow (engine step 4).
+//      Band cross: skip that close-stack by default — fast-band-clear-of-slow is
+//      the stack analogue. Optional requireCloseStackOnBandCross (default off)
+//      restores the engine's extra stack AND (HA4X still does this in Java).
+//   5. WITH confirm on the mid TF: mid-TF HA colour == direction  OR  mid-TF close
+//      RMA-stacked with it
+//   6. daily pivot aligned (previous completed 21:00-UTC session; skip for crypto)
+//   7. ≤ 2 fills per hunt regime per instrument
+//   Stop = entry ∓ 2.5 × ATR14(mid TF).  1R = that distance.
+//   Exit = stop touch  OR  last-closed hunt HA colour flips against the position
+//          (cloud-hold — the engine has NO fixed-TP exit; the 2R line is a
+//          reference only, drawn because the engine stores that target).
+//   Long-only variants: SHORT setups are shown as OBSERVE-ONLY (the bot mails
+//   them, does not execute).
+//
+// NOT in the engine, so NOT here: RMA band-separation filter, fixed-2R exit,
+// trailing / break-even.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("HA-Hunt Cloud v2", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+
+// ── variant ──────────────────────────────────────────────────────────────────
+modeIn = input.string("HA4 — H4 hunt / M15 entry", "Variant", options = [
+     "HA4 — H4 hunt / M15 entry",
+     "HA12 — H12 hunt / H1 entry",
+     "HA1 — H1 hunt / M5 entry"], tooltip = "For M5 bands use HA1 — H1 hunt / M5 entry on a 5-minute chart. HA4 on M5 still computes entry RMAs on M5 but hunt/WITH stay H4/H1 (bot HA4 expects M15). HA4 → 15m, HA12 → 1h, HA1 → 5m.", group = "Strategy")
+entryTrig  = input.string("HA flip + stack", "Entry trigger", options = ["HA flip + stack", "Band cross"], tooltip = "HA flip + stack = HA4/HA12/HA1/HA_OKX. Band cross = HA4X (parked). Band cross uses THIS chart's high/low RMA bands, not a separate M5 security — unless the variant is HA1 on an M5 chart.", group = "Strategy")
+reqStackX  = input.bool(false, "Require close stack on Band cross", tooltip = "Off (default): Band cross does not also require close > RMA(close) 33 > slow. Band-clear is the stack analogue. On: extra gate matching HaHuntEngine step 4 / HA4X. Leave off for usable TV signals.", group = "Strategy")
+bandCrossStrict = input.bool(false, "Band cross: require band-clear (engine)", tooltip = "Off (default, usable TV signals): first closed bar with close > fast high (long) or close < fast low (short), even if the bands overlap. On: engine HA4X — also require the entire fast high/low band clear of slow (fLo > sUp / fUp < sLo).", group = "Strategy")
+longOnly   = input.bool(true,  "Long only (shorts = observe-only)", group = "Strategy")
+enableLong  = input.bool(true, "Enable LONG signals", group = "Strategy")
+enableShort = input.bool(true, "Enable SHORT signals", group = "Strategy")
+showShorts  = input.bool(true, "Show SELL setups (even in long-only)", group = "Strategy")
+applyPP    = input.bool(true,  "Daily pivot filter  (turn OFF for crypto / HA_OKX)", group = "Strategy")
+capReg     = input.int(2,      "Max entries per hunt regime", minval = 1, group = "Strategy")
+atrMult    = input.float(2.5,  "Stop = ATR ×", step = 0.1, group = "Strategy")
+fastLen    = input.int(33,     "RMA fast  (engine RMA_FAST = 33)", group = "Strategy")
+slowOv     = input.int(0,      "RMA slow  (0 = auto: 100 HA4/HA1, 144 HA12)", group = "Strategy")
+
+// ── visuals ──────────────────────────────────────────────────────────────────
+shadeReg    = input.bool(true,  "Shade hunt regime (live HTF HA colour)", group = "Visuals")
+bgLongCol   = input.color(color.new(#26A69A, 94), "Background — long/bull regime", group = "Visuals")
+bgShortCol  = input.color(color.new(#EF5350, 94), "Background — short/bear regime", group = "Visuals")
+showBoxes   = input.bool(true,  "Risk / reward boxes", group = "Visuals")
+showEdge    = input.bool(true,  "SL / Entry / 2R edge lines", group = "Visuals")
+showTags    = input.bool(true,  "Price tags on box edge", group = "Visuals")
+showBadge   = input.bool(true,  "Entry / exit badges", group = "Visuals")
+showHistory = input.bool(false, "Show history (past entry / SL / 2R)", group = "Visuals")
+showHud     = input.bool(true,  "Corner HUD", group = "Visuals")
+hudPosIn    = input.string("Bottom right", "HUD position", options = ["Top left", "Top right", "Bottom left", "Bottom right", "Middle left", "Middle right"], group = "Visuals")
+showBands   = input.bool(true,  "Plot fast / slow high-low RMA bands", tooltip = "Chart-TF ribbons — the same bands Band cross uses. Not a separate M5 overlay.", group = "Visuals")
+showDbg     = input.bool(true,  "Debug last-bar gates", tooltip = "Top-left table: chart TF, variant, useCross, longNow/shortNow, clear?, hunt, with, pp, canEnter.", group = "Visuals")
+showHuntLong  = input.bool(true, "Hunt banner — LONG", group = "Visuals")
+showHuntShort = input.bool(true, "Hunt banner — SHORT", group = "Visuals")
+triOffAtr   = input.float(2.5, "BULL/BEAR triangle offset × ATR", step = 0.25, minval = 0.5, group = "Visuals")
+boxExtend   = input.int(24,    "Box length (bars)", minval = 8, maxval = 100, group = "Visuals")
+boxTransR   = input.int(82,    "Risk box transparency", minval = 50, maxval = 95, group = "Visuals")
+boxTransW   = input.int(85,    "Reward box transparency", minval = 50, maxval = 95, group = "Visuals")
+
+colBuy     = input.color(#26A69A, "Buy / reward", group = "Colors")
+colSell    = input.color(#EF5350, "Sell / risk", group = "Colors")
+colEntry   = input.color(#42A5F5, "Entry line", group = "Colors")
+colExit    = input.color(#FFB74D, "Cloud exit", group = "Colors")
+colHuntL   = input.color(#26A69A, "Hunt LONG banner", group = "Colors")
+colHuntS   = input.color(#EF5350, "Hunt SHORT banner", group = "Colors")
+
+// ── variant → timeframes (mirror HaHuntEngine / HtsVariant) ───────────────────
+isHA4  = modeIn == "HA4 — H4 hunt / M15 entry"
+isHA12 = modeIn == "HA12 — H12 hunt / H1 entry"
+isHA1  = modeIn == "HA1 — H1 hunt / M5 entry"
+
+huntTf  = isHA4 ? "240" : isHA12 ? "720" : "60"    // H4 / H12 / H1
+entryTf = isHA4 ? "15"  : isHA12 ? "60"  : "5"     // M15 / H1 / M5   (== chart TF to run on)
+midTf   = isHA4 ? "60"  : isHA12 ? "240" : "15"    // H1 / H4 / M15   (WITH confirm + ATR stop)
+slowLen = slowOv > 0 ? slowOv : (isHA12 ? 144 : 100)
+useCross = entryTrig == "Band cross"
+wantSec  = isHA4 ? 15 * 60 : isHA12 ? 60 * 60 : 5 * 60
+wantTfLbl = isHA4 ? "M15" : isHA12 ? "H1" : "M5"
+chartOk  = timeframe.period == entryTf or timeframe.in_seconds() == wantSec
+
+// ── entry-TF Heikin-Ashi (this chart) ────────────────────────────────────────
+haClose = (open + high + low + close) / 4.0
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2.0 : (haOpen[1] + haClose[1]) / 2.0
+eBull  = haClose >= haOpen
+eFlip  = eBull != eBull[1]
+
+// ── entry-TF RMA stack (close vs RMA33 vs RMAslow) ───────────────────────────
+rf = ta.rma(close, fastLen)
+rs = ta.rma(close, slowLen)
+stackLong  = close > rf and rf > rs
+stackShort = close < rf and rf < rs
+atr14      = ta.atr(14)
+
+// ── entry-TF band cross (HA4X: Band.rma of highs/lows, engine bandCrossDirection)
+//    Computed on THIS chart (entry TF). Not a separate M5 security.
+//    For M5 bands: Variant HA1 — H1 hunt / M5 entry, on an M5 chart.
+rfHi = ta.rma(high, fastLen), rfLo = ta.rma(low, fastLen)
+rsHi = ta.rma(high, slowLen), rsLo = ta.rma(low, slowLen)
+fUp = math.max(rfHi, rfLo), fLo = math.min(rfHi, rfLo)
+sUp = math.max(rsHi, rsLo), sLo = math.min(rsHi, rsLo)
+beyondLong  = close > fUp
+beyondShort = close < fLo
+clearLong   = fLo > sUp
+clearShort  = fUp < sLo
+// Engine-strict: close beyond fast band AND entire fast band clear of slow.
+// Loose (bandCrossStrict off): first close poke beyond fUp/fLo, bands may overlap.
+longNow  = beyondLong  and (not bandCrossStrict or clearLong)
+shortNow = beyondShort and (not bandCrossStrict or clearShort)
+crossLong  = longNow  and not longNow[1]
+crossShort = shortNow and not shortNow[1]
+// Raw poke = first bar close beyond the fast band, ignore clear / hunt / with / pp.
+rawPokeLong  = beyondLong  and not beyondLong[1]
+rawPokeShort = beyondShort and not beyondShort[1]
+
+// Chart-TF high-low RMA ribbons (the bands Band cross actually uses)
+pFup = plot(showBands ? fUp : na, "Fast RMA high", color = color.new(colBuy, 20), linewidth = 1)
+pFlo = plot(showBands ? fLo : na, "Fast RMA low",  color = color.new(colBuy, 20), linewidth = 1)
+pSup = plot(showBands ? sUp : na, "Slow RMA high", color = color.new(colExit, 40), linewidth = 1)
+pSlo = plot(showBands ? sLo : na, "Slow RMA low",  color = color.new(colExit, 40), linewidth = 1)
+fill(pFlo, pFup, color = color.new(colBuy, 90), title = "Fast band")
+fill(pSlo, pSup, color = color.new(colExit, 92), title = "Slow band")
+plotshape(rawPokeLong,  "Raw band poke LONG",  shape.circle, location.belowbar, color.new(#78909C, 35), size = size.tiny)
+plotshape(rawPokeShort, "Raw band poke SHORT", shape.circle, location.abovebar, color.new(#78909C, 35), size = size.tiny)
+
+// ── hunt regime — higher-TF Heikin-Ashi ─────────────────────────────────────
+haT = ticker.heikinashi(syminfo.tickerid)
+// live (repainting) HTF HA — shading + banners only
+[hHaO, hHaC] = request.security(haT, huntTf, [open, close], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+huntBullLive = hHaC >= hHaO
+// confirmed CLOSED HTF HA — entries / flips / exits (no lookahead, uses [1])
+huntBull   = request.security(haT, huntTf, close[1] >= open[1], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+huntFlip   = huntBull != huntBull[1]
+huntHaClose = request.security(haT, huntTf, close[1], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+plot(huntHaClose, "Hunt HA close (confirmed)", color = color.new(huntBull ? colBuy : colSell, 40), linewidth = 2, style = plot.style_stepline)
+
+// ── WITH confirm + ATR stop — mid TF ────────────────────────────────────────
+[mHaO, mHaC] = request.security(haT, midTf, [open[1], close[1]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[mClose, mRf, mRs, mAtr] = request.security(syminfo.tickerid, midTf, [close, ta.rma(close, fastLen), ta.rma(close, slowLen), ta.atr(14)], lookahead = barmerge.lookahead_off)
+midBull       = mHaC >= mHaO
+midStackLong  = mClose > mRf and mRf > mRs
+midStackShort = mClose < mRf and mRf < mRs
+withLong  = midBull or midStackLong            // engine: midBull == longDir OR stacked
+withShort = (not midBull) or midStackShort
+atrV = mAtr
+
+// ── daily pivot — previous completed 21:00-UTC session ──────────────────────
+sIdx = math.floor((time / 1000 - 75600) / 86400)   // 75600s = 21:00 UTC roll
+newS = ta.change(sIdx) != 0
+var float cH = na, var float cL = na, var float cC = na
+var float pH = na, var float pL = na, var float pC = na
+if newS
+    pH := cH, pL := cL, pC := cC
+    cH := high, cL := low, cC := close
+else
+    cH := math.max(nz(cH, high), high)
+    cL := math.min(nz(cL, low), low)
+    cC := close
+pp      = (pH + pL + pC) / 3.0
+ppLong  = not applyPP or (not na(pp) and close > pp)
+ppShort = not applyPP or (not na(pp) and close < pp)
+
+// ── state ───────────────────────────────────────────────────────────────────
+var int   fills   = 0
+var int   pos     = 0
+var float entPx   = na
+var float stpX    = na
+var float tgtX    = na       // 2R reference (engine stores it; NOT an exit)
+var bool  tgtFlag = false
+var float lastR   = na
+var box   bxRisk  = na
+var box   bxRew   = na
+var line  lnStop  = na
+var line  lnEntry = na
+var line  lnTgt   = na
+var label lbStop  = na
+var label lbEntry = na
+var label lbTgt   = na
+var table hud     = na
+var table dbg     = na
+
+if huntFlip
+    fills := 0
+
+// ── hunt banners (live HA flip = same as shading) ───────────────────────────
+huntFlipLive = huntBullLive != huntBullLive[1]
+triOff = triOffAtr * atr14
+plotshape(huntFlipLive and huntBullLive and showHuntLong ? low - triOff : na, "BULL hunt", shape.triangleup, location.absolute, colHuntL, size = size.normal)
+plotshape(huntFlipLive and not huntBullLive and showHuntShort ? high + triOff : na, "BEAR hunt", shape.triangledown, location.absolute, colHuntS, size = size.normal)
+
+// ── exit (cloud-hold only) ─────────────────────────────────────────────────
+exitStop = (pos == 1 and low <= stpX) or (pos == -1 and high >= stpX)
+exitFlip = (pos == 1 and not huntBull) or (pos == -1 and huntBull)   // engine cloudHoldExit
+doExit   = pos != 0 and (exitStop or exitFlip)
+exitRsn  = exitStop ? "stop" : "htf_ha_flip"
+tgtTouch = pos != 0 and ((pos == 1 and high >= tgtX) or (pos == -1 and low <= tgtX)) and not tgtFlag
+if tgtTouch
+    tgtFlag := true
+
+if doExit
+    if showBadge
+        string xt = exitStop ? "✕  SL" : "☁  HTF flip"
+        color  xc = exitStop ? colSell : colExit
+        label.new(bar_index, pos == 1 ? high : low, xt + "\n" + str.tostring(close, format.mintick), yloc = pos == 1 ? yloc.abovebar : yloc.belowbar, style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.new(xc, 5), textcolor = color.white, size = size.small)
+    if showHistory
+        if not na(bxRisk)
+            box.set_right(bxRisk, bar_index), box.set_right(bxRew, bar_index)
+        if not na(lnStop)
+            line.set_x2(lnStop, bar_index), line.set_x2(lnEntry, bar_index), line.set_x2(lnTgt, bar_index)
+        if not na(lbStop)
+            label.set_x(lbStop, bar_index), label.set_x(lbEntry, bar_index), label.set_x(lbTgt, bar_index)
+    else
+        box.delete(bxRisk), box.delete(bxRew)
+        line.delete(lnStop), line.delete(lnEntry), line.delete(lnTgt)
+        label.delete(lbStop), label.delete(lbEntry), label.delete(lbTgt)
+    bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
+    lbStop := na, lbEntry := na, lbTgt := na
+    pos := 0
+
+// ── entry ──────────────────────────────────────────────────────────────────
+canEnter = fills < capReg and pos == 0
+trigLong  = useCross ? crossLong  : (eFlip and eBull and stackLong)
+trigShort = useCross ? crossShort : (eFlip and not eBull and stackShort)
+// Band cross: do not also AND close-vs-RMA(close) unless requireCloseStackOnBandCross is on.
+// bandCrossStrict (default off) = poke only; on still requires fast band clear of slow.
+needCloseStack = not useCross or reqStackX
+longRaw  = huntBull and trigLong and (not needCloseStack or stackLong) and withLong and ppLong
+shortRaw = not huntBull and trigShort and (not needCloseStack or stackShort) and withShort and ppShort
+longSig  = longRaw and canEnter and enableLong
+shortSig = shortRaw and canEnter and enableShort and not longOnly
+
+if longSig or shortSig
+    if showHistory
+        if not na(bxRisk)
+            box.set_right(bxRisk, bar_index), box.set_right(bxRew, bar_index)
+        if not na(lnStop)
+            line.set_x2(lnStop, bar_index), line.set_x2(lnEntry, bar_index), line.set_x2(lnTgt, bar_index)
+    else
+        box.delete(bxRisk), box.delete(bxRew)
+        line.delete(lnStop), line.delete(lnEntry), line.delete(lnTgt)
+        label.delete(lbStop), label.delete(lbEntry), label.delete(lbTgt)
+    bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
+    lbStop := na, lbEntry := na, lbTgt := na
+
+    bool isLong = longSig
+    pos    := isLong ? 1 : -1
+    entPx  := close
+    lastR  := atrMult * atrV
+    stpX   := isLong ? close - lastR : close + lastR
+    tgtX   := isLong ? close + 2.0 * lastR : close - 2.0 * lastR
+    tgtFlag := false
+    fills  := fills + 1
+    int x2 = bar_index + boxExtend
+    if showBoxes
+        bxRisk := box.new(bar_index, math.max(entPx, stpX), x2, math.min(entPx, stpX), bgcolor = color.new(colSell, boxTransR), border_color = color.new(colSell, 35), border_width = 2)
+        bxRew  := box.new(bar_index, math.max(entPx, tgtX), x2, math.min(entPx, tgtX), bgcolor = color.new(colBuy, boxTransW), border_color = color.new(colBuy, 35), border_width = 2)
+    if showEdge
+        lnStop  := line.new(bar_index, stpX, x2, stpX, color = colSell, width = 2)
+        lnEntry := line.new(bar_index, entPx, x2, entPx, color = colEntry, width = 1, style = line.style_dotted)
+        lnTgt   := line.new(bar_index, tgtX, x2, tgtX, color = colBuy, width = 1, style = line.style_dashed)
+    if showTags
+        lbStop  := label.new(x2, stpX, "SL  " + str.tostring(stpX, format.mintick), style = label.style_label_left, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
+        lbEntry := label.new(x2, entPx, "IN  " + str.tostring(entPx, format.mintick), style = label.style_label_left, color = color.new(colEntry, 10), textcolor = color.white, size = size.tiny)
+        lbTgt   := label.new(x2, tgtX, "2R  " + str.tostring(tgtX, format.mintick) + "  (ref)", style = label.style_label_left, color = color.new(colBuy, 0), textcolor = color.white, size = size.tiny)
+    if isLong
+        label.new(bar_index, low, "▲ BUY", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
+    else
+        label.new(bar_index, high, "▼ SELL", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
+
+// grow the live trade art
+if pos != 0
+    int x2e = bar_index + boxExtend
+    if showBoxes and not na(bxRisk)
+        box.set_right(bxRisk, x2e), box.set_right(bxRew, x2e)
+    if showEdge and not na(lnStop)
+        line.set_x2(lnStop, x2e), line.set_x2(lnEntry, x2e), line.set_x2(lnTgt, x2e)
+    if showTags and not na(lbStop)
+        label.set_x(lbStop, x2e), label.set_x(lbEntry, x2e), label.set_x(lbTgt, x2e)
+
+// ── HUD ────────────────────────────────────────────────────────────────────
+hudPos = switch hudPosIn
+    "Top left" => position.top_left
+    "Top right" => position.top_right
+    "Bottom left" => position.bottom_left
+    "Middle left" => position.middle_left
+    "Middle right" => position.middle_right
+    => position.bottom_right
+
+var string hudPosUsed = na
+if barstate.islast and showHud
+    if na(hud) or hudPosUsed != hudPosIn
+        if not na(hud)
+            table.delete(hud)
+        hud := table.new(hudPos, 2, 11, bgcolor = #1E222D, border_width = 1, border_color = #787B86, frame_width = 1, frame_color = #787B86)
+        hudPosUsed := hudPosIn
+    string sideTxt = pos == 0 ? "FLAT" : pos == 1 ? "LONG" : "SHORT"
+    color  sideC   = pos == 0 ? color.gray : pos == 1 ? colBuy : colSell
+    string vTxt = isHA4 ? "HA4  H4/M15" : isHA12 ? "HA12  H12/H1" : "HA1  H1/M5"
+    string trigTxt = useCross ? (bandCrossStrict ? "Band cross (strict)" : "Band cross (loose)") : "HA flip+stack"
+    string chartTxt = wantTfLbl + (chartOk ? "" : "  ⚠ now " + timeframe.period)
+    table.cell(hud, 0, 0, "HA-Hunt v2", bgcolor = #1E222D, text_color = color.white, text_size = size.normal)
+    table.cell(hud, 1, 0, vTxt, bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.normal)
+    table.cell(hud, 0, 1, "Side", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 1, sideTxt + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = #1E222D, text_color = sideC, text_size = size.small)
+    table.cell(hud, 0, 2, "Trigger", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 2, trigTxt, bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 3, "Chart TF", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 3, chartTxt, bgcolor = #1E222D, text_color = chartOk ? color.white : colExit, text_size = size.small)
+    table.cell(hud, 0, 4, "Entry", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 4, pos != 0 ? str.tostring(entPx, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 5, "Stop", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 5, pos != 0 ? str.tostring(stpX, format.mintick) : "—", bgcolor = #1E222D, text_color = colSell, text_size = size.small)
+    table.cell(hud, 0, 6, "2R ref", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 6, pos != 0 ? str.tostring(tgtX, format.mintick) : "—", bgcolor = #1E222D, text_color = colBuy, text_size = size.small)
+    table.cell(hud, 0, 7, "1R (2.5×ATR)", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 7, pos != 0 ? str.tostring(lastR, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 8, "Fills / regime", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 8, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 9, "Hunt HA", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 9, huntBullLive ? "BULL" : "BEAR", bgcolor = #1E222D, text_color = huntBullLive ? colBuy : colSell, text_size = size.small)
+    table.cell(hud, 0, 10, "Exit", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 10, "cloud-hold", bgcolor = #1E222D, text_color = colExit, text_size = size.small)
+
+if barstate.islast
+    if showDbg
+        if na(dbg)
+            dbg := table.new(position.top_left, 2, 10, bgcolor = #1E222D, border_width = 1, border_color = #787B86, frame_width = 1, frame_color = #787B86)
+        string vDbg = isHA4 ? "HA4  H4/M15" : isHA12 ? "HA12  H12/H1" : "HA1  H1/M5"
+        string tfDbg = wantTfLbl + " / chart " + timeframe.period + (chartOk ? "" : "  ⚠ use " + wantTfLbl)
+        bool withGate = huntBull ? withLong : withShort
+        bool ppGate   = huntBull ? ppLong : ppShort
+        table.cell(dbg, 0, 0, "chart TF", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 0, tfDbg, bgcolor = #1E222D, text_color = chartOk ? color.white : colExit, text_size = size.small)
+        table.cell(dbg, 0, 1, "variant", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 1, vDbg, bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+        table.cell(dbg, 0, 2, "useCross", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 2, useCross ? "yes" : "no", bgcolor = #1E222D, text_color = useCross ? colBuy : color.gray, text_size = size.small)
+        table.cell(dbg, 0, 3, "longNow", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 3, longNow ? "yes" : "no", bgcolor = #1E222D, text_color = longNow ? colBuy : colSell, text_size = size.small)
+        table.cell(dbg, 0, 4, "shortNow", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 4, shortNow ? "yes" : "no", bgcolor = #1E222D, text_color = shortNow ? colBuy : colSell, text_size = size.small)
+        table.cell(dbg, 0, 5, "clear?", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 5, "L " + (clearLong ? "yes" : "no") + "  S " + (clearShort ? "yes" : "no"), bgcolor = #1E222D, text_color = (clearLong or clearShort) ? colBuy : colSell, text_size = size.small)
+        table.cell(dbg, 0, 6, "hunt", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 6, huntBull ? "yes (bull)" : "no (bear)", bgcolor = #1E222D, text_color = huntBull ? colBuy : colSell, text_size = size.small)
+        table.cell(dbg, 0, 7, "with", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 7, withGate ? "yes" : "no", bgcolor = #1E222D, text_color = withGate ? colBuy : colSell, text_size = size.small)
+        table.cell(dbg, 0, 8, "pp", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 8, ppGate ? "yes" : "no", bgcolor = #1E222D, text_color = ppGate ? colBuy : colSell, text_size = size.small)
+        table.cell(dbg, 0, 9, "canEnter", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+        table.cell(dbg, 1, 9, canEnter ? "yes" : "no", bgcolor = #1E222D, text_color = canEnter ? colBuy : colSell, text_size = size.small)
+    else if not na(dbg)
+        table.delete(dbg)
+        dbg := na
+
+// ── shadow SHORT setups (long-only observe = the bot's OBSERVE-ONLY mail) ────
+var int   sFills = 0
+var int   sPos   = 0
+var float sStp   = na
+if huntFlip
+    sFills := 0
+if sPos == -1 and (huntBull or high >= sStp)
+    sPos := 0
+sTake = shortRaw and sFills < capReg and sPos == 0 and enableShort
+if sTake
+    sPos   := -1
+    sStp   := close + atrMult * atrV
+    sFills := sFills + 1
+    if longOnly and showShorts
+        label.new(bar_index, high, "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.small)
+
+sellShow = shortSig or (longOnly and showShorts and sTake)
+plotshape(longSig,  "Buy",  shape.triangleup,   location.belowbar, colBuy, size = size.small)
+plotshape(sellShow, "Sell", shape.triangledown, location.abovebar, shortSig ? colSell : colHuntS, size = size.small)
+
+bgcolor(shadeReg ? (huntBullLive ? bgLongCol : bgShortCol) : na, title = "Hunt regime")
+
+// ── alerts ─────────────────────────────────────────────────────────────────
+alertcondition(longSig, "HA-Hunt: Long entry", "HA-Hunt LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "HA-Hunt: Short entry", "HA-Hunt SHORT {{ticker}} @ {{close}}")
+alertcondition(longOnly and showShorts and sTake and sFills == 1, "HA-Hunt: Short setup (observe)", "HA-Hunt short setup (observe) {{ticker}} @ {{close}}")
+alertcondition(doExit, "HA-Hunt: Exit", "HA-Hunt EXIT {{ticker}} @ {{close}}")
+alertcondition(tgtTouch, "HA-Hunt: 2R touched", "HA-Hunt 2R touched {{ticker}} @ {{close}}")
+alertcondition(huntFlipLive and huntBullLive, "HA-Hunt: Hunt LONG open", "HTF bull — hunt LONG setups {{ticker}}")
+alertcondition(huntFlipLive and not huntBullLive, "HA-Hunt: Hunt SHORT open", "HTF bear — hunt SHORT setups {{ticker}}")
+
+if longSig or shortSig or doExit
+    ev = longSig ? "entry_long" : shortSig ? "entry_short" : "exit"
+    vt = isHA4 ? "HA4" : isHA12 ? "HA12" : "HA1"
+    js = '{"strat":"ha_hunt","variant":"' + vt + '","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"reason":"' + (doExit ? exitRsn : "signal") + '"}'
+    alert(js, alert.freq_once_per_bar_close)
