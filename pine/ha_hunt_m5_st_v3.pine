@@ -13,6 +13,7 @@
 // Bakeoff defaults (PR #139, ~12m book, slow 144, gate ON, cap 2, half+BE+HA):
 //   Default ST = **M45 Supertrend** (bias + initial SL) — best for XAU / Adam’s locked stack. Book WR ~34–35%.
 //   WR still ~35% book; no cell hit ~50%. ST trail / ST flip are not the lock.
+//   ST lock (PR #144): ATR 7 / factor 2.0 beat 10/2 on XAU M5+M45 and US100 M15+H1.
 //
 // Adam locked management (defaults ON):
 //   TP1 at 1:2 → close **50%** conceptually (badge + alert; overlay marks half)
@@ -22,7 +23,7 @@
 //   ST-line trail and ST-flip exit optional, default OFF
 //
 // Other locked defaults: slowLen 144, fastLen 33, reqM45Struct ON,
-// bandCrossStrict OFF, capReg 2, ST ATR 10 / factor 2.0, applyPP OFF,
+// bandCrossStrict OFF, capReg 2, ST ATR 7 / factor 2.0, applyPP OFF,
 // longOnly OFF. Stop = Supertrend line of the active ST TF (default M45).
 // Optional Supertrend TF override: M45 or H1.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ fastLen    = input.int(33,     "RMA fast  (engine RMA_FAST = 33)", group = "Stra
 slowLen    = input.int(144,    "RMA slow  (bakeoff lock 144)", tooltip = "PR #139: slow 144 is the locked book default.", group = "Strategy")
 
 // ── Supertrend + HTF ─────────────────────────────────────────────────────────
-stAtrLen = input.int(10,    "Supertrend ATR period", minval = 1, group = "Supertrend")
+stAtrLen = input.int(7,     "Supertrend ATR period", minval = 1, group = "Supertrend")
 stFactor = input.float(2.0, "Supertrend factor", step = 0.1, minval = 0.1, group = "Supertrend")
 m45Tf    = input.timeframe("45", "M45 timeframe", group = "Supertrend", tooltip = "Large RMA ribbon + optional M45 Supertrend. Keep 45.")
 h1Tf     = input.timeframe("60", "H1 timeframe", group = "Supertrend", tooltip = "H1 Supertrend when Supertrend TF = H1. Keep 60.")
