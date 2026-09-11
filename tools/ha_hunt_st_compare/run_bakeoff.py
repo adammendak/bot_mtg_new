@@ -37,6 +37,7 @@ def _book_row(b: Book) -> dict:
         "variant": b.variant,
         "n": b.n,
         "wr_pct": round(b.wr_pct, 2),
+        "wr_full_pct": round(b.wr_full_pct, 2),
         "sum_r": round(b.sum_r, 3),
         "avg_r": round(b.avg_r, 4),
         "max_dd_r": round(b.max_dd_r, 3),
@@ -120,6 +121,7 @@ def main() -> int:
         wins = sum(tr.r for tr in t.trades if tr.r > 0)
         losses = -sum(tr.r for tr in t.trades if tr.r < 0)
         t.wr_pct = 100.0 * sum(1 for tr in t.trades if tr.r > 0) / t.n if t.n else 0.0
+        t.wr_full_pct = 100.0 * sum(1 for tr in t.trades if getattr(tr, "r_full", tr.r) > 0) / t.n if t.n else 0.0
         t.pf = wins / losses if losses > 0 else (float("inf") if wins > 0 else 0.0)
         # Combined DD on concatenated per-symbol streams is not a real portfolio.
         # Report the worst single-name DD and a chronological-all-symbols DD.
@@ -362,6 +364,7 @@ def _totals(cells: list[Book]) -> list[Book]:
         wins = sum(tr.r for tr in t.trades if tr.r > 0)
         losses = -sum(tr.r for tr in t.trades if tr.r < 0)
         t.wr_pct = 100.0 * sum(1 for tr in t.trades if tr.r > 0) / t.n if t.n else 0.0
+        t.wr_full_pct = 100.0 * sum(1 for tr in t.trades if getattr(tr, "r_full", tr.r) > 0) / t.n if t.n else 0.0
         t.pf = wins / losses if losses > 0 else (float("inf") if wins > 0 else 0.0)
         t.max_dd_r = max((b.max_dd_r for b in books), default=0.0)
         t.exits = {}
@@ -621,6 +624,8 @@ def _old_baseline_from_payload(payload: dict) -> tuple[Book | None, dict[str, Bo
         b.n_short = int(row.get("n_short") or 0)
         b.n_tp1 = int(row.get("n_tp1") or 0)
         b.exits = dict(row.get("exits") or {})
+        # OLD full-trail: scaled WR == full-size WR
+        b.wr_full_pct = float(row.get("wr_full_pct") or b.wr_pct)
         return b
 
     book = as_book(raw_book, "BOOK")
@@ -703,17 +708,20 @@ def run_ha_exit() -> int:
     }
 
     def metrics_row(b: Book, label: str) -> list[str]:
+        tp1_pct = (100.0 * b.n_tp1 / b.n) if b.n else 0.0
         return [
             label,
             str(b.n),
             f"{b.wr_pct:.1f}",
+            f"{b.wr_full_pct:.1f}",
+            f"{tp1_pct:.1f}",
             f"{b.sum_r:.2f}",
             f"{b.avg_r:.3f}",
             f"{b.max_dd_r:.2f}",
             _fmt_pf(b.pf),
         ]
 
-    hdr = ["cell", "n", "WR%", "sumR", "avgR", "maxDD(R)", "PF"]
+    hdr = ["cell", "n", "WR% (R>0)", "WR% full-size", "TP1%", "sumR", "avgR", "maxDD(R)", "PF"]
     book_rows = [metrics_row(by_name[n], HA_LABELS[n]) for n in HA_ORDER]
     if old_book:
         book_rows.append(metrics_row(old_book, HA_LABELS["baseline_144"]))
@@ -752,8 +760,9 @@ def run_ha_exit() -> int:
         perm_md.append("### WR permutations (slow 144, same HA-exit lock)")
         perm_md.append("")
         perm_md.append(
-            "Win = total R > 0. Target ~50% WR. One-at-a-time plus a few stricter combos. "
-            "long-only is all names; XAU/US100 long-only is the same cells restricted to those books."
+            "Adam target **~50% WR** (win = scaled total R > 0). OLD full-trail book was **32.9%**. "
+            "One-at-a-time plus a few stricter combos. `longonly` is all names; "
+            "XAU+US100 long-only is those two books only."
         )
         perm_md.append("")
         perm_rows = [metrics_row(t, t.variant) for t in sorted(perm_totals, key=_rank_key, reverse=True)]
@@ -785,9 +794,24 @@ def run_ha_exit() -> int:
         else:
             best_wr = max(perm_totals, key=lambda t: (t.wr_pct, t.sum_r))
             perm_md.append(
-                f"No perm reached ~50% WR. Highest WR: **{best_wr.variant}** "
-                f"WR={best_wr.wr_pct:.1f}% sumR={best_wr.sum_r:+.1f}."
+                f"**No combo reached ~50% WR.** Highest book WR: **{best_wr.variant}** "
+                f"{best_wr.wr_pct:.1f}% / sumR={best_wr.sum_r:+.1f} — still ~{50 - best_wr.wr_pct:.0f}pp short of the target "
+                f"and only +{best_wr.wr_pct - 32.9:.1f}pp vs the old 32.9% full-trail book."
             )
+        # XAU+US100 long-only (Adam's focus names)
+        for tag, vname in (("M45", "ha_m45_longonly"), ("H1", "ha_h1_longonly")):
+            xau = next((c for c in perm_cells if c.variant == vname and c.symbol == "XAU"), None)
+            nq = next((c for c in perm_cells if c.variant == vname and c.symbol == "US100"), None)
+            if xau and nq:
+                n = xau.n + nq.n
+                wins = sum(1 for tr in (xau.trades + nq.trades) if tr.r > 0)
+                wr = 100.0 * wins / n if n else 0.0
+                sr = xau.sum_r + nq.sum_r
+                perm_md.append(
+                    f"XAU+US100 long-only **{tag}**: n={n} WR={wr:.1f}% sumR={sr:+.1f} "
+                    f"(XAU {xau.wr_pct:.1f}% / {xau.sum_r:+.1f}, "
+                    f"US100 {nq.wr_pct:.1f}% / {nq.sum_r:+.1f})."
+                )
         perm_md.append("")
 
     section = []

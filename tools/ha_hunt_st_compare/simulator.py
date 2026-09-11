@@ -70,6 +70,7 @@ class Trade:
     exit: float
     r: float
     r_split: float
+    r_full: float
     tp1_hit: bool
     reason: str
     variant: str
@@ -82,6 +83,7 @@ class Book:
     trades: list[Trade] = field(default_factory=list)
     n: int = 0
     wr_pct: float = 0.0
+    wr_full_pct: float = 0.0  # win if unscaled full-position R > 0
     sum_r: float = 0.0
     avg_r: float = 0.0
     max_dd_r: float = 0.0
@@ -99,7 +101,9 @@ def _metrics(trades: list[Trade], symbol: str, variant: str) -> Book:
     if not trades:
         return b
     rs = np.array([t.r for t in trades], dtype=np.float64)
+    rf = np.array([t.r_full for t in trades], dtype=np.float64)
     b.wr_pct = float(np.mean(rs > 0.0) * 100.0)
+    b.wr_full_pct = float(np.mean(rf > 0.0) * 100.0)
     b.sum_r = float(rs.sum())
     b.avg_r = float(rs.mean())
     eq = np.cumsum(rs)
@@ -320,6 +324,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
                 exit=float(exit_px),
                 r=float(r),
                 r_split=float(r_split),
+                r_full=float(r_full),
                 tp1_hit=bool(tp1_hit),
                 reason=reason,
                 variant=p.name,

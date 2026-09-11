@@ -231,6 +231,7 @@ class SameBarTests(unittest.TestCase):
                 # Half at +2R booked +1R; BE runner ≥ 0 ⇒ combined ≥ +1R
                 if t.reason == "be":
                     self.assertAlmostEqual(t.r, 1.0, places=5)
+                    self.assertAlmostEqual(t.r_full, 0.0, places=5)
 
 
 if __name__ == "__main__":
