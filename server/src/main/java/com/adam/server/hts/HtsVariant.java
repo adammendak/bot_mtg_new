@@ -17,16 +17,21 @@ import java.util.List;
  * <ul>
  *   <li>{@link #M5_ST_V3} — M5 entry / M45-Supertrend filter+stop →
  *       {@code hts} book ("Account m5"), took it from {@link #HA1} (parked,
- *       no backtest evidence). Universe: XAU/BTC/EURUSD/USDJPY (top 4).</li>
+ *       no backtest evidence). Universe: {@link #M15_ST_V3B}'s
+ *       {@code SATELLITE_UNIVERSE} (see below) — same five tickers.</li>
  *   <li>{@link #M15_ST_V3B} — M15 entry / H1-Supertrend filter+stop →
  *       {@code demo} book ("Account m15"), took it from {@link #HA4} (parked).
- *       Universe: XAU/BTC/XAG/J225 (top 4) — a concentrated satellite of
- *       {@link #M15_ST_V3}, deliberately overlapping tickers so the same
- *       strategy runs on two accounts for extra forward-test data.</li>
+ *       Universe: US100/XAU/BTC/GER40/EURUSD — the SAME five tickers as
+ *       {@link #M5_ST_V3} and {@link #H1_ST_V3} on purpose: one week of
+ *       forward-testing gives a direct per-ticker RR comparison across the
+ *       three timeframe pairings instead of three disjoint samples. Also
+ *       deliberately overlaps {@link #M15_ST_V3}'s own (wider) universe —
+ *       same strategy, two accounts, more forward-test data.</li>
  *   <li>{@link #H1_ST_V3} — H1 entry / H4-Supertrend filter+stop →
  *       {@code swing} book ("Account H1"), took it from {@link #HA12}
- *       (parked). Universe: BTC/GER40/US500/USDJPY (top 4) — the weakest,
- *       thinnest-sampled pairing of the three; kept as a smaller satellite.</li>
+ *       (parked). Universe: the same five tickers as {@link #M5_ST_V3} /
+ *       {@link #M15_ST_V3B} — the weakest, thinnest-sampled pairing of the
+ *       three; kept as a smaller satellite.</li>
  *   <li>{@link #M15_ST_V3} — same shape as {@link #M15_ST_V3B}, on the
  *       {@code mms} book ("Account MMS") {@link #MMS} vacated (parked, no
  *       backtest edge). Universe: all ten backtested tickers (XAU/BTC/US100/
@@ -154,23 +159,28 @@ public enum HtsVariant {
      * Concentrated satellite copy of {@link #M15_ST_V3} (same H1/M15
      * band-cross shape) on its own book/universe so the same strategy can be
      * forward-tested on two accounts at once — deliberately overlapping
-     * tickers with {@link #M15_ST_V3}, not a partition. Top 4 by backtest
-     * (12mo IS/OOS, no fees): XAU (PF 3.10/2.45), BTC (3.05/1.82), XAG
-     * (2.60/1.89), J225 (2.07/1.51). Took {@link #HA4}'s {@code demo} book
+     * tickers with {@link #M15_ST_V3}, not a partition. Universe is
+     * {@code StV3.SATELLITE_UNIVERSE} (US100/XAU/BTC/GER40/EURUSD) — the
+     * SAME five tickers as {@link #M5_ST_V3} and {@link #H1_ST_V3}, chosen
+     * deliberately so a week of forward-testing gives a direct per-ticker
+     * RR comparison across all three timeframe pairings instead of three
+     * disjoint samples. Took {@link #HA4}'s {@code demo} book
      * ("Account m15") — HA4 is parked (see {@link #parked()}).
      */
-    M15_ST_V3B(Resolution.M15, Books.DEMO, Duration.ofDays(10), 15, 60, StV3.M15_SAT_UNIVERSE),
+    M15_ST_V3B(Resolution.M15, Books.DEMO, Duration.ofDays(10), 15, 60, StV3.SATELLITE_UNIVERSE),
 
     /**
      * M5 entry / M45-Supertrend filter+stop — same shape as {@link #M15_ST_V3}
      * one timeframe rung down. Backtest (12mo IS/OOS, no fees, band-cross
      * exit): every one of the 10 tested tickers positive in both windows,
      * combined PF 1.87 IS / 1.98 OOS — broadly positive but noisier than
-     * M15/H1 per-symbol. Universe here is the top 4: XAU (PF 2.09/2.37), BTC
-     * (1.94/2.25), EURUSD (1.87/1.68), USDJPY (1.86/1.96). Took {@link #HA1}'s
-     * {@code hts} book ("Account m5") — HA1 is parked.
+     * M15/H1 per-symbol. Universe is {@code StV3.SATELLITE_UNIVERSE}
+     * (US100/XAU/BTC/GER40/EURUSD) — same five tickers as
+     * {@link #M15_ST_V3B} and {@link #H1_ST_V3}, for the cross-timeframe RR
+     * comparison. Took {@link #HA1}'s {@code hts} book ("Account m5") — HA1
+     * is parked.
      */
-    M5_ST_V3(Resolution.M5, Books.HTS, Duration.ofDays(12), 5, 45, StV3.M5_UNIVERSE),
+    M5_ST_V3(Resolution.M5, Books.HTS, Duration.ofDays(12), 5, 45, StV3.SATELLITE_UNIVERSE),
 
     /**
      * H1 entry / H4-Supertrend filter+stop — one timeframe rung up from
@@ -178,14 +188,13 @@ public enum HtsVariant {
      * signals) and is noisier per-symbol (thin per-symbol samples, ~25-50
      * trades/12mo) despite a strong combined OOS (PF 2.04) vs a weak
      * combined IS (PF 1.56) — kept as a smaller satellite, not the primary
-     * pick. Universe: BTC (PF 1.84 IS/2.56 OOS), GER40 (1.41/3.44), US500
-     * (1.17/3.20), USDJPY (1.02/2.14) — picked for being positive (not just
-     * close to breakeven) in both windows, unlike XAU/EURUSD which flipped
-     * from IS-negative to OOS-strongly-positive (too volatile a swing to
-     * trust on this little data). Took {@link #HA12}'s {@code swing} book
+     * pick. Universe is {@code StV3.SATELLITE_UNIVERSE}
+     * (US100/XAU/BTC/GER40/EURUSD) — same five tickers as
+     * {@link #M5_ST_V3} and {@link #M15_ST_V3B}, for the cross-timeframe RR
+     * comparison. Took {@link #HA12}'s {@code swing} book
      * ("Account H1") — HA12 is parked.
      */
-    H1_ST_V3(Resolution.H1, Books.SWING, Duration.ofDays(35), 60, 240, StV3.H1_UNIVERSE);
+    H1_ST_V3(Resolution.H1, Books.SWING, Duration.ofDays(35), 60, 240, StV3.SATELLITE_UNIVERSE);
 
     /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, or {@link StV3Engine}. */
     public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3 }
@@ -220,9 +229,15 @@ public enum HtsVariant {
         /** {@link HtsVariant#M15_ST_V3} — every ticker backtested, all ten. */
         static final java.util.List<String> FULL_UNIVERSE = java.util.List.of(
                 "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY");
-        static final java.util.List<String> M5_UNIVERSE = java.util.List.of("XAU", "BTC", "EURUSD", "USDJPY");
-        static final java.util.List<String> M15_SAT_UNIVERSE = java.util.List.of("XAU", "BTC", "XAG", "J225");
-        static final java.util.List<String> H1_UNIVERSE = java.util.List.of("BTC", "GER40", "US500", "USDJPY");
+        /**
+         * The SAME five tickers on every satellite book ({@link HtsVariant#M5_ST_V3},
+         * {@link HtsVariant#M15_ST_V3B}, {@link HtsVariant#H1_ST_V3}) — deliberate,
+         * so a week of forward-testing gives a direct per-ticker RR comparison
+         * across the three timeframe pairings (M45/M5 vs H1/M15 vs H4/H1) instead
+         * of three disjoint samples.
+         */
+        static final java.util.List<String> SATELLITE_UNIVERSE = java.util.List.of(
+                "US100", "XAU", "BTC", "GER40", "EURUSD");
     }
 
     private final Strategy strategy;

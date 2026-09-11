@@ -171,9 +171,14 @@ class HtsVariantTest {
         assertThat(HtsVariant.M15_ST_V3B.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
         assertThat(HtsVariant.M15_ST_V3B.atrMinutes()).isEqualTo(60); // same H1 pairing as M15_ST_V3
         assertThat(HtsVariant.M15_ST_V3B.htfLabel()).isEqualTo("H1");
-        assertThat(HtsVariant.M15_ST_V3B.universe()).containsExactlyInAnyOrder("XAU", "BTC", "XAG", "J225");
+        assertThat(HtsVariant.M15_ST_V3B.universe())
+                .containsExactlyInAnyOrder("US100", "XAU", "BTC", "GER40", "EURUSD");
         // deliberately overlaps M15_ST_V3 — same pairing, two accounts, more forward-test data
         assertThat(HtsVariant.M15_ST_V3.universe()).containsAll(HtsVariant.M15_ST_V3B.universe());
+        // and shares the exact same 5-ticker universe as the other two satellites, on purpose,
+        // for a direct per-ticker RR comparison across all three timeframe pairings
+        assertThat(HtsVariant.M15_ST_V3B.universe()).isEqualTo(HtsVariant.M5_ST_V3.universe());
+        assertThat(HtsVariant.M15_ST_V3B.universe()).isEqualTo(HtsVariant.H1_ST_V3.universe());
     }
 
     @Test
@@ -185,7 +190,8 @@ class HtsVariantTest {
         assertThat(HtsVariant.M5_ST_V3.atrMinutes()).isEqualTo(45); // M45 Supertrend
         assertThat(HtsVariant.M5_ST_V3.htfLabel()).isEqualTo("M45");
         assertThat(HtsVariant.M5_ST_V3.label()).contains("M45-ST");
-        assertThat(HtsVariant.M5_ST_V3.universe()).containsExactlyInAnyOrder("XAU", "BTC", "EURUSD", "USDJPY");
+        assertThat(HtsVariant.M5_ST_V3.universe())
+                .containsExactlyInAnyOrder("US100", "XAU", "BTC", "GER40", "EURUSD");
     }
 
     @Test
@@ -197,7 +203,8 @@ class HtsVariantTest {
         assertThat(HtsVariant.H1_ST_V3.atrMinutes()).isEqualTo(240); // H4 Supertrend
         assertThat(HtsVariant.H1_ST_V3.htfLabel()).isEqualTo("H4");
         assertThat(HtsVariant.H1_ST_V3.label()).contains("H4-ST");
-        assertThat(HtsVariant.H1_ST_V3.universe()).containsExactlyInAnyOrder("BTC", "GER40", "US500", "USDJPY");
+        assertThat(HtsVariant.H1_ST_V3.universe())
+                .containsExactlyInAnyOrder("US100", "XAU", "BTC", "GER40", "EURUSD");
         // H1 entry, same as HA12/HA4X's own ltf — but ST_V3 strategy never mails
         // (mailsSignals() checks strategy == HA_HUNT || MMS, not just ltf == H1)
         assertThat(HtsVariant.H1_ST_V3.mailsSignals()).isFalse();
