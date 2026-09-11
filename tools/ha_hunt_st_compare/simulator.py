@@ -47,7 +47,7 @@ class Params:
     htf_closed_shift: int = 1  # Pine f_*Closed [1]
     m45_minutes: int = 45
     st_tf_minutes: int = 45  # 45 = locked M45 ST; 60 = H1 ST bias+SL
-    scale_tp1: bool = False  # True = close 50% at TP1, trail the rest
+    scale_tp1: bool = False  # True = 50% at TP1, runner stop → BE, then trail in favor only
 
 
 @dataclass
@@ -346,13 +346,29 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
             else:
                 if p.use_tp1 and not tp1_hit and ((pos == 1 and h[i] >= tgt) or (pos == -1 and l[i] <= tgt)):
                     tp1_hit = True
+                    # Half-TP1 variants (B/C): runner stop jumps to entry immediately.
+                    # Full-trail A/D do not force BE.
+                    if p.scale_tp1:
+                        stp = float(ent)
                 if p.use_tp1 and tp1_hit:
                     tr = trail_stop(i, pos == 1)
-                    if not np.isnan(tr):
+                    if p.scale_tp1:
+                        if pos == 1:
+                            stp = float(ent) if stp < ent else stp
+                            if not np.isnan(tr) and tr > stp:
+                                stp = tr
+                        else:
+                            stp = float(ent) if stp > ent else stp
+                            if not np.isnan(tr) and tr < stp:
+                                stp = tr
+                    elif not np.isnan(tr):
                         if pos == 1 and tr > stp:
                             stp = tr
                         if pos == -1 and tr < stp:
                             stp = tr
+                    # Half-TP1 only: BE may already be tagged on the TP1 bar.
+                    if p.scale_tp1 and ((pos == 1 and l[i] <= stp) or (pos == -1 and h[i] >= stp)):
+                        close_trade(i, float(stp), "trail")
 
         can_enter = fills < p.cap_reg and pos == 0 and i >= warmup and j >= 0 and st_closed[i] >= 0
         m45_c = htf_val(hc, i)

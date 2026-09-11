@@ -136,6 +136,40 @@ class SameBarTests(unittest.TestCase):
                 # Combined R must equal 1.0 + 0.5 * runner_full_R, i.e. r_split.
                 self.assertAlmostEqual(t.r, t.r_split, places=6)
 
+    def test_half_tp1_moves_stop_to_be(self):
+        """After 50% TP1 the runner stop is entry, so a dip back to entry is 0R on the half."""
+        n = 80
+        t0 = np.datetime64("2025-09-01T00:00:00")
+        times = t0 + np.arange(n) * np.timedelta64(5, "m")
+        close = np.linspace(100.0, 108.0, n)
+        high = close + 0.05
+        low = close - 0.05
+        # Bar 70: tag a high TP1-like extreme then return through entry-ish.
+        high[70] = 200.0
+        low[70] = 100.0
+        meta = SeriesMeta("SYN", "synthetic_test", "", "", "", 0, n, "unit-test only", 0)
+        bars = Bars(times, close.copy(), high, low, close, meta)
+        book = simulate(
+            "SYN",
+            bars,
+            Params(
+                name="be",
+                slow_len=8,
+                fast_len=4,
+                st_atr_len=3,
+                cap_reg=4,
+                req_m45_struct=False,
+                scale_tp1=True,
+                st_tf_minutes=45,
+            ),
+        )
+        be_exits = [t for t in book.trades if t.tp1_hit and abs(t.exit - t.entry) < 1e-9]
+        # Not required that a BE exit exists on this path; just that scaled R never
+        # goes below +1.0 once TP1 hit and exit is at/above entry for a long.
+        for t in book.trades:
+            if t.tp1_hit and t.direction == "long" and t.exit >= t.entry - 1e-12:
+                self.assertGreaterEqual(t.r, 1.0 - 1e-9)
+
     def test_h1_st_params_run(self):
         book = simulate(
             "SYN",

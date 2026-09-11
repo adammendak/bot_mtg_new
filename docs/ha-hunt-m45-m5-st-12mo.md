@@ -108,34 +108,35 @@ Practical call for Adam: **Pine defaults = locked baseline, universe = XAU + US1
 
 ## ST TF × TP1 matrix (A/B/C/D)
 
-Generated `2026-09-11T16:22:47.838490+00:00`. Same 12m data, slow **144**, M5 band-cross, M45 structure gate **ON**, cap 2, both sides. Locked baseline **A did not half-close** at TP1.
+Generated `2026-09-11T16:24:47.117251+00:00`. Same 12m data, slow **144**, M5 band-cross, M45 structure gate **ON**, cap 2, both sides. Locked baseline **A did not half-close** at TP1.
 
-| | full trail after TP1 touch | 50% off at 1:2, rest trails ST |
+| | full trail after TP1 touch (no forced BE) | 50% off at 1:2, runner → BE, then trail in favor |
 | --- | --- | --- |
 | **M45 ST** bias+SL | **A** `baseline_144` (locked) | **B** `m45st_partial` |
 | **H1 ST** bias+SL | **D** `h1st_full` | **C** `h1st_partial` |
 
-Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Same-bar stop beats TP1.
+Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R** (BE runner = +1.0R). Same-bar stop beats TP1 (no scale / no BE that bar).
+B/C: after the 50% fill, remaining stop jumps to **entry**, then M45/H1 ST may only tighten. A/D unchanged — no forced BE.
 
 ### One table — book
 
 | cell | n | WR% | sumR | avgR | maxDD(R) | PF |
 | --- | --- | --- | --- | --- | --- | --- |
 | A M45 ST + full trail | 1570 | 32.9 | 141.98 | 0.090 | 40.54 | 1.15 |
-| B M45 ST + 50% TP1 | 1570 | 34.8 | 74.22 | 0.047 | 40.76 | 1.08 |
-| C H1 ST + 50% TP1 | 1278 | 36.0 | 55.52 | 0.043 | 35.96 | 1.08 |
+| B M45 ST + 50% TP1 + BE | 1577 | 34.7 | 61.99 | 0.039 | 42.70 | 1.07 |
+| C H1 ST + 50% TP1 + BE | 1284 | 35.9 | 52.62 | 0.041 | 36.06 | 1.07 |
 | D H1 ST + full trail | 1278 | 34.1 | 65.77 | 0.051 | 46.83 | 1.09 |
 
 ### One table — per symbol sumR / WR% / maxDD
 
 | symbol | A sumR | B sumR | C sumR | D sumR | A WR | B WR | C WR | D WR | A DD | B DD | C DD | D DD | winner |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| XAU | 63.97 | 42.43 | 32.53 | 40.70 | 37.0 | 38.1 | 36.9 | 34.1 | 13.7 | 13.0 | 10.3 | 10.6 | A M45 ST + full trail |
-| US100 | 39.09 | 22.06 | 18.44 | 30.85 | 34.4 | 36.4 | 35.4 | 34.6 | 21.0 | 23.3 | 16.6 | 16.4 | A M45 ST + full trail |
-| EURUSD | -21.78 | -28.69 | -9.42 | -9.44 | 28.7 | 30.0 | 32.4 | 30.4 | 39.7 | 40.8 | 34.0 | 39.5 | C H1 ST + 50% TP1 |
-| GER40 | 15.11 | 6.10 | 17.40 | 5.92 | 31.7 | 32.7 | 42.4 | 39.9 | 18.6 | 19.8 | 11.7 | 16.6 | C H1 ST + 50% TP1 |
-| BTCUSD | 45.58 | 32.33 | -3.43 | -2.26 | 33.4 | 36.6 | 33.9 | 32.3 | 40.5 | 37.0 | 36.0 | 46.8 | A M45 ST + full trail |
-| BOOK | 141.98 | 74.22 | 55.52 | 65.77 | 32.9 | 34.8 | 36.0 | 34.1 | 40.5 | 40.8 | 36.0 | 46.8 | A M45 ST + full trail |
+| XAU | 63.97 | 40.61 | 30.74 | 40.70 | 37.0 | 38.3 | 36.7 | 34.1 | 13.7 | 13.0 | 10.3 | 10.6 | A M45 ST + full trail |
+| US100 | 39.09 | 21.98 | 18.44 | 30.85 | 34.4 | 36.3 | 35.4 | 34.6 | 21.0 | 23.8 | 16.6 | 16.4 | A M45 ST + full trail |
+| EURUSD | -21.78 | -30.63 | -10.79 | -9.44 | 28.7 | 29.9 | 32.3 | 30.4 | 39.7 | 42.7 | 34.2 | 39.5 | D H1 ST + full trail |
+| GER40 | 15.11 | 3.82 | 17.18 | 5.92 | 31.7 | 32.5 | 42.1 | 39.9 | 18.6 | 19.8 | 11.7 | 16.6 | C H1 ST + 50% TP1 + BE |
+| BTCUSD | 45.58 | 26.20 | -2.95 | -2.26 | 33.4 | 36.4 | 34.0 | 32.3 | 40.5 | 36.6 | 36.1 | 46.8 | A M45 ST + full trail |
+| BOOK | 141.98 | 61.99 | 52.62 | 65.77 | 32.9 | 34.7 | 35.9 | 34.1 | 40.5 | 42.7 | 36.1 | 46.8 | A M45 ST + full trail |
 
 ### Detail (n / WR / sumR / avgR / DD / PF)
 
@@ -144,8 +145,8 @@ Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Sam
 | cell | n | WR% | sumR | avgR | maxDD(R) | PF |
 | --- | --- | --- | --- | --- | --- | --- |
 | A M45 ST + full trail | 265 | 37.0 | 63.97 | 0.241 | 13.73 | 1.43 |
-| B M45 ST + 50% TP1 | 265 | 38.1 | 42.43 | 0.160 | 12.98 | 1.29 |
-| C H1 ST + 50% TP1 | 217 | 36.9 | 32.53 | 0.150 | 10.26 | 1.28 |
+| B M45 ST + 50% TP1 + BE | 266 | 38.3 | 40.61 | 0.153 | 12.98 | 1.27 |
+| C H1 ST + 50% TP1 + BE | 218 | 36.7 | 30.74 | 0.141 | 10.26 | 1.26 |
 | D H1 ST + full trail | 217 | 34.1 | 40.70 | 0.188 | 10.61 | 1.35 |
 
 #### US100
@@ -153,8 +154,8 @@ Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Sam
 | cell | n | WR% | sumR | avgR | maxDD(R) | PF |
 | --- | --- | --- | --- | --- | --- | --- |
 | A M45 ST + full trail | 291 | 34.4 | 39.09 | 0.134 | 21.01 | 1.22 |
-| B M45 ST + 50% TP1 | 291 | 36.4 | 22.06 | 0.076 | 23.29 | 1.13 |
-| C H1 ST + 50% TP1 | 254 | 35.4 | 18.44 | 0.073 | 16.64 | 1.13 |
+| B M45 ST + 50% TP1 + BE | 292 | 36.3 | 21.98 | 0.075 | 23.75 | 1.13 |
+| C H1 ST + 50% TP1 + BE | 254 | 35.4 | 18.44 | 0.073 | 16.64 | 1.13 |
 | D H1 ST + full trail | 254 | 34.6 | 30.85 | 0.121 | 16.39 | 1.21 |
 
 #### EURUSD
@@ -162,8 +163,8 @@ Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Sam
 | cell | n | WR% | sumR | avgR | maxDD(R) | PF |
 | --- | --- | --- | --- | --- | --- | --- |
 | A M45 ST + full trail | 317 | 28.7 | -21.78 | -0.069 | 39.69 | 0.89 |
-| B M45 ST + 50% TP1 | 317 | 30.0 | -28.69 | -0.091 | 40.76 | 0.85 |
-| C H1 ST + 50% TP1 | 253 | 32.4 | -9.42 | -0.037 | 34.03 | 0.94 |
+| B M45 ST + 50% TP1 + BE | 318 | 29.9 | -30.63 | -0.096 | 42.70 | 0.85 |
+| C H1 ST + 50% TP1 + BE | 254 | 32.3 | -10.79 | -0.042 | 34.20 | 0.93 |
 | D H1 ST + full trail | 253 | 30.4 | -9.44 | -0.037 | 39.49 | 0.94 |
 
 #### GER40
@@ -171,8 +172,8 @@ Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Sam
 | cell | n | WR% | sumR | avgR | maxDD(R) | PF |
 | --- | --- | --- | --- | --- | --- | --- |
 | A M45 ST + full trail | 284 | 31.7 | 15.11 | 0.053 | 18.65 | 1.09 |
-| B M45 ST + 50% TP1 | 284 | 32.7 | 6.10 | 0.021 | 19.76 | 1.04 |
-| C H1 ST + 50% TP1 | 238 | 42.4 | 17.40 | 0.073 | 11.71 | 1.14 |
+| B M45 ST + 50% TP1 + BE | 286 | 32.5 | 3.82 | 0.013 | 19.76 | 1.02 |
+| C H1 ST + 50% TP1 + BE | 240 | 42.1 | 17.18 | 0.072 | 11.71 | 1.13 |
 | D H1 ST + full trail | 238 | 39.9 | 5.92 | 0.025 | 16.60 | 1.05 |
 
 #### BTCUSD
@@ -180,20 +181,21 @@ Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Sam
 | cell | n | WR% | sumR | avgR | maxDD(R) | PF |
 | --- | --- | --- | --- | --- | --- | --- |
 | A M45 ST + full trail | 413 | 33.4 | 45.58 | 0.110 | 40.54 | 1.19 |
-| B M45 ST + 50% TP1 | 413 | 36.6 | 32.33 | 0.078 | 36.97 | 1.14 |
-| C H1 ST + 50% TP1 | 316 | 33.9 | -3.43 | -0.011 | 35.96 | 0.98 |
+| B M45 ST + 50% TP1 + BE | 415 | 36.4 | 26.20 | 0.063 | 36.63 | 1.11 |
+| C H1 ST + 50% TP1 + BE | 318 | 34.0 | -2.95 | -0.009 | 36.06 | 0.98 |
 | D H1 ST + full trail | 316 | 32.3 | -2.26 | -0.007 | 46.83 | 0.99 |
 
 ### Call
 
-**A wins the book, XAU, US100, and BTC.** Do not add half-TP1 to the locked M45 stack (B is the same 1570 trades as A, only the R split changes — it gives up **−68R**). Do not switch ST to H1.
+**A still wins** the book, XAU, US100, and BTC. Forcing BE on the runner after half-TP1 made B/C **worse** than half-TP1 without BE (B +62 vs prior +74; C +53 vs +56) — it cuts runner give-back but also cuts the runners that were paying.
 
-| winner | cell |
-| --- | --- |
-| **Book / XAU / US100 / BTC** | **A — M45 ST + full trail** (locked) |
-| GER40 / EURUSD (least-bad) | C — H1 ST + 50% TP1 |
+| | A M45 full | B M45 50%+BE | C H1 50%+BE | D H1 full |
+| --- | ---: | ---: | ---: | ---: |
+| Book sumR | **+142** | +62 | +53 | +66 |
+| XAU | **+64** | +41 | +31 | +41 |
+| US100 | **+39** | +22 | +18 | +31 |
 
-XAU A +64 vs B +42 (−22R). US100 A +39 vs B +22 (−17R). Book A **+142** vs B +74 vs D +66 vs C +56.
+Do not add half-TP1+BE to the locked stack. Do not switch ST to H1. GER40 is the only name that still prefers C.
 
 ## How to rerun
 

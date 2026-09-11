@@ -385,8 +385,8 @@ def _h1_book_cells(b: Book) -> list[str]:
 
 LABELS = {
     "baseline_144": "A M45 ST + full trail",
-    "m45st_partial": "B M45 ST + 50% TP1",
-    "h1st_partial": "C H1 ST + 50% TP1",
+    "m45st_partial": "B M45 ST + 50% TP1 + BE",
+    "h1st_partial": "C H1 ST + 50% TP1 + BE",
     "h1st_full": "D H1 ST + full trail",
 }
 MATRIX_ORDER = ["baseline_144", "m45st_partial", "h1st_partial", "h1st_full"]
@@ -437,8 +437,8 @@ def run_h1_followup() -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cells": {
             "A": "M45 ST + full trail after TP1 touch (locked baseline; no half close)",
-            "B": "M45 ST + half TP1 (50% at +2R, rest trails M45 ST)",
-            "C": "H1 ST + half TP1 (50% at +2R, rest trails H1 ST)",
+            "B": "M45 ST + half TP1 (50% at +2R, runner stop → BE, then M45 ST trail only in favor)",
+            "C": "H1 ST + half TP1 (50% at +2R, runner stop → BE, then H1 ST trail only in favor)",
             "D": "H1 ST + full trail after TP1 (isolation)",
         },
         "rules": {
@@ -497,12 +497,13 @@ def run_h1_followup() -> int:
         "M45 structure gate **ON**, cap 2, both sides. Locked baseline **A did not half-close** at TP1."
     )
     section.append("")
-    section.append("| | full trail after TP1 touch | 50% off at 1:2, rest trails ST |")
+    section.append("| | full trail after TP1 touch (no forced BE) | 50% off at 1:2, runner → BE, then trail in favor |")
     section.append("| --- | --- | --- |")
     section.append("| **M45 ST** bias+SL | **A** `baseline_144` (locked) | **B** `m45st_partial` |")
     section.append("| **H1 ST** bias+SL | **D** `h1st_full` | **C** `h1st_partial` |")
     section.append("")
-    section.append("Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Same-bar stop beats TP1.")
+    section.append("Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R** (BE runner = +1.0R). Same-bar stop beats TP1 (no scale / no BE that bar).")
+    section.append("B/C: after the 50% fill, remaining stop jumps to **entry**, then M45/H1 ST may only tighten. A/D unchanged — no forced BE.")
     section.append("")
     section.append("### One table — book")
     section.append("")
