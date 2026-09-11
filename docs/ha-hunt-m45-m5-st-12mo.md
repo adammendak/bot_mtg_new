@@ -106,12 +106,82 @@ Permutation notes (keep **slow=144**):
 
 Practical call for Adam: **Pine defaults = locked baseline, universe = XAU + US100 (+ BTC shorts if DD is acceptable). Leave EURUSD off. Leave slow at 144.**
 
+## H1 Supertrend + 50% TP1 (follow-up)
+
+Generated `2026-09-11T16:20:46.138194+00:00`. Same universe / window / M5 trigger / M45 structure gate ON / slow 144 / cap 2 / both sides. Only the Supertrend TF and TP1 sizing change.
+
+| cell | bias + SL | TP1 |
+| --- | --- | --- |
+| `baseline_144` | closed **M45** ST | full position; TP1 only arms the trail (locked Pine) |
+| `h1st_partial` | closed **H1** ST | **50%** off at +2R (+1R booked), 50% trails H1 ST |
+| `h1st_full` | closed **H1** ST | full position after TP1 touch (isolates TF vs scale) |
+
+1R = |entry − that ST line|. Runner never widens. Conservative same-bar: stop before TP1 (no scale-out).
+After TP1, `trail` = runner hit the ratcheted ST; `stop` = full SL before TP1.
+
+### Locked M45-ST (re-run, full-TP1 conceptual)
+
+| name | n | WR% | sumR | avgR | maxDD(R) | PF | stop | trail | st_flip | slow | eod | L/S | TP1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XAU | 265 | 37.0 | 63.97 | 0.241 | 13.73 | 1.43 | 137 | 75 | 47 | 6 | 0 | 148/117 | 81 |
+| BTCUSD | 413 | 33.4 | 45.58 | 0.110 | 40.54 | 1.19 | 217 | 110 | 76 | 9 | 1 | 199/214 | 120 |
+| US100 | 291 | 34.4 | 39.09 | 0.134 | 21.01 | 1.22 | 162 | 76 | 44 | 9 | 0 | 156/135 | 85 |
+| GER40 | 284 | 31.7 | 15.11 | 0.053 | 18.65 | 1.09 | 167 | 72 | 34 | 11 | 0 | 154/130 | 83 |
+| EURUSD | 317 | 28.7 | -21.78 | -0.069 | 39.69 | 0.89 | 178 | 67 | 63 | 8 | 1 | 157/160 | 77 |
+| baseline_144 | 1570 | 32.9 | 141.98 | 0.090 | 40.54 | 1.15 | 861 | 400 | 264 | 43 | 2 | 814/756 | 446 |
+
+### H1-ST + 50% TP1 / 50% trail
+
+| name | n | WR% | sumR | avgR | maxDD(R) | PF | stop | trail | st_flip | slow | eod | L/S | TP1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XAU | 217 | 36.9 | 32.53 | 0.150 | 10.26 | 1.28 | 105 | 64 | 43 | 4 | 1 | 119/98 | 68 |
+| US100 | 254 | 35.4 | 18.44 | 0.073 | 16.64 | 1.13 | 131 | 66 | 52 | 5 | 0 | 129/125 | 71 |
+| GER40 | 238 | 42.4 | 17.40 | 0.073 | 11.71 | 1.14 | 120 | 66 | 45 | 6 | 1 | 131/107 | 72 |
+| BTCUSD | 316 | 33.9 | -3.43 | -0.011 | 35.96 | 0.98 | 167 | 81 | 61 | 6 | 1 | 146/170 | 88 |
+| EURUSD | 253 | 32.4 | -9.42 | -0.037 | 34.03 | 0.94 | 138 | 62 | 47 | 5 | 1 | 125/128 | 67 |
+| h1st_partial | 1278 | 36.0 | 55.52 | 0.043 | 35.96 | 1.08 | 661 | 339 | 248 | 26 | 4 | 650/628 | 366 |
+
+### H1-ST full position after TP1 (isolation)
+
+| name | n | WR% | sumR | avgR | maxDD(R) | PF | stop | trail | st_flip | slow | eod | L/S | TP1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XAU | 217 | 34.1 | 40.70 | 0.188 | 10.61 | 1.35 | 105 | 64 | 43 | 4 | 1 | 119/98 | 68 |
+| US100 | 254 | 34.6 | 30.85 | 0.121 | 16.39 | 1.21 | 131 | 66 | 52 | 5 | 0 | 129/125 | 71 |
+| GER40 | 238 | 39.9 | 5.92 | 0.025 | 16.60 | 1.05 | 120 | 66 | 45 | 6 | 1 | 131/107 | 72 |
+| BTCUSD | 316 | 32.3 | -2.26 | -0.007 | 46.83 | 0.99 | 167 | 81 | 61 | 6 | 1 | 146/170 | 88 |
+| EURUSD | 253 | 30.4 | -9.44 | -0.037 | 39.49 | 0.94 | 138 | 62 | 47 | 5 | 1 | 125/128 | 67 |
+| h1st_full | 1278 | 34.1 | 65.77 | 0.051 | 46.83 | 1.09 | 661 | 339 | 248 | 26 | 4 | 650/628 | 366 |
+
+### A/B per ticker (sumR)
+
+| symbol | M45 full | H1 full | H1 50% | Δ TF (H1f−M45) | Δ scale (50%−H1f) | Δ vs locked (50%−M45) | H1 50% WR% | H1 50% DD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XAU | 63.97 | 40.70 | 32.53 | -23.27 | -8.17 | -31.44 | 36.9 | 10.3 |
+| US100 | 39.09 | 30.85 | 18.44 | -8.24 | -12.41 | -20.65 | 35.4 | 16.6 |
+| EURUSD | -21.78 | -9.44 | -9.42 | +12.33 | +0.02 | +12.36 | 32.4 | 34.0 |
+| GER40 | 15.11 | 5.92 | 17.40 | -9.19 | +11.48 | +2.29 | 42.4 | 11.7 |
+| BTCUSD | 45.58 | -2.26 | -3.43 | -47.85 | -1.17 | -49.01 | 33.9 | 36.0 |
+
+### H1 vs M45 recommendation
+
+| book | n | sumR | PF | maxDD |
+| --- | ---: | ---: | ---: | ---: |
+| **M45-ST full-TP1 (locked)** | 1570 | **+142** | **1.15** | 40.5 |
+| H1-ST full after TP1 | 1278 | +66 | 1.09 | 46.8 |
+| H1-ST + 50% TP1 | 1278 | +56 | 1.08 | 36.0 |
+
+**Keep M45 Supertrend as bias + SL.** Moving ST to H1 costs about **−76R** on the book (almost all of it is BTC: M45 +46R → H1 −2R). H1 also cuts XAU (−23R) and US100 (−8R). EURUSD is less bad on H1 (−9 vs −22) but still red. GER40 is the only name where H1 + 50% scale beats locked M45 (+17 vs +15) — not enough to switch the stack.
+
+**50% scale vs H1-full:** helps **GER40 only** (+11.5R). Hurts the good names (XAU −8R, US100 −12R). BTC/EUR ≈ flat. Do **not** add 50% TP1 to the locked M45 book as a default — on H1 it gives up runner R on XAU/US100. If Adam wants partials, test them on GER40 only.
+
+Practical call: **do not change Pine to H1 ST.** Locked M45-ST, full-position trail after TP1, universe XAU + US100.
+
 ## How to rerun
 
 ```bash
 python3 -m tools.ha_hunt_st_compare.run_bakeoff
+python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup
 ```
 
 With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.
 Caches live under `tools/ha_hunt_st_compare/cache/` (gitignored).
-
