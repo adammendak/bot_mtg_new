@@ -308,6 +308,57 @@ class HtsTradeServiceTest {
         verify(sink, never()).onClose(any());
     }
 
+    // ---- manage(): HA-hunt cloud-hold exit vs. a plain reconcile-vanish ----
+
+    /**
+     * Weekly automated report (2026-09-11): every HA4/HA1 CLOSED trade that
+     * week showed close_reason=CLOUD, ~10 min after entry (the 2nd
+     * HtsPositionMonitor tick), with near-zero variance — looking exactly like
+     * {@link HaHuntEngine#cloudHoldExit} was firing on a bug. Production logs
+     * showed no "cloud-hold exit" line for any of them, only the ordinary
+     * "absent from openPositions()" reconcile-miss line: {@code haHunt} was
+     * never even consulted, let alone true (see {@link HaHuntEngineTest} for
+     * the proof that cloudHoldExit itself is stable given unchanged data).
+     * {@code stampReason()} used to default every un-preset HA-hunt close to
+     * "CLOUD" (its comment assumed "no stop/target match => cloud flip"),
+     * mislabelling this ordinary vanish as the strategy's own signal.
+     */
+    @Test
+    void manageDoesNotMislabelAReconcileVanishedHaHuntDealAsCloudHold() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
+        t.setVariant("HA4");
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of()); // never seen open — a reconcile-vanish, not a decided flip
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 100.2, 100.2, bar));
+
+        service.manage();                 // 1st miss — deferred
+        int touched = service.manage();   // 2nd — force-closed
+
+        assertThat(touched).isEqualTo(1);
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getCloseReason()).isEqualTo("MANUAL"); // honest "don't know why", same as ribbon
+        assertThat(t.getCloseReason()).isNotEqualTo("CLOUD");
+        verify(haHunt, never()).cloudHoldExit(any(), any(), anyBoolean(), any());
+    }
+
+    /** The other half: a genuine flip must stamp CLOUD itself, at decision time — not by elimination later. */
+    @Test
+    void haHuntCloudExitStampsCloudReasonItselfBeforeTheReconcilePassCloses() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
+        t.setVariant("HA4");
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of(pos("d1", Direction.BUY))); // still open per the broker
+        when(haHunt.cloudHoldExit(eq(HtsVariant.HA4), any(), eq(true), any())).thenReturn(true);
+
+        int touched = service.manage();
+
+        assertThat(touched).isEqualTo(1);
+        verify(broker).closePosition("d1", 1.0);
+        assertThat(t.getCloseReason()).isEqualTo("CLOUD"); // stamped now, not guessed on a later pass
+        assertThat(t.getStatus()).isEqualTo("OPEN");        // reconcile flips it to CLOSED next cycle
+    }
+
     @Test
     void manageSelectsTheBooksAccountBeforeReadingPositions() {
         HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
