@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from tools.ha_hunt_st_compare.indicators import atr, heikin_ashi, rma, rma_band, supertrend
-from tools.ha_hunt_st_compare.ohlc import Bars, SeriesMeta, resample_ohlc
+from tools.ha_hunt_st_compare.ohlc import Bars, SeriesMeta, resample_bars, resample_ohlc
 from tools.ha_hunt_st_compare.simulator import Params, simulate
 import pandas as pd
 
@@ -90,6 +90,19 @@ class ResampleTests(unittest.TestCase):
         self.assertEqual(m5.iloc[0]["close"], 5.5)
         self.assertEqual(m5.iloc[0]["high"], 6)
         self.assertEqual(m5.iloc[0]["low"], 0.5)
+
+    def test_resample_bars_m5_to_m15(self):
+        n = 3
+        t0 = np.datetime64("2026-01-02T10:00:00")
+        times = t0 + np.arange(n) * np.timedelta64(5, "m")
+        meta = SeriesMeta("SYN", "synthetic_test", "", "", "", 0, n, "unit-test", 0)
+        bars = Bars(times, np.array([1.0, 2.0, 3.0]), np.array([2.0, 3.0, 4.0]), np.array([0.5, 1.0, 2.0]), np.array([1.5, 2.5, 3.5]), meta)
+        m15 = resample_bars(bars, 15)
+        self.assertEqual(len(m15.close), 1)
+        self.assertEqual(m15.open[0], 1.0)
+        self.assertEqual(m15.close[0], 3.5)
+        self.assertEqual(m15.high[0], 4.0)
+        self.assertEqual(m15.low[0], 0.5)
 
 
 def _synthetic_trend(n: int = 800) -> Bars:
@@ -227,11 +240,38 @@ class SameBarTests(unittest.TestCase):
         for t in book.trades:
             self.assertNotIn(t.reason, forbidden)
             if t.tp1_hit:
-                self.assertIn(t.reason, {"be", "m5_ha_flip", "open_eod"})
+                self.assertIn(t.reason, {"be", "m5_ha_flip", "m15_ha_flip", "open_eod"})
                 # Half at +2R booked +1R; BE runner ≥ 0 ⇒ combined ≥ +1R
                 if t.reason == "be":
                     self.assertAlmostEqual(t.r, 1.0, places=5)
                     self.assertAlmostEqual(t.r_full, 0.0, places=5)
+
+
+    def test_m15_resample_and_ha_exit_runs(self):
+        m5 = _synthetic_trend(900)
+        m15 = resample_bars(m5, 15)
+        self.assertLess(len(m15.close), len(m5.close))
+        self.assertGreater(len(m15.close), 200)
+        book = simulate(
+            "SYN",
+            m15,
+            Params(
+                name="m15",
+                slow_len=30,
+                fast_len=8,
+                req_m45_struct=False,
+                cap_reg=4,
+                chart_minutes=15,
+                scale_tp1=True,
+                exit_st_flip=False,
+                exit_slow_band=False,
+                exit_ha_flip=True,
+                trail_after_tp1=False,
+            ),
+        )
+        self.assertGreaterEqual(book.n, 0)
+        for t in book.trades:
+            self.assertNotIn(t.reason, {"m45_st_flip", "h1_st_flip", "m45_slow_band", "trail"})
 
 
 if __name__ == "__main__":

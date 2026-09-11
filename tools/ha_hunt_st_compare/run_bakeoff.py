@@ -12,13 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.ha_hunt_st_compare.ohlc import SYMBOLS, coverage_table, load_symbol
+from tools.ha_hunt_st_compare.ohlc import SYMBOLS, coverage_table, load_symbol, resample_bars
 from tools.ha_hunt_st_compare.simulator import (
     Book,
     Params,
     h1_compare_variants,
     ha_exit_variants,
     ha_exit_wr_perms,
+    m15_ha_exit_variants,
     variants,
     simulate,
 )
@@ -864,6 +865,7 @@ def run_ha_exit() -> int:
         "python3 -m tools.ha_hunt_st_compare.run_bakeoff\n"
         "python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup\n"
         "python3 -m tools.ha_hunt_st_compare.run_bakeoff --ha-exit\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --m15\n"
         "```\n\n"
         "With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.\n"
         "Caches live under `tools/ha_hunt_st_compare/cache/` (gitignored).\n"
@@ -887,7 +889,260 @@ def run_ha_exit() -> int:
     return 0
 
 
+M15_LABELS = {
+    "m15_m45": "A M15 + M45 ST + half TP1 + BE + M15 HA flip",
+    "m15_h1": "B M15 + H1 ST + half TP1 + BE + M15 HA flip",
+    "m15_m45_full": "C M15 + M45 ST full-trail (no half, ST trail)",
+}
+M15_HA_ORDER = ["m15_m45", "m15_h1"]
+M15_SECTION = "## M15 HA-flip runner (vs M5)"
+
+
+def _row_to_book(row: dict, symbol: str, variant: str) -> Book:
+    b = Book(symbol=symbol, variant=variant)
+    b.n = int(row.get("n") or 0)
+    b.wr_pct = float(row.get("wr_pct") or 0)
+    b.wr_full_pct = float(row.get("wr_full_pct") or b.wr_pct)
+    b.sum_r = float(row.get("sum_r") or 0)
+    b.avg_r = float(row.get("avg_r") or 0)
+    b.max_dd_r = float(row.get("max_dd_r") or 0)
+    b.pf = float(row.get("pf") or 0)
+    b.n_long = int(row.get("n_long") or 0)
+    b.n_short = int(row.get("n_short") or 0)
+    b.n_tp1 = int(row.get("n_tp1") or 0)
+    b.exits = dict(row.get("exits") or {})
+    return b
+
+
+def run_m15_ha_exit() -> int:
+    """M15 analogy of half+BE+HA. Compare to M5 numbers already in the JSON."""
+    print(f"M15 HA-flip runner  {START.isoformat()} → {END.isoformat()}", flush=True)
+    bars5, load_errors = _load_bars()
+    if not bars5:
+        return 1
+    bars15 = {}
+    for sym, b in bars5.items():
+        m15 = resample_bars(b, 15)
+        bars15[sym] = m15
+        print(f"  {sym:7} M15 n={len(m15.close)}  {m15.meta.first} → {m15.meta.last}", flush=True)
+
+    cells = _run_params(m15_ha_exit_variants(), bars15)
+    totals = _totals(cells)
+    by_name = {t.variant: t for t in totals}
+
+    payload = json.loads(OUT_JSON.read_text()) if OUT_JSON.exists() else {}
+    m5 = payload.get("ha_exit") or {}
+    m5_book = {k: _row_to_book(v, "BOOK", k) for k, v in (m5.get("book") or {}).items()}
+    m5_by_sym: dict[str, dict[str, Book]] = {}
+    for sym, block in (m5.get("by_symbol") or {}).items():
+        m5_by_sym[sym] = {k: _row_to_book(v, sym, k) for k, v in block.items()}
+
+    def cell_of(name: str, sym: str) -> Book:
+        return next(b for b in cells if b.variant == name and b.symbol == sym)
+
+    def metrics_row(b: Book, label: str) -> list[str]:
+        tp1_pct = (100.0 * b.n_tp1 / b.n) if b.n else 0.0
+        return [
+            label,
+            str(b.n),
+            f"{b.wr_pct:.1f}",
+            f"{tp1_pct:.1f}",
+            f"{b.sum_r:.2f}",
+            f"{b.avg_r:.3f}",
+            f"{b.max_dd_r:.2f}",
+            _fmt_pf(b.pf),
+        ]
+
+    hdr = ["cell", "n", "WR% (R>0)", "TP1%", "sumR", "avgR", "maxDD(R)", "PF"]
+
+    by_symbol = {sym: {name: _book_row(cell_of(name, sym)) for name in M15_LABELS} for sym in bars15}
+    a, b = by_name["m15_m45"], by_name["m15_h1"]
+    full = by_name.get("m15_m45_full")
+
+    def m5_cell(name: str, sym: str | None = None) -> Book | None:
+        if sym is None or sym == "BOOK":
+            return m5_book.get(name)
+        return (m5_by_sym.get(sym) or {}).get(name)
+
+    xau_a, xau_b = cell_of("m15_m45", "XAU"), cell_of("m15_h1", "XAU")
+    nq_a, nq_b = cell_of("m15_m45", "US100"), cell_of("m15_h1", "US100")
+    m5_xau_a, m5_xau_b = m5_cell("ha_m45", "XAU"), m5_cell("ha_h1", "XAU")
+    m5_nq_a, m5_nq_b = m5_cell("ha_m45", "US100"), m5_cell("ha_h1", "US100")
+    m5_a, m5_b = m5_cell("ha_m45"), m5_cell("ha_h1")
+
+    closer = []
+    for label, m15b, m5b in (
+        ("XAU A M45", xau_a, m5_xau_a),
+        ("XAU B H1", xau_b, m5_xau_b),
+        ("US100 A M45", nq_a, m5_nq_a),
+        ("US100 B H1", nq_b, m5_nq_b),
+    ):
+        if m5b:
+            closer.append(f"{label}: M15 {m15b.wr_pct:.1f}% vs M5 {m5b.wr_pct:.1f}% ({m15b.wr_pct - m5b.wr_pct:+.1f}pp)")
+    rec = (
+        f"M15 HA-exit book: A (M45 ST) n={a.n} WR={a.wr_pct:.1f}% sumR={a.sum_r:+.1f}; "
+        f"B (H1 ST) n={b.n} WR={b.wr_pct:.1f}% sumR={b.sum_r:+.1f}. "
+        + (" ".join(closer) + ". " if closer else "")
+        + (
+            f"XAU/US100 vs ~50%: A XAU {xau_a.wr_pct:.1f}% US100 {nq_a.wr_pct:.1f}%; "
+            f"B XAU {xau_b.wr_pct:.1f}% US100 {nq_b.wr_pct:.1f}%."
+        )
+    )
+
+    payload["m15_ha_exit"] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cells": {
+            "A": "M15 trigger + M45 ST bias/SL + 50% TP1 + BE + M15 HA flip",
+            "B": "M15 trigger + H1 ST bias/SL + 50% TP1 + BE + M15 HA flip",
+            "C": "M15 trigger + M45 ST full-trail (optional old-exit analogy)",
+        },
+        "rules": {
+            "chart": "M15",
+            "structure": "M45 large RMA 144/33, gate ON",
+            "trigger": "first M15 close beyond M15 fast band",
+            "runner": "50% at 1:2, stop → BE, confirmed M15 HA colour flip or BE",
+        },
+        "coverage": coverage_table(bars5),
+        "load_errors": load_errors,
+        "m15_n": {sym: int(len(bars15[sym].close)) for sym in bars15},
+        "by_symbol": by_symbol,
+        "book": {name: _book_row(by_name[name]) for name in M15_LABELS},
+        "recommendation": rec,
+    }
+
+    book_rows = [metrics_row(by_name[n], M15_LABELS[n]) for n in list(M15_LABELS)]
+    vs_rows = []
+    for sym in list(bars15) + ["BOOK"]:
+        m15a = by_name["m15_m45"] if sym == "BOOK" else cell_of("m15_m45", sym)
+        m15b = by_name["m15_h1"] if sym == "BOOK" else cell_of("m15_h1", sym)
+        m5a = m5_cell("ha_m45", None if sym == "BOOK" else sym)
+        m5b = m5_cell("ha_h1", None if sym == "BOOK" else sym)
+        vs_rows.append(
+            [
+                sym,
+                f"{m15a.wr_pct:.1f}",
+                f"{m5a.wr_pct:.1f}" if m5a else "—",
+                f"{m15b.wr_pct:.1f}",
+                f"{m5b.wr_pct:.1f}" if m5b else "—",
+                f"{m15a.sum_r:.2f}",
+                f"{m5a.sum_r:.2f}" if m5a else "—",
+                f"{m15b.sum_r:.2f}",
+                f"{m5b.sum_r:.2f}" if m5b else "—",
+                f"{(100.0 * m15a.n_tp1 / m15a.n) if m15a.n else 0:.1f}",
+                f"{(100.0 * m15b.n_tp1 / m15b.n) if m15b.n else 0:.1f}",
+            ]
+        )
+
+    detail = []
+    for sym in bars15:
+        detail.append(f"#### {sym}")
+        detail.append("")
+        rows = [metrics_row(cell_of(n, sym), M15_LABELS[n]) for n in M15_LABELS]
+        detail.append(_md_table(hdr, rows))
+        detail.append("")
+        a_s, b_s = cell_of("m15_m45", sym), cell_of("m15_h1", sym)
+        detail.append(
+            f"Exits A: `{a_s.exits}` · B: `{b_s.exits}`. "
+            f"TP1 A {a_s.n_tp1}/{a_s.n} · B {b_s.n_tp1}/{b_s.n}."
+        )
+        detail.append("")
+
+    section = []
+    section.append(M15_SECTION)
+    section.append("")
+    section.append(
+        f"Generated `{payload['m15_ha_exit']['generated_at']}`. Same 12m data resampled M5→M15 (epoch buckets). "
+        "Slow **144**, M15 band-cross, M45 structure gate **ON**, cap 2, both sides."
+    )
+    section.append("")
+    section.append(
+        "**Locked analogy:** trigger = first M15 close beyond the M15 fast RMA band. "
+        "Bias+SL = closed M45 ST (A) or H1 ST (B). "
+        "50% at 1:2 → runner stop to **entry** → full exit on confirmed **M15 HA colour flip** (body) or BE. "
+        "ST is bias + initial SL only."
+    )
+    section.append("")
+    section.append("### M15 book")
+    section.append("")
+    section.append(_md_table(hdr, book_rows))
+    section.append("")
+    section.append("### Side-by-side vs M5 half+BE+HA")
+    section.append("")
+    section.append(
+        _md_table(
+            [
+                "symbol",
+                "M15 A WR",
+                "M5 A WR",
+                "M15 B WR",
+                "M5 B WR",
+                "M15 A sumR",
+                "M5 A sumR",
+                "M15 B sumR",
+                "M5 B sumR",
+                "M15 A TP1%",
+                "M15 B TP1%",
+            ],
+            vs_rows,
+        )
+    )
+    section.append("")
+    section.append("### Detail (M15)")
+    section.append("")
+    section.extend(detail)
+    section.append("### Call")
+    section.append("")
+    section.append(rec)
+    section.append("")
+    hit50 = any(x.wr_pct >= 49.5 for x in (xau_a, xau_b, nq_a, nq_b))
+    section.append(
+        "M15 vs ~50% WR on XAU/US100: "
+        + ("at least one cell is near/at 50%." if hit50 else "**still well below ~50%** — same TP1-rate ceiling as M5.")
+    )
+    if m5_a and m5_b:
+        section.append(
+            f"Book WR: M15 A {a.wr_pct:.1f}% vs M5 A {m5_a.wr_pct:.1f}% ({a.wr_pct - m5_a.wr_pct:+.1f}pp); "
+            f"M15 B {b.wr_pct:.1f}% vs M5 B {m5_b.wr_pct:.1f}% ({b.wr_pct - m5_b.wr_pct:+.1f}pp)."
+        )
+    if full:
+        section.append(
+            f"Optional M15 full-trail (C): n={full.n} WR={full.wr_pct:.1f}% sumR={full.sum_r:+.1f} "
+            f"avgR={full.avg_r:.3f} DD={full.max_dd_r:.1f} PF={_fmt_pf(full.pf)}."
+        )
+    section.append("")
+
+    text = OUT_MD.read_text() if OUT_MD.exists() else ""
+    howto = (
+        "## How to rerun\n\n"
+        "```bash\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --ha-exit\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --m15\n"
+        "```\n\n"
+        "With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.\n"
+        "Caches live under `tools/ha_hunt_st_compare/cache/` (gitignored).\n"
+    )
+    if M15_SECTION in text:
+        pre = text.split(M15_SECTION)[0].rstrip()
+        text = pre + "\n\n" + "\n".join(section) + "\n" + howto
+    elif "## How to rerun" in text:
+        pre = text.split("## How to rerun")[0].rstrip()
+        text = pre + "\n\n" + "\n".join(section) + "\n" + howto
+    else:
+        text = text.rstrip() + "\n\n" + "\n".join(section) + "\n" + howto
+
+    OUT_MD.write_text(text if text.endswith("\n") else text + "\n")
+    OUT_JSON.write_text(json.dumps(payload, indent=2) + "\n")
+    print(f"wrote {OUT_MD}")
+    print(f"wrote {OUT_JSON}")
+    print("M15 REC", rec)
+    return 0
+
+
 if __name__ == "__main__":
+    if "--m15" in sys.argv:
+        raise SystemExit(run_m15_ha_exit())
     if "--ha-exit" in sys.argv:
         raise SystemExit(run_ha_exit())
     if "--h1-followup" in sys.argv:

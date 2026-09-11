@@ -7,6 +7,7 @@ python3 -m tools.ha_hunt_st_compare.test_simulator
 python3 -m tools.ha_hunt_st_compare.run_bakeoff
 python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup
 python3 -m tools.ha_hunt_st_compare.run_bakeoff --ha-exit
+python3 -m tools.ha_hunt_st_compare.run_bakeoff --m15
 ```
 
 Writes `docs/ha-hunt-m45-m5-st-12mo.md` and `.json`.

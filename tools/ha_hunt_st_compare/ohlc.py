@@ -74,6 +74,51 @@ def _ensure_cache() -> Path:
     return CACHE
 
 
+def resample_bars(bars: Bars, minutes: int) -> Bars:
+    """Epoch-bucket resample (same rule as Java ``Resample`` / HTF aggregate)."""
+    if minutes <= 0:
+        raise ValueError("minutes must be > 0")
+    sec = bars.time.astype("datetime64[s]").astype(np.int64)
+    if len(sec) >= 2:
+        step = int(np.median(np.diff(sec)))
+        if step == minutes * 60:
+            return bars
+    span = minutes * 60
+    starts = (sec // span) * span
+    if len(starts) == 0:
+        return bars
+    change = np.empty(len(starts), dtype=bool)
+    change[0] = True
+    change[1:] = starts[1:] != starts[:-1]
+    idx = np.nonzero(change)[0]
+    ends = np.append(idx[1:], len(starts))
+    n = len(idx)
+    ho = np.empty(n, dtype=np.float64)
+    hh = np.empty(n, dtype=np.float64)
+    hl = np.empty(n, dtype=np.float64)
+    hc = np.empty(n, dtype=np.float64)
+    hs = starts[idx]
+    o, h, l, c = bars.open, bars.high, bars.low, bars.close
+    for i, (a, b) in enumerate(zip(idx, ends)):
+        ho[i] = o[a]
+        hh[i] = np.max(h[a:b])
+        hl[i] = np.min(l[a:b])
+        hc[i] = c[b - 1]
+    times = hs.astype("datetime64[s]").astype("datetime64[ns]")
+    meta = SeriesMeta(
+        symbol=bars.meta.symbol,
+        source=f"{bars.meta.source}_m{minutes}",
+        path=bars.meta.path,
+        first=str(times[0]) if n else bars.meta.first,
+        last=str(times[-1]) if n else bars.meta.last,
+        n_m1=bars.meta.n_m1,
+        n_m5=n,
+        gaps_note=f"{bars.meta.gaps_note}; resampled to M{minutes}",
+        coverage_days=bars.meta.coverage_days,
+    )
+    return Bars(times, ho, hh, hl, hc, meta)
+
+
 def resample_ohlc(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
     """UTC epoch-bucket resample — same rule as Java ``Resample.bucket``."""
     if df.empty:

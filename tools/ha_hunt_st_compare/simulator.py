@@ -15,9 +15,9 @@ R accounting:
 
 Runner (Adam lock, ``exit_ha_flip=True``):
 - After TP1 the remaining stop is **entry (BE)** and stays there.
-- Full runner exit = confirmed M5 Heikin-Ashi colour flip against the
-  position (body close), or BE hit. No M45 slow-band, no ST-line trail,
-  no ST-flip (``exit_st_flip`` default OFF for that retest).
+- Full runner exit = confirmed chart-TF Heikin-Ashi colour flip against
+  the position (body close), or BE hit. Chart TF is M5 (locked) or M15
+  (analogy). No M45 slow-band, no ST-line trail, no ST-flip.
 """
 
 from __future__ import annotations
@@ -53,9 +53,10 @@ class Params:
     htf_closed_shift: int = 1  # Pine f_*Closed [1]
     m45_minutes: int = 45
     st_tf_minutes: int = 45  # 45 = locked M45 ST; 60 = H1 ST bias+SL
+    chart_minutes: int = 5  # 5 = locked M5 trigger; 15 = M15 analogy
     scale_tp1: bool = False  # True = 50% at TP1, runner stop → BE
     exit_slow_band: bool = True  # M45 slow-band body after TP1 (OLD runner)
-    exit_ha_flip: bool = False  # M5 HA colour flip against the runner (NEW)
+    exit_ha_flip: bool = False  # chart-TF HA colour flip against the runner
     trail_after_tp1: bool = True  # False = stop stays at BE; no ST-line trail
 
 
@@ -166,20 +167,21 @@ def _aggregate_htf(
 
 
 def _map_closed_htf(
-    m5_starts: np.ndarray,
+    chart_starts: np.ndarray,
     htf_starts: np.ndarray,
     minutes: int,
     shift: int,
+    chart_minutes: int = 5,
 ) -> np.ndarray:
-    """For each M5 bar, index of the Pine-closed HTF bar, or -1.
+    """For each chart bar, index of the Pine-closed HTF bar, or -1.
 
-    Last completed HTF at this M5 confirm: ``htf_start + span <= m5_start + 5m``.
+    Last completed HTF at this chart confirm:
+    ``htf_start + span <= chart_start + chart_minutes``.
     Pine ``[1]`` then steps back ``shift`` closed bars.
     """
     span = minutes * 60
-    m5_end = m5_starts + 5 * 60
-    # last htf with start+span <= m5_end  →  start <= m5_end - span
-    cutoff = m5_end - span
+    chart_end = chart_starts + chart_minutes * 60
+    cutoff = chart_end - span
     pos = np.searchsorted(htf_starts, cutoff, side="right") - 1
     pos = pos - shift
     pos[pos < 0] = -1
@@ -192,10 +194,10 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
     if n < 50:
         return _metrics([], symbol, p.name)
 
-    m5_starts = _bucket_starts(bars.time, 1)  # already 5m opens; use actual epoch
-    # bars.time is the M5 open; keep it (do not rebucket by 1 minute)
+    # bars.time is the chart-TF open (M5 or M15). Do not rebucket here.
     sec = bars.time.astype("datetime64[s]").astype(np.int64)
-    m5_starts = sec
+    chart_starts = sec
+    chart_min = int(p.chart_minutes)
 
     hs, ho, hh, hl, hc = _aggregate_htf(_bucket_starts(bars.time, p.m45_minutes), o, h, l, c)
     if len(hc) < p.slow_len + p.htf_closed_shift + 5:
@@ -208,7 +210,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
     m45_st, m45_dir = supertrend(hh, hl, hc, p.st_factor, p.st_atr_len)
     m45_atr14 = atr(hh, hl, hc, 14)
 
-    closed_i = _map_closed_htf(m5_starts, hs, p.m45_minutes, p.htf_closed_shift)
+    closed_i = _map_closed_htf(chart_starts, hs, p.m45_minutes, p.htf_closed_shift, chart_min)
 
     def htf_val(arr: np.ndarray, i: int) -> float:
         j = closed_i[i]
@@ -222,7 +224,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
         if len(h1c) < p.st_atr_len + p.htf_closed_shift + 5:
             return _metrics([], symbol, p.name)
         st_line, st_dir_arr = supertrend(h1h, h1l, h1c, p.st_factor, p.st_atr_len)
-        st_closed = _map_closed_htf(m5_starts, h1s, 60, p.htf_closed_shift)
+        st_closed = _map_closed_htf(chart_starts, h1s, 60, p.htf_closed_shift, chart_min)
     else:
         st_line, st_dir_arr = m45_st, m45_dir
         st_closed = closed_i
@@ -399,7 +401,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
                     else:
                         exit_ha = (not bool(ha_bull[i - 1])) and bool(ha_bull[i])
                     if exit_ha:
-                        close_trade(i, float(c[i]), "m5_ha_flip")
+                        close_trade(i, float(c[i]), f"m{chart_min}_ha_flip")
 
         can_enter = fills < p.cap_reg and pos == 0 and i >= warmup and j >= 0 and st_closed[i] >= 0
         m45_c = htf_val(hc, i)
@@ -509,6 +511,33 @@ def ha_exit_variants() -> list[Params]:
     return [
         _ha_exit_locked(name="ha_m45", st_tf_minutes=45),
         _ha_exit_locked(name="ha_h1", st_tf_minutes=60),
+    ]
+
+
+def m15_ha_exit_variants() -> list[Params]:
+    """M15 analogy: A = M45 ST, B = H1 ST, C = optional M15 full-trail."""
+    return [
+        _ha_exit_locked(name="m15_m45", chart_minutes=15, st_tf_minutes=45),
+        _ha_exit_locked(name="m15_h1", chart_minutes=15, st_tf_minutes=60),
+        Params(
+            name="m15_m45_full",
+            chart_minutes=15,
+            st_tf_minutes=45,
+            slow_len=144,
+            band_cross_strict=False,
+            req_m45_struct=True,
+            cap_reg=2,
+            stop_mode="st",
+            st_factor=2.0,
+            long_only=False,
+            use_tp1=True,
+            tp1_mult=2.0,
+            scale_tp1=False,
+            exit_st_flip=True,
+            exit_slow_band=True,
+            exit_ha_flip=False,
+            trail_after_tp1=True,
+        ),
     ]
 
 
