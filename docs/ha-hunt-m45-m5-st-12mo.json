@@ -1,0 +1,1447 @@
+{
+  "generated_at": "2026-09-11T16:14:52.331023+00:00",
+  "window": {
+    "start": "2025-09-11T00:00:00+00:00",
+    "end": "2026-09-11T00:00:00+00:00"
+  },
+  "locked_baseline": {
+    "chart": "M5",
+    "structure": "M45 large RMA high-low band",
+    "trigger": "M5 small-band CROSS (first close beyond M5 fast band)",
+    "bias_sl": "closed M45 Supertrend (same line)",
+    "slow_len": 144,
+    "fast_len": 33,
+    "st": {
+      "atr": 10,
+      "factor": 2.0
+    },
+    "tp1": "2 \u00d7 |entry\u2212SL|; runner trails M45 ST; exit ST flip and/or M45 slow-band body",
+    "m45_gate": true,
+    "one_position": true,
+    "same_bar": "conservative: stop wins vs TP1",
+    "r_accounting": "full-position exit R (Pine overlay does not scale out); r_split is HTS 50/50",
+    "htf_closed": "last completed M45 then Pine [1] shift"
+  },
+  "coverage": [
+    {
+      "symbol": "XAU",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-09-11T00:00:00+00:00",
+      "last": "2026-09-04T20:55:00+00:00",
+      "n_m5": 69685,
+      "n_m1": 387961,
+      "coverage_days": 358.87,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids."
+    },
+    {
+      "symbol": "US100",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-09-11T00:00:00+00:00",
+      "last": "2026-09-04T20:10:00+00:00",
+      "n_m5": 67303,
+      "n_m1": 374499,
+      "coverage_days": 358.84,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids."
+    },
+    {
+      "symbol": "EURUSD",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-09-11T00:00:00+00:00",
+      "last": "2026-09-04T20:55:00+00:00",
+      "n_m5": 73364,
+      "n_m1": 406482,
+      "coverage_days": 358.87,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids."
+    },
+    {
+      "symbol": "GER40",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-09-11T00:00:00+00:00",
+      "last": "2026-09-04T19:55:00+00:00",
+      "n_m5": 67493,
+      "n_m1": 371267,
+      "coverage_days": 358.83,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids."
+    },
+    {
+      "symbol": "BTCUSD",
+      "source": "coinbase_exchange_m5",
+      "first": "2025-09-11T00:00:00+00:00",
+      "last": "2026-09-11T00:00:00+00:00",
+      "n_m5": 104972,
+      "n_m1": 0,
+      "coverage_days": 365.0,
+      "note": "capital_unavailable: Capital DEMO credentials not set; Coinbase Exchange BTC-USD 5m public candles. Not Capital mids. HistData has no BTC."
+    }
+  ],
+  "load_errors": {},
+  "baseline_by_symbol": [
+    {
+      "symbol": "XAU",
+      "variant": "baseline_144",
+      "n": 265,
+      "wr_pct": 36.98,
+      "sum_r": 63.974,
+      "avg_r": 0.2414,
+      "max_dd_r": 13.732,
+      "pf": 1.426,
+      "exits": {
+        "stop": 212,
+        "m45_st_flip": 47,
+        "m45_slow_band": 6
+      },
+      "n_long": 148,
+      "n_short": 117,
+      "sum_r_long": 44.574,
+      "sum_r_short": 19.4,
+      "n_tp1": 81
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "baseline_144",
+      "n": 413,
+      "wr_pct": 33.41,
+      "sum_r": 45.584,
+      "avg_r": 0.1104,
+      "max_dd_r": 40.54,
+      "pf": 1.19,
+      "exits": {
+        "stop": 327,
+        "m45_st_flip": 76,
+        "m45_slow_band": 9,
+        "open_eod": 1
+      },
+      "n_long": 199,
+      "n_short": 214,
+      "sum_r_long": 0.762,
+      "sum_r_short": 44.822,
+      "n_tp1": 120
+    },
+    {
+      "symbol": "US100",
+      "variant": "baseline_144",
+      "n": 291,
+      "wr_pct": 34.36,
+      "sum_r": 39.085,
+      "avg_r": 0.1343,
+      "max_dd_r": 21.014,
+      "pf": 1.221,
+      "exits": {
+        "m45_st_flip": 44,
+        "stop": 238,
+        "m45_slow_band": 9
+      },
+      "n_long": 156,
+      "n_short": 135,
+      "sum_r_long": 23.865,
+      "sum_r_short": 15.22,
+      "n_tp1": 85
+    },
+    {
+      "symbol": "GER40",
+      "variant": "baseline_144",
+      "n": 284,
+      "wr_pct": 31.69,
+      "sum_r": 15.111,
+      "avg_r": 0.0532,
+      "max_dd_r": 18.649,
+      "pf": 1.086,
+      "exits": {
+        "stop": 239,
+        "m45_st_flip": 34,
+        "m45_slow_band": 11
+      },
+      "n_long": 154,
+      "n_short": 130,
+      "sum_r_long": 18.69,
+      "sum_r_short": -3.579,
+      "n_tp1": 83
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "baseline_144",
+      "n": 317,
+      "wr_pct": 28.71,
+      "sum_r": -21.776,
+      "avg_r": -0.0687,
+      "max_dd_r": 39.688,
+      "pf": 0.89,
+      "exits": {
+        "stop": 245,
+        "m45_st_flip": 63,
+        "m45_slow_band": 8,
+        "open_eod": 1
+      },
+      "n_long": 157,
+      "n_short": 160,
+      "sum_r_long": -7.401,
+      "sum_r_short": -14.376,
+      "n_tp1": 77
+    }
+  ],
+  "baseline_book": {
+    "symbol": "BOOK",
+    "variant": "baseline_144",
+    "n": 1570,
+    "wr_pct": 32.93,
+    "sum_r": 141.978,
+    "avg_r": 0.0904,
+    "max_dd_r": 40.54,
+    "pf": 1.151,
+    "exits": {
+      "stop": 1261,
+      "m45_st_flip": 264,
+      "m45_slow_band": 43,
+      "open_eod": 2
+    },
+    "n_long": 814,
+    "n_short": 756,
+    "sum_r_long": 80.491,
+    "sum_r_short": 61.487,
+    "n_tp1": 446
+  },
+  "variant_totals": [
+    {
+      "symbol": "BOOK",
+      "variant": "nogate",
+      "n": 2124,
+      "wr_pct": 33.52,
+      "sum_r": 172.408,
+      "avg_r": 0.0812,
+      "max_dd_r": 54.247,
+      "pf": 1.138,
+      "exits": {
+        "m45_st_flip": 403,
+        "stop": 1566,
+        "m45_slow_band": 151,
+        "open_eod": 4
+      },
+      "n_long": 1050,
+      "n_short": 1074,
+      "sum_r_long": 125.42,
+      "sum_r_short": 46.989,
+      "n_tp1": 588
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "baseline_144",
+      "n": 1570,
+      "wr_pct": 32.93,
+      "sum_r": 141.978,
+      "avg_r": 0.0904,
+      "max_dd_r": 40.54,
+      "pf": 1.151,
+      "exits": {
+        "stop": 1261,
+        "m45_st_flip": 264,
+        "m45_slow_band": 43,
+        "open_eod": 2
+      },
+      "n_long": 814,
+      "n_short": 756,
+      "sum_r_long": 80.491,
+      "sum_r_short": 61.487,
+      "n_tp1": 446
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "slow100",
+      "n": 1557,
+      "wr_pct": 32.63,
+      "sum_r": 132.616,
+      "avg_r": 0.0852,
+      "max_dd_r": 40.944,
+      "pf": 1.142,
+      "exits": {
+        "stop": 1269,
+        "m45_st_flip": 258,
+        "m45_slow_band": 28,
+        "open_eod": 2
+      },
+      "n_long": 810,
+      "n_short": 747,
+      "sum_r_long": 77.254,
+      "sum_r_short": 55.362,
+      "n_tp1": 444
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "strict",
+      "n": 1453,
+      "wr_pct": 35.44,
+      "sum_r": 83.379,
+      "avg_r": 0.0574,
+      "max_dd_r": 33.194,
+      "pf": 1.113,
+      "exits": {
+        "stop": 896,
+        "m45_st_flip": 528,
+        "m45_slow_band": 27,
+        "open_eod": 2
+      },
+      "n_long": 743,
+      "n_short": 710,
+      "sum_r_long": 61.618,
+      "sum_r_short": 21.761,
+      "n_tp1": 329
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "long_only",
+      "n": 814,
+      "wr_pct": 33.17,
+      "sum_r": 80.491,
+      "avg_r": 0.0989,
+      "max_dd_r": 28.161,
+      "pf": 1.168,
+      "exits": {
+        "stop": 646,
+        "m45_st_flip": 155,
+        "m45_slow_band": 13
+      },
+      "n_long": 814,
+      "n_short": 0,
+      "sum_r_long": 80.491,
+      "sum_r_short": 0.0,
+      "n_tp1": 222
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "cap1_strict",
+      "n": 1257,
+      "wr_pct": 35.96,
+      "sum_r": 78.725,
+      "avg_r": 0.0626,
+      "max_dd_r": 29.333,
+      "pf": 1.127,
+      "exits": {
+        "stop": 741,
+        "m45_st_flip": 491,
+        "m45_slow_band": 23,
+        "open_eod": 2
+      },
+      "n_long": 647,
+      "n_short": 610,
+      "sum_r_long": 50.135,
+      "sum_r_short": 28.59,
+      "n_tp1": 279
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "stop_band",
+      "n": 1391,
+      "wr_pct": 32.85,
+      "sum_r": 76.91,
+      "avg_r": 0.0553,
+      "max_dd_r": 39.308,
+      "pf": 1.115,
+      "exits": {
+        "m45_st_flip": 812,
+        "stop": 536,
+        "m45_slow_band": 41,
+        "open_eod": 2
+      },
+      "n_long": 722,
+      "n_short": 669,
+      "sum_r_long": 22.192,
+      "sum_r_short": 54.717,
+      "n_tp1": 281
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "cap1",
+      "n": 1265,
+      "wr_pct": 32.57,
+      "sum_r": 68.077,
+      "avg_r": 0.0538,
+      "max_dd_r": 49.174,
+      "pf": 1.09,
+      "exits": {
+        "stop": 1012,
+        "m45_st_flip": 215,
+        "m45_slow_band": 36,
+        "open_eod": 2
+      },
+      "n_long": 667,
+      "n_short": 598,
+      "sum_r_long": 38.501,
+      "sum_r_short": 29.577,
+      "n_tp1": 358
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "stop_atr",
+      "n": 1294,
+      "wr_pct": 35.55,
+      "sum_r": 64.405,
+      "avg_r": 0.0498,
+      "max_dd_r": 27.316,
+      "pf": 1.115,
+      "exits": {
+        "m45_st_flip": 921,
+        "stop": 357,
+        "m45_slow_band": 13,
+        "open_eod": 3
+      },
+      "n_long": 676,
+      "n_short": 618,
+      "sum_r_long": 41.285,
+      "sum_r_short": 23.119,
+      "n_tp1": 245
+    },
+    {
+      "symbol": "BOOK",
+      "variant": "st3",
+      "n": 1006,
+      "wr_pct": 36.48,
+      "sum_r": 62.863,
+      "avg_r": 0.0625,
+      "max_dd_r": 45.487,
+      "pf": 1.117,
+      "exits": {
+        "stop": 714,
+        "m45_st_flip": 270,
+        "m45_slow_band": 18,
+        "open_eod": 4
+      },
+      "n_long": 518,
+      "n_short": 488,
+      "sum_r_long": 44.255,
+      "sum_r_short": 18.608,
+      "n_tp1": 272
+    }
+  ],
+  "all_cells": [
+    {
+      "symbol": "XAU",
+      "variant": "baseline_144",
+      "n": 265,
+      "wr_pct": 36.98,
+      "sum_r": 63.974,
+      "avg_r": 0.2414,
+      "max_dd_r": 13.732,
+      "pf": 1.426,
+      "exits": {
+        "stop": 212,
+        "m45_st_flip": 47,
+        "m45_slow_band": 6
+      },
+      "n_long": 148,
+      "n_short": 117,
+      "sum_r_long": 44.574,
+      "sum_r_short": 19.4,
+      "n_tp1": 81
+    },
+    {
+      "symbol": "US100",
+      "variant": "baseline_144",
+      "n": 291,
+      "wr_pct": 34.36,
+      "sum_r": 39.085,
+      "avg_r": 0.1343,
+      "max_dd_r": 21.014,
+      "pf": 1.221,
+      "exits": {
+        "m45_st_flip": 44,
+        "stop": 238,
+        "m45_slow_band": 9
+      },
+      "n_long": 156,
+      "n_short": 135,
+      "sum_r_long": 23.865,
+      "sum_r_short": 15.22,
+      "n_tp1": 85
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "baseline_144",
+      "n": 317,
+      "wr_pct": 28.71,
+      "sum_r": -21.776,
+      "avg_r": -0.0687,
+      "max_dd_r": 39.688,
+      "pf": 0.89,
+      "exits": {
+        "stop": 245,
+        "m45_st_flip": 63,
+        "m45_slow_band": 8,
+        "open_eod": 1
+      },
+      "n_long": 157,
+      "n_short": 160,
+      "sum_r_long": -7.401,
+      "sum_r_short": -14.376,
+      "n_tp1": 77
+    },
+    {
+      "symbol": "GER40",
+      "variant": "baseline_144",
+      "n": 284,
+      "wr_pct": 31.69,
+      "sum_r": 15.111,
+      "avg_r": 0.0532,
+      "max_dd_r": 18.649,
+      "pf": 1.086,
+      "exits": {
+        "stop": 239,
+        "m45_st_flip": 34,
+        "m45_slow_band": 11
+      },
+      "n_long": 154,
+      "n_short": 130,
+      "sum_r_long": 18.69,
+      "sum_r_short": -3.579,
+      "n_tp1": 83
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "baseline_144",
+      "n": 413,
+      "wr_pct": 33.41,
+      "sum_r": 45.584,
+      "avg_r": 0.1104,
+      "max_dd_r": 40.54,
+      "pf": 1.19,
+      "exits": {
+        "stop": 327,
+        "m45_st_flip": 76,
+        "m45_slow_band": 9,
+        "open_eod": 1
+      },
+      "n_long": 199,
+      "n_short": 214,
+      "sum_r_long": 0.762,
+      "sum_r_short": 44.822,
+      "n_tp1": 120
+    },
+    {
+      "symbol": "XAU",
+      "variant": "cap1",
+      "n": 219,
+      "wr_pct": 37.44,
+      "sum_r": 41.675,
+      "avg_r": 0.1903,
+      "max_dd_r": 18.551,
+      "pf": 1.343,
+      "exits": {
+        "stop": 171,
+        "m45_st_flip": 42,
+        "m45_slow_band": 6
+      },
+      "n_long": 120,
+      "n_short": 99,
+      "sum_r_long": 28.992,
+      "sum_r_short": 12.683,
+      "n_tp1": 67
+    },
+    {
+      "symbol": "US100",
+      "variant": "cap1",
+      "n": 238,
+      "wr_pct": 34.87,
+      "sum_r": 35.405,
+      "avg_r": 0.1488,
+      "max_dd_r": 25.135,
+      "pf": 1.245,
+      "exits": {
+        "m45_st_flip": 38,
+        "stop": 192,
+        "m45_slow_band": 8
+      },
+      "n_long": 129,
+      "n_short": 109,
+      "sum_r_long": 13.572,
+      "sum_r_short": 21.832,
+      "n_tp1": 66
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "cap1",
+      "n": 257,
+      "wr_pct": 26.85,
+      "sum_r": -37.711,
+      "avg_r": -0.1467,
+      "max_dd_r": 49.174,
+      "pf": 0.769,
+      "exits": {
+        "stop": 201,
+        "m45_st_flip": 51,
+        "m45_slow_band": 4,
+        "open_eod": 1
+      },
+      "n_long": 130,
+      "n_short": 127,
+      "sum_r_long": -29.969,
+      "sum_r_short": -7.742,
+      "n_tp1": 61
+    },
+    {
+      "symbol": "GER40",
+      "variant": "cap1",
+      "n": 226,
+      "wr_pct": 31.42,
+      "sum_r": 8.237,
+      "avg_r": 0.0364,
+      "max_dd_r": 19.91,
+      "pf": 1.059,
+      "exits": {
+        "stop": 189,
+        "m45_st_flip": 28,
+        "m45_slow_band": 9
+      },
+      "n_long": 127,
+      "n_short": 99,
+      "sum_r_long": 19.331,
+      "sum_r_short": -11.094,
+      "n_tp1": 67
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "cap1",
+      "n": 325,
+      "wr_pct": 32.92,
+      "sum_r": 20.472,
+      "avg_r": 0.063,
+      "max_dd_r": 44.977,
+      "pf": 1.107,
+      "exits": {
+        "stop": 259,
+        "m45_st_flip": 56,
+        "m45_slow_band": 9,
+        "open_eod": 1
+      },
+      "n_long": 161,
+      "n_short": 164,
+      "sum_r_long": 6.575,
+      "sum_r_short": 13.898,
+      "n_tp1": 97
+    },
+    {
+      "symbol": "XAU",
+      "variant": "strict",
+      "n": 261,
+      "wr_pct": 37.93,
+      "sum_r": 53.175,
+      "avg_r": 0.2037,
+      "max_dd_r": 17.217,
+      "pf": 1.411,
+      "exits": {
+        "stop": 159,
+        "m45_st_flip": 96,
+        "m45_slow_band": 6
+      },
+      "n_long": 145,
+      "n_short": 116,
+      "sum_r_long": 39.419,
+      "sum_r_short": 13.756,
+      "n_tp1": 65
+    },
+    {
+      "symbol": "US100",
+      "variant": "strict",
+      "n": 267,
+      "wr_pct": 35.21,
+      "sum_r": 16.651,
+      "avg_r": 0.0624,
+      "max_dd_r": 30.256,
+      "pf": 1.119,
+      "exits": {
+        "m45_st_flip": 98,
+        "stop": 165,
+        "m45_slow_band": 4
+      },
+      "n_long": 144,
+      "n_short": 123,
+      "sum_r_long": 4.388,
+      "sum_r_short": 12.263,
+      "n_tp1": 57
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "strict",
+      "n": 282,
+      "wr_pct": 31.56,
+      "sum_r": -10.741,
+      "avg_r": -0.0381,
+      "max_dd_r": 28.185,
+      "pf": 0.925,
+      "exits": {
+        "stop": 155,
+        "m45_st_flip": 121,
+        "m45_slow_band": 5,
+        "open_eod": 1
+      },
+      "n_long": 129,
+      "n_short": 153,
+      "sum_r_long": 5.918,
+      "sum_r_short": -16.659,
+      "n_tp1": 53
+    },
+    {
+      "symbol": "GER40",
+      "variant": "strict",
+      "n": 263,
+      "wr_pct": 38.02,
+      "sum_r": 10.271,
+      "avg_r": 0.0391,
+      "max_dd_r": 19.88,
+      "pf": 1.076,
+      "exits": {
+        "stop": 171,
+        "m45_st_flip": 87,
+        "m45_slow_band": 5
+      },
+      "n_long": 143,
+      "n_short": 120,
+      "sum_r_long": 9.629,
+      "sum_r_short": 0.642,
+      "n_tp1": 59
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "strict",
+      "n": 380,
+      "wr_pct": 35.0,
+      "sum_r": 14.022,
+      "avg_r": 0.0369,
+      "max_dd_r": 33.194,
+      "pf": 1.072,
+      "exits": {
+        "stop": 246,
+        "m45_st_flip": 126,
+        "m45_slow_band": 7,
+        "open_eod": 1
+      },
+      "n_long": 182,
+      "n_short": 198,
+      "sum_r_long": 2.264,
+      "sum_r_short": 11.759,
+      "n_tp1": 95
+    },
+    {
+      "symbol": "XAU",
+      "variant": "nogate",
+      "n": 370,
+      "wr_pct": 38.38,
+      "sum_r": 92.195,
+      "avg_r": 0.2492,
+      "max_dd_r": 18.81,
+      "pf": 1.455,
+      "exits": {
+        "m45_st_flip": 76,
+        "stop": 261,
+        "m45_slow_band": 32,
+        "open_eod": 1
+      },
+      "n_long": 192,
+      "n_short": 178,
+      "sum_r_long": 70.448,
+      "sum_r_short": 21.747,
+      "n_tp1": 115
+    },
+    {
+      "symbol": "US100",
+      "variant": "nogate",
+      "n": 403,
+      "wr_pct": 35.73,
+      "sum_r": 47.007,
+      "avg_r": 0.1166,
+      "max_dd_r": 26.953,
+      "pf": 1.2,
+      "exits": {
+        "stop": 297,
+        "m45_st_flip": 71,
+        "m45_slow_band": 34,
+        "open_eod": 1
+      },
+      "n_long": 191,
+      "n_short": 212,
+      "sum_r_long": 31.476,
+      "sum_r_short": 15.531,
+      "n_tp1": 116
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "nogate",
+      "n": 420,
+      "wr_pct": 30.0,
+      "sum_r": -16.037,
+      "avg_r": -0.0382,
+      "max_dd_r": 52.921,
+      "pf": 0.936,
+      "exits": {
+        "m45_st_flip": 94,
+        "stop": 295,
+        "m45_slow_band": 30,
+        "open_eod": 1
+      },
+      "n_long": 207,
+      "n_short": 213,
+      "sum_r_long": 2.678,
+      "sum_r_short": -18.715,
+      "n_tp1": 103
+    },
+    {
+      "symbol": "GER40",
+      "variant": "nogate",
+      "n": 390,
+      "wr_pct": 31.79,
+      "sum_r": 1.1,
+      "avg_r": 0.0028,
+      "max_dd_r": 36.502,
+      "pf": 1.005,
+      "exits": {
+        "m45_st_flip": 58,
+        "stop": 302,
+        "m45_slow_band": 30
+      },
+      "n_long": 193,
+      "n_short": 197,
+      "sum_r_long": 19.4,
+      "sum_r_short": -18.3,
+      "n_tp1": 108
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "nogate",
+      "n": 541,
+      "wr_pct": 32.53,
+      "sum_r": 48.144,
+      "avg_r": 0.089,
+      "max_dd_r": 54.247,
+      "pf": 1.149,
+      "exits": {
+        "stop": 411,
+        "m45_st_flip": 104,
+        "m45_slow_band": 25,
+        "open_eod": 1
+      },
+      "n_long": 267,
+      "n_short": 274,
+      "sum_r_long": 1.419,
+      "sum_r_short": 46.726,
+      "n_tp1": 146
+    },
+    {
+      "symbol": "XAU",
+      "variant": "slow100",
+      "n": 265,
+      "wr_pct": 36.98,
+      "sum_r": 64.014,
+      "avg_r": 0.2416,
+      "max_dd_r": 13.194,
+      "pf": 1.427,
+      "exits": {
+        "stop": 212,
+        "m45_st_flip": 47,
+        "m45_slow_band": 6
+      },
+      "n_long": 148,
+      "n_short": 117,
+      "sum_r_long": 44.574,
+      "sum_r_short": 19.44,
+      "n_tp1": 81
+    },
+    {
+      "symbol": "US100",
+      "variant": "slow100",
+      "n": 290,
+      "wr_pct": 34.48,
+      "sum_r": 37.178,
+      "avg_r": 0.1282,
+      "max_dd_r": 21.014,
+      "pf": 1.211,
+      "exits": {
+        "m45_st_flip": 44,
+        "stop": 239,
+        "m45_slow_band": 7
+      },
+      "n_long": 156,
+      "n_short": 134,
+      "sum_r_long": 23.34,
+      "sum_r_short": 13.839,
+      "n_tp1": 85
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "slow100",
+      "n": 315,
+      "wr_pct": 27.3,
+      "sum_r": -23.033,
+      "avg_r": -0.0731,
+      "max_dd_r": 40.944,
+      "pf": 0.884,
+      "exits": {
+        "stop": 249,
+        "m45_st_flip": 62,
+        "m45_slow_band": 3,
+        "open_eod": 1
+      },
+      "n_long": 155,
+      "n_short": 160,
+      "sum_r_long": -7.344,
+      "sum_r_short": -15.689,
+      "n_tp1": 77
+    },
+    {
+      "symbol": "GER40",
+      "variant": "slow100",
+      "n": 281,
+      "wr_pct": 31.67,
+      "sum_r": 8.362,
+      "avg_r": 0.0298,
+      "max_dd_r": 18.649,
+      "pf": 1.048,
+      "exits": {
+        "stop": 241,
+        "m45_st_flip": 33,
+        "m45_slow_band": 7
+      },
+      "n_long": 153,
+      "n_short": 128,
+      "sum_r_long": 18.765,
+      "sum_r_short": -10.403,
+      "n_tp1": 82
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "slow100",
+      "n": 406,
+      "wr_pct": 33.25,
+      "sum_r": 46.095,
+      "avg_r": 0.1135,
+      "max_dd_r": 37.538,
+      "pf": 1.194,
+      "exits": {
+        "stop": 328,
+        "m45_st_flip": 72,
+        "m45_slow_band": 5,
+        "open_eod": 1
+      },
+      "n_long": 198,
+      "n_short": 208,
+      "sum_r_long": -2.081,
+      "sum_r_short": 48.176,
+      "n_tp1": 119
+    },
+    {
+      "symbol": "XAU",
+      "variant": "stop_atr",
+      "n": 222,
+      "wr_pct": 38.74,
+      "sum_r": 40.258,
+      "avg_r": 0.1813,
+      "max_dd_r": 11.067,
+      "pf": 1.472,
+      "exits": {
+        "m45_st_flip": 172,
+        "stop": 50
+      },
+      "n_long": 122,
+      "n_short": 100,
+      "sum_r_long": 30.657,
+      "sum_r_short": 9.602,
+      "n_tp1": 49
+    },
+    {
+      "symbol": "US100",
+      "variant": "stop_atr",
+      "n": 246,
+      "wr_pct": 37.8,
+      "sum_r": 8.448,
+      "avg_r": 0.0343,
+      "max_dd_r": 21.063,
+      "pf": 1.077,
+      "exits": {
+        "m45_st_flip": 166,
+        "stop": 74,
+        "m45_slow_band": 6
+      },
+      "n_long": 131,
+      "n_short": 115,
+      "sum_r_long": 12.879,
+      "sum_r_short": -4.431,
+      "n_tp1": 43
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "stop_atr",
+      "n": 265,
+      "wr_pct": 30.94,
+      "sum_r": -17.36,
+      "avg_r": -0.0655,
+      "max_dd_r": 26.423,
+      "pf": 0.849,
+      "exits": {
+        "m45_st_flip": 190,
+        "stop": 72,
+        "m45_slow_band": 2,
+        "open_eod": 1
+      },
+      "n_long": 133,
+      "n_short": 132,
+      "sum_r_long": -7.966,
+      "sum_r_short": -9.394,
+      "n_tp1": 45
+    },
+    {
+      "symbol": "GER40",
+      "variant": "stop_atr",
+      "n": 231,
+      "wr_pct": 34.63,
+      "sum_r": 6.502,
+      "avg_r": 0.0281,
+      "max_dd_r": 9.386,
+      "pf": 1.064,
+      "exits": {
+        "stop": 62,
+        "m45_st_flip": 165,
+        "m45_slow_band": 3,
+        "open_eod": 1
+      },
+      "n_long": 128,
+      "n_short": 103,
+      "sum_r_long": 7.874,
+      "sum_r_short": -1.371,
+      "n_tp1": 48
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "stop_atr",
+      "n": 330,
+      "wr_pct": 36.06,
+      "sum_r": 26.555,
+      "avg_r": 0.0805,
+      "max_dd_r": 27.316,
+      "pf": 1.179,
+      "exits": {
+        "m45_st_flip": 228,
+        "stop": 99,
+        "m45_slow_band": 2,
+        "open_eod": 1
+      },
+      "n_long": 162,
+      "n_short": 168,
+      "sum_r_long": -2.159,
+      "sum_r_short": 28.714,
+      "n_tp1": 60
+    },
+    {
+      "symbol": "XAU",
+      "variant": "stop_band",
+      "n": 237,
+      "wr_pct": 36.71,
+      "sum_r": 27.036,
+      "avg_r": 0.1141,
+      "max_dd_r": 16.347,
+      "pf": 1.247,
+      "exits": {
+        "m45_st_flip": 141,
+        "stop": 89,
+        "m45_slow_band": 7
+      },
+      "n_long": 129,
+      "n_short": 108,
+      "sum_r_long": 21.472,
+      "sum_r_short": 5.564,
+      "n_tp1": 58
+    },
+    {
+      "symbol": "US100",
+      "variant": "stop_band",
+      "n": 259,
+      "wr_pct": 34.75,
+      "sum_r": 25.724,
+      "avg_r": 0.0993,
+      "max_dd_r": 19.658,
+      "pf": 1.215,
+      "exits": {
+        "m45_st_flip": 157,
+        "stop": 93,
+        "m45_slow_band": 9
+      },
+      "n_long": 140,
+      "n_short": 119,
+      "sum_r_long": 17.453,
+      "sum_r_short": 8.271,
+      "n_tp1": 46
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "stop_band",
+      "n": 287,
+      "wr_pct": 28.92,
+      "sum_r": -25.932,
+      "avg_r": -0.0904,
+      "max_dd_r": 39.308,
+      "pf": 0.821,
+      "exits": {
+        "m45_st_flip": 165,
+        "m45_slow_band": 7,
+        "stop": 115
+      },
+      "n_long": 145,
+      "n_short": 142,
+      "sum_r_long": -13.806,
+      "sum_r_short": -12.126,
+      "n_tp1": 51
+    },
+    {
+      "symbol": "GER40",
+      "variant": "stop_band",
+      "n": 249,
+      "wr_pct": 30.52,
+      "sum_r": 2.107,
+      "avg_r": 0.0085,
+      "max_dd_r": 22.125,
+      "pf": 1.017,
+      "exits": {
+        "stop": 96,
+        "m45_st_flip": 143,
+        "m45_slow_band": 9,
+        "open_eod": 1
+      },
+      "n_long": 135,
+      "n_short": 114,
+      "sum_r_long": 3.297,
+      "sum_r_short": -1.189,
+      "n_tp1": 51
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "stop_band",
+      "n": 359,
+      "wr_pct": 33.7,
+      "sum_r": 47.975,
+      "avg_r": 0.1336,
+      "max_dd_r": 30.467,
+      "pf": 1.274,
+      "exits": {
+        "m45_st_flip": 206,
+        "stop": 143,
+        "m45_slow_band": 9,
+        "open_eod": 1
+      },
+      "n_long": 173,
+      "n_short": 186,
+      "sum_r_long": -6.222,
+      "sum_r_short": 54.198,
+      "n_tp1": 75
+    },
+    {
+      "symbol": "XAU",
+      "variant": "st3",
+      "n": 173,
+      "wr_pct": 36.42,
+      "sum_r": 21.992,
+      "avg_r": 0.1271,
+      "max_dd_r": 15.657,
+      "pf": 1.24,
+      "exits": {
+        "stop": 130,
+        "m45_st_flip": 39,
+        "m45_slow_band": 3,
+        "open_eod": 1
+      },
+      "n_long": 95,
+      "n_short": 78,
+      "sum_r_long": 15.347,
+      "sum_r_short": 6.645,
+      "n_tp1": 51
+    },
+    {
+      "symbol": "US100",
+      "variant": "st3",
+      "n": 185,
+      "wr_pct": 39.46,
+      "sum_r": 25.781,
+      "avg_r": 0.1394,
+      "max_dd_r": 11.193,
+      "pf": 1.263,
+      "exits": {
+        "stop": 132,
+        "m45_slow_band": 6,
+        "m45_st_flip": 47
+      },
+      "n_long": 94,
+      "n_short": 91,
+      "sum_r_long": 19.09,
+      "sum_r_short": 6.691,
+      "n_tp1": 54
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "st3",
+      "n": 199,
+      "wr_pct": 35.68,
+      "sum_r": 6.636,
+      "avg_r": 0.0333,
+      "max_dd_r": 26.991,
+      "pf": 1.064,
+      "exits": {
+        "stop": 137,
+        "m45_st_flip": 58,
+        "m45_slow_band": 3,
+        "open_eod": 1
+      },
+      "n_long": 95,
+      "n_short": 104,
+      "sum_r_long": 8.484,
+      "sum_r_short": -1.848,
+      "n_tp1": 54
+    },
+    {
+      "symbol": "GER40",
+      "variant": "st3",
+      "n": 180,
+      "wr_pct": 42.78,
+      "sum_r": 30.568,
+      "avg_r": 0.1698,
+      "max_dd_r": 10.315,
+      "pf": 1.342,
+      "exits": {
+        "stop": 129,
+        "m45_st_flip": 46,
+        "m45_slow_band": 4,
+        "open_eod": 1
+      },
+      "n_long": 100,
+      "n_short": 80,
+      "sum_r_long": 13.505,
+      "sum_r_short": 17.063,
+      "n_tp1": 53
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "st3",
+      "n": 269,
+      "wr_pct": 30.86,
+      "sum_r": -22.114,
+      "avg_r": -0.0822,
+      "max_dd_r": 45.487,
+      "pf": 0.856,
+      "exits": {
+        "stop": 186,
+        "m45_st_flip": 80,
+        "m45_slow_band": 2,
+        "open_eod": 1
+      },
+      "n_long": 134,
+      "n_short": 135,
+      "sum_r_long": -12.171,
+      "sum_r_short": -9.943,
+      "n_tp1": 60
+    },
+    {
+      "symbol": "XAU",
+      "variant": "long_only",
+      "n": 148,
+      "wr_pct": 39.19,
+      "sum_r": 44.574,
+      "avg_r": 0.3012,
+      "max_dd_r": 18.68,
+      "pf": 1.549,
+      "exits": {
+        "stop": 118,
+        "m45_st_flip": 28,
+        "m45_slow_band": 2
+      },
+      "n_long": 148,
+      "n_short": 0,
+      "sum_r_long": 44.574,
+      "sum_r_short": 0.0,
+      "n_tp1": 46
+    },
+    {
+      "symbol": "US100",
+      "variant": "long_only",
+      "n": 156,
+      "wr_pct": 34.62,
+      "sum_r": 23.865,
+      "avg_r": 0.153,
+      "max_dd_r": 16.449,
+      "pf": 1.251,
+      "exits": {
+        "m45_st_flip": 24,
+        "stop": 130,
+        "m45_slow_band": 2
+      },
+      "n_long": 156,
+      "n_short": 0,
+      "sum_r_long": 23.865,
+      "sum_r_short": 0.0,
+      "n_tp1": 43
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "long_only",
+      "n": 157,
+      "wr_pct": 26.75,
+      "sum_r": -7.401,
+      "avg_r": -0.0471,
+      "max_dd_r": 25.388,
+      "pf": 0.928,
+      "exits": {
+        "stop": 120,
+        "m45_st_flip": 31,
+        "m45_slow_band": 6
+      },
+      "n_long": 157,
+      "n_short": 0,
+      "sum_r_long": -7.401,
+      "sum_r_short": 0.0,
+      "n_tp1": 35
+    },
+    {
+      "symbol": "GER40",
+      "variant": "long_only",
+      "n": 154,
+      "wr_pct": 33.77,
+      "sum_r": 18.69,
+      "avg_r": 0.1214,
+      "max_dd_r": 10.556,
+      "pf": 1.216,
+      "exits": {
+        "stop": 127,
+        "m45_st_flip": 26,
+        "m45_slow_band": 1
+      },
+      "n_long": 154,
+      "n_short": 0,
+      "sum_r_long": 18.69,
+      "sum_r_short": 0.0,
+      "n_tp1": 47
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "long_only",
+      "n": 199,
+      "wr_pct": 32.16,
+      "sum_r": 0.762,
+      "avg_r": 0.0038,
+      "max_dd_r": 28.161,
+      "pf": 1.007,
+      "exits": {
+        "stop": 151,
+        "m45_st_flip": 46,
+        "m45_slow_band": 2
+      },
+      "n_long": 199,
+      "n_short": 0,
+      "sum_r_long": 0.762,
+      "sum_r_short": 0.0,
+      "n_tp1": 51
+    },
+    {
+      "symbol": "XAU",
+      "variant": "cap1_strict",
+      "n": 224,
+      "wr_pct": 37.95,
+      "sum_r": 41.865,
+      "avg_r": 0.1869,
+      "max_dd_r": 17.698,
+      "pf": 1.391,
+      "exits": {
+        "stop": 127,
+        "m45_st_flip": 91,
+        "m45_slow_band": 6
+      },
+      "n_long": 121,
+      "n_short": 103,
+      "sum_r_long": 35.631,
+      "sum_r_short": 6.234,
+      "n_tp1": 54
+    },
+    {
+      "symbol": "US100",
+      "variant": "cap1_strict",
+      "n": 234,
+      "wr_pct": 36.75,
+      "sum_r": 16.692,
+      "avg_r": 0.0713,
+      "max_dd_r": 27.962,
+      "pf": 1.142,
+      "exits": {
+        "m45_st_flip": 96,
+        "stop": 135,
+        "m45_slow_band": 3
+      },
+      "n_long": 126,
+      "n_short": 108,
+      "sum_r_long": 2.117,
+      "sum_r_short": 14.575,
+      "n_tp1": 45
+    },
+    {
+      "symbol": "EURUSD",
+      "variant": "cap1_strict",
+      "n": 248,
+      "wr_pct": 31.85,
+      "sum_r": -11.473,
+      "avg_r": -0.0463,
+      "max_dd_r": 24.155,
+      "pf": 0.905,
+      "exits": {
+        "stop": 130,
+        "m45_st_flip": 114,
+        "m45_slow_band": 3,
+        "open_eod": 1
+      },
+      "n_long": 115,
+      "n_short": 133,
+      "sum_r_long": -4.258,
+      "sum_r_short": -7.215,
+      "n_tp1": 47
+    },
+    {
+      "symbol": "GER40",
+      "variant": "cap1_strict",
+      "n": 231,
+      "wr_pct": 37.66,
+      "sum_r": 2.591,
+      "avg_r": 0.0112,
+      "max_dd_r": 16.417,
+      "pf": 1.022,
+      "exits": {
+        "stop": 145,
+        "m45_st_flip": 82,
+        "m45_slow_band": 4
+      },
+      "n_long": 125,
+      "n_short": 106,
+      "sum_r_long": 7.914,
+      "sum_r_short": -5.324,
+      "n_tp1": 50
+    },
+    {
+      "symbol": "BTCUSD",
+      "variant": "cap1_strict",
+      "n": 320,
+      "wr_pct": 35.94,
+      "sum_r": 29.05,
+      "avg_r": 0.0908,
+      "max_dd_r": 29.333,
+      "pf": 1.182,
+      "exits": {
+        "stop": 204,
+        "m45_st_flip": 108,
+        "m45_slow_band": 7,
+        "open_eod": 1
+      },
+      "n_long": 160,
+      "n_short": 160,
+      "sum_r_long": 8.731,
+      "sum_r_short": 20.319,
+      "n_tp1": 83
+    }
+  ],
+  "per_ticker_winner": {
+    "XAU": "nogate",
+    "US100": "nogate",
+    "EURUSD": "st3",
+    "GER40": "st3",
+    "BTCUSD": "nogate"
+  },
+  "overall_winner": "nogate",
+  "recommendation": "Locked stack (slow=144, gate ON, cap 2, M45 ST stop, factor 2): trade XAU first (+64R, PF 1.43, DD 13.7R), then US100 (+39R, PF 1.22). BTC +46R is almost all shorts and DD is 40R. GER40 is thin (+15R). Skip EURUSD (−22R, PF 0.89). slow100 is a wash. cap 2 beats 1. ST stop beats ATR/band. nogate wins raw sumR (+172) but is busier with fatter DD — keep gate ON unless Adam wants frequency. Both sides beat long-only on the book."
+}
