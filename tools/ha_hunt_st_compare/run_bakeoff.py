@@ -383,9 +383,18 @@ def _h1_book_cells(b: Book) -> list[str]:
     ]
 
 
+LABELS = {
+    "baseline_144": "A M45 ST + full trail",
+    "m45st_partial": "B M45 ST + 50% TP1",
+    "h1st_partial": "C H1 ST + 50% TP1",
+    "h1st_full": "D H1 ST + full trail",
+}
+MATRIX_ORDER = ["baseline_144", "m45st_partial", "h1st_partial", "h1st_full"]
+
+
 def run_h1_followup() -> int:
-    """Compare locked M45-ST full-TP1 vs H1-ST + 50% TP1 (and H1-ST full trail)."""
-    print(f"H1 follow-up  {START.isoformat()} → {END.isoformat()}", flush=True)
+    """2×2 matrix: M45/H1 ST × full-trail / 50% TP1 on the locked 12m book."""
+    print(f"ST×TP1 matrix  {START.isoformat()} → {END.isoformat()}", flush=True)
     bars, load_errors = _load_bars()
     if not bars:
         return 1
@@ -396,166 +405,182 @@ def run_h1_followup() -> int:
     payload = {}
     if OUT_JSON.exists():
         payload = json.loads(OUT_JSON.read_text())
-    payload["h1_followup"] = {
+
+    def cell_of(name: str, sym: str) -> Book:
+        return next(b for b in cells if b.variant == name and b.symbol == sym)
+
+    matrix_by_symbol = {}
+    for sym in bars:
+        matrix_by_symbol[sym] = {name: _book_row(cell_of(name, sym)) for name in MATRIX_ORDER}
+
+    winners = {}
+    for sym in list(bars) + ["BOOK"]:
+        pool = [by_name[n] for n in MATRIX_ORDER] if sym == "BOOK" else [cell_of(n, sym) for n in MATRIX_ORDER]
+        best = max(pool, key=_rank_key)
+        winners[sym] = LABELS[best.variant]
+
+    rec_bits = [
+        f"Overall book winner: **{winners['BOOK']}**.",
+        f"XAU winner: **{winners['XAU']}**.",
+        f"US100 winner: **{winners['US100']}**.",
+    ]
+    a, b, c, d = (by_name[n] for n in MATRIX_ORDER)
+    rec_bits.append(
+        f"Book sumR  A={a.sum_r:.1f}  B={b.sum_r:.1f}  C={c.sum_r:.1f}  D={d.sum_r:.1f}. "
+        f"Half-TP1 on M45 (B−A) = {b.sum_r - a.sum_r:+.1f}R; "
+        f"H1 vs M45 full (D−A) = {d.sum_r - a.sum_r:+.1f}R; "
+        f"H1 half vs M45 full (C−A) = {c.sum_r - a.sum_r:+.1f}R."
+    )
+    rec = " ".join(rec_bits)
+
+    payload["tp1_matrix"] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cells": {
+            "A": "M45 ST + full trail after TP1 touch (locked baseline; no half close)",
+            "B": "M45 ST + half TP1 (50% at +2R, rest trails M45 ST)",
+            "C": "H1 ST + half TP1 (50% at +2R, rest trails H1 ST)",
+            "D": "H1 ST + full trail after TP1 (isolation)",
+        },
         "rules": {
             "keep": "M5 band-cross, M45 RMA structure slow=144, gate ON, cap 2, both sides",
-            "st": "closed H1 Supertrend = bias AND default SL (same line); 1R = |entry − H1 ST|",
-            "tp1": "50% off at +2R (books +1R from that half); remaining 50% trails H1 ST (never widen)",
-            "runner_exit": "trail hit / H1 ST flip / M45 slow-band body",
+            "half_r": "TP1 books +1R from the closed half; combined R = 1.0 + 0.5×runner_R after TP1; −1R if stopped before TP1",
             "same_bar": "stop wins vs TP1 (no scale-out on that bar)",
-            "isolation": "h1st_full = H1 ST but full position after TP1 touch (no half-close)",
         },
         "coverage": coverage_table(bars),
         "load_errors": load_errors,
-        "by_symbol": {
-            name: [_book_row(b) for b in sorted([c for c in cells if c.variant == name], key=_rank_key, reverse=True)]
-            for name in ("baseline_144", "h1st_partial", "h1st_full")
-        },
-        "book": {name: _book_row(by_name[name]) for name in by_name},
-        "recommendation": None,
+        "by_symbol": matrix_by_symbol,
+        "book": {name: _book_row(by_name[name]) for name in MATRIX_ORDER},
+        "winner": winners,
+        "recommendation": rec,
     }
+    # Keep prior key so older readers still see H1 numbers.
+    payload["h1_followup"] = payload["tp1_matrix"]
 
-    hdr = ["name", "n", "WR%", "sumR", "avgR", "maxDD(R)", "PF", "stop", "trail", "st_flip", "slow", "eod", "L/S", "TP1"]
+    def metrics_row(b: Book, label: str) -> list[str]:
+        return [
+            label,
+            str(b.n),
+            f"{b.wr_pct:.1f}",
+            f"{b.sum_r:.2f}",
+            f"{b.avg_r:.3f}",
+            f"{b.max_dd_r:.2f}",
+            _fmt_pf(b.pf),
+        ]
 
-    def block(name: str) -> str:
-        rows = [c for c in cells if c.variant == name]
-        rows = sorted(rows, key=_rank_key, reverse=True)
-        book = by_name[name]
-        return _md_table(hdr, [_h1_book_cells(b) for b in rows] + [_h1_book_cells(book)])
+    hdr = ["cell", "n", "WR%", "sumR", "avgR", "maxDD(R)", "PF"]
+    book_rows = [metrics_row(by_name[n], LABELS[n]) for n in MATRIX_ORDER]
 
-    h1p = by_name["h1st_partial"]
-    h1f = by_name["h1st_full"]
-    m45 = by_name["baseline_144"]
-
-    # Per-ticker: does 50% scale help vs H1 full, and vs M45 locked?
-    ticker_lines = []
-    compare_rows = []
-    for sym in bars:
-        m = next(b for b in cells if b.variant == "baseline_144" and b.symbol == sym)
-        p_ = next(b for b in cells if b.variant == "h1st_partial" and b.symbol == sym)
-        f = next(b for b in cells if b.variant == "h1st_full" and b.symbol == sym)
-        scale_delta = p_.sum_r - f.sum_r
-        vs_m45 = p_.sum_r - m.sum_r
-        tf_delta = f.sum_r - m.sum_r
-        compare_rows.append(
-            [
-                sym,
-                f"{m.sum_r:.2f}",
-                f"{f.sum_r:.2f}",
-                f"{p_.sum_r:.2f}",
-                f"{tf_delta:+.2f}",
-                f"{scale_delta:+.2f}",
-                f"{vs_m45:+.2f}",
-                f"{p_.wr_pct:.1f}",
-                f"{p_.max_dd_r:.1f}",
-            ]
+    # Wide per-symbol: one row per name with A/B/C/D sumR + winner
+    wide = []
+    for sym in list(bars) + ["BOOK"]:
+        pool = [by_name[n] for n in MATRIX_ORDER] if sym == "BOOK" else [cell_of(n, sym) for n in MATRIX_ORDER]
+        wide.append(
+            [sym]
+            + [f"{x.sum_r:.2f}" for x in pool]
+            + [f"{x.wr_pct:.1f}" for x in pool]
+            + [f"{x.max_dd_r:.1f}" for x in pool]
+            + [winners[sym]]
         )
-        if scale_delta > 0.5:
-            ticker_lines.append(f"{sym}: 50% scale helps H1 (Δ {scale_delta:+.1f}R vs H1-full).")
-        elif scale_delta < -0.5:
-            ticker_lines.append(f"{sym}: 50% scale hurts H1 (Δ {scale_delta:+.1f}R vs H1-full).")
-        else:
-            ticker_lines.append(f"{sym}: 50% scale ≈ H1-full (Δ {scale_delta:+.1f}R).")
 
-    rec = (
-        f"H1-ST + 50% TP1 book sumR={h1p.sum_r:.2f} PF={_fmt_pf(h1p.pf)} n={h1p.n} DD={h1p.max_dd_r:.1f} "
-        f"vs locked M45-ST full-TP1 sumR={m45.sum_r:.2f} PF={_fmt_pf(m45.pf)} n={m45.n} DD={m45.max_dd_r:.1f} "
-        f"vs H1-ST full-trail sumR={h1f.sum_r:.2f} PF={_fmt_pf(h1f.pf)}. "
-        + " ".join(ticker_lines)
-    )
-    if h1p.sum_r > m45.sum_r and h1p.pf >= m45.pf * 0.95:
-        rec += " Prefer H1-ST + 50% TP1 over locked M45-ST on this sample."
-    elif m45.sum_r > h1p.sum_r:
-        rec += " Locked M45-ST still wins the book — keep M45 ST as default; H1 is not an upgrade."
-    else:
-        rec += " Mixed: inspect per-ticker before switching the Pine bias/SL to H1."
-    payload["h1_followup"]["recommendation"] = rec
+    detail = []
+    for sym in bars:
+        detail.append(f"#### {sym}")
+        detail.append("")
+        detail.append(_md_table(hdr, [metrics_row(cell_of(n, sym), LABELS[n]) for n in MATRIX_ORDER]))
+        detail.append("")
 
     section = []
-    section.append("## H1 Supertrend + 50% TP1 (follow-up)")
+    section.append("## ST TF × TP1 matrix (A/B/C/D)")
     section.append("")
     section.append(
-        f"Generated `{payload['h1_followup']['generated_at']}`. Same universe / window / M5 trigger / "
-        "M45 structure gate ON / slow 144 / cap 2 / both sides. Only the Supertrend TF and TP1 sizing change."
+        f"Generated `{payload['tp1_matrix']['generated_at']}`. Same 12m data, slow **144**, M5 band-cross, "
+        "M45 structure gate **ON**, cap 2, both sides. Locked baseline **A did not half-close** at TP1."
     )
     section.append("")
-    section.append("| cell | bias + SL | TP1 |")
+    section.append("| | full trail after TP1 touch | 50% off at 1:2, rest trails ST |")
     section.append("| --- | --- | --- |")
-    section.append("| `baseline_144` | closed **M45** ST | full position; TP1 only arms the trail (locked Pine) |")
-    section.append("| `h1st_partial` | closed **H1** ST | **50%** off at +2R (+1R booked), 50% trails H1 ST |")
-    section.append("| `h1st_full` | closed **H1** ST | full position after TP1 touch (isolates TF vs scale) |")
+    section.append("| **M45 ST** bias+SL | **A** `baseline_144` (locked) | **B** `m45st_partial` |")
+    section.append("| **H1 ST** bias+SL | **D** `h1st_full` | **C** `h1st_partial` |")
     section.append("")
-    section.append("1R = |entry − that ST line|. Runner never widens. Conservative same-bar: stop before TP1 (no scale-out).")
-    section.append("After TP1, `trail` = runner hit the ratcheted ST; `stop` = full SL before TP1.")
+    section.append("Half-TP1 R: stop before TP1 = −1R; after TP1 = **+1.0 + 0.5 × runner_R**. Same-bar stop beats TP1.")
     section.append("")
-    section.append("### Locked M45-ST (re-run, full-TP1 conceptual)")
+    section.append("### One table — book")
     section.append("")
-    section.append(block("baseline_144"))
+    section.append(_md_table(hdr, book_rows))
     section.append("")
-    section.append("### H1-ST + 50% TP1 / 50% trail")
-    section.append("")
-    section.append(block("h1st_partial"))
-    section.append("")
-    section.append("### H1-ST full position after TP1 (isolation)")
-    section.append("")
-    section.append(block("h1st_full"))
-    section.append("")
-    section.append("### A/B per ticker (sumR)")
+    section.append("### One table — per symbol sumR / WR% / maxDD")
     section.append("")
     section.append(
         _md_table(
-            ["symbol", "M45 full", "H1 full", "H1 50%", "Δ TF (H1f−M45)", "Δ scale (50%−H1f)", "Δ vs locked (50%−M45)", "H1 50% WR%", "H1 50% DD"],
-            compare_rows,
+            [
+                "symbol",
+                "A sumR",
+                "B sumR",
+                "C sumR",
+                "D sumR",
+                "A WR",
+                "B WR",
+                "C WR",
+                "D WR",
+                "A DD",
+                "B DD",
+                "C DD",
+                "D DD",
+                "winner",
+            ],
+            wide,
         )
     )
     section.append("")
-    section.append("### H1 vs M45 recommendation")
+    section.append("### Detail (n / WR / sumR / avgR / DD / PF)")
+    section.append("")
+    section.extend(detail)
+    section.append("### Call")
     section.append("")
     section.append(rec)
     section.append("")
-    if h1p.sum_r >= m45.sum_r:
-        section.append("On this sample the H1 book is at least as good as locked M45-ST. Still confirm on Capital mids before changing Pine defaults.")
-    else:
-        section.append("On this sample **keep M45 Supertrend** as the locked bias+SL. Switching to H1 does not pay for the book.")
+    xau_a = cell_of("baseline_144", "XAU").sum_r
+    xau_b = cell_of("m45st_partial", "XAU").sum_r
+    nq_a = cell_of("baseline_144", "US100").sum_r
+    nq_b = cell_of("m45st_partial", "US100").sum_r
+    section.append(
+        f"XAU: A {xau_a:+.1f} vs B {xau_b:+.1f} (half on M45 {xau_b - xau_a:+.1f}R). "
+        f"US100: A {nq_a:+.1f} vs B {nq_b:+.1f} (half on M45 {nq_b - nq_a:+.1f}R). "
+        f"Overall book: A {a.sum_r:+.1f} vs B {b.sum_r:+.1f} vs C {c.sum_r:+.1f} vs D {d.sum_r:+.1f}."
+    )
     section.append("")
 
     text = OUT_MD.read_text() if OUT_MD.exists() else ""
-    mark = "## H1 Supertrend + 50% TP1 (follow-up)"
+    marks = ("## ST TF × TP1 matrix (A/B/C/D)", "## H1 Supertrend + 50% TP1 (follow-up)")
     how = "## How to rerun"
-    if mark in text:
-        pre = text.split(mark)[0].rstrip()
-        post = ""
-        if how in text.split(mark, 1)[1]:
-            post = how + text.split(mark, 1)[1].split(how, 1)[1]
-        else:
-            post = (
-                "\n## How to rerun\n\n"
-                "```bash\n"
-                "python3 -m tools.ha_hunt_st_compare.run_bakeoff\n"
-                "python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup\n"
-                "```\n"
-            )
-        text = pre + "\n\n" + "\n".join(section) + "\n" + post.lstrip()
+    cut = None
+    for m in marks:
+        if m in text:
+            cut = m
+            break
+    howto = (
+        "## How to rerun\n\n"
+        "```bash\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup\n"
+        "```\n\n"
+        "With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.\n"
+        "Caches live under `tools/ha_hunt_st_compare/cache/` (gitignored).\n"
+    )
+    if cut:
+        pre = text.split(cut)[0].rstrip()
+        text = pre + "\n\n" + "\n".join(section) + "\n" + howto
     elif how in text:
-        pre, post = text.split(how, 1)
-        howto = (
-            "## How to rerun\n\n"
-            "```bash\n"
-            "python3 -m tools.ha_hunt_st_compare.run_bakeoff\n"
-            "python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup\n"
-            "```\n"
-            + (post.split("```", 2)[-1] if False else "\nWith Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.\nCaches live under `tools/ha_hunt_st_compare/cache/` (gitignored).\n")
-        )
-        text = pre.rstrip() + "\n\n" + "\n".join(section) + "\n" + howto
+        pre = text.split(how)[0].rstrip()
+        text = pre + "\n\n" + "\n".join(section) + "\n" + howto
     else:
-        text = text.rstrip() + "\n\n" + "\n".join(section) + "\n"
+        text = text.rstrip() + "\n\n" + "\n".join(section) + "\n" + howto
 
     OUT_MD.write_text(text if text.endswith("\n") else text + "\n")
     OUT_JSON.write_text(json.dumps(payload, indent=2) + "\n")
     print(f"wrote {OUT_MD}")
     print(f"wrote {OUT_JSON}")
-    print("H1 REC", rec)
+    print("MATRIX REC", rec)
     return 0
 
 

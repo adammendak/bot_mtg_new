@@ -414,7 +414,7 @@ def variants() -> list[Params]:
 
 
 def h1_compare_variants() -> list[Params]:
-    """Apples-to-apples H1-ST follow-up vs locked M45-ST full-TP1."""
+    """2×2: ST TF (M45 vs H1) × TP1 (full trail vs 50% scale)."""
     locked = dict(
         slow_len=144,
         band_cross_strict=False,
@@ -428,7 +428,8 @@ def h1_compare_variants() -> list[Params]:
         exit_st_flip=True,
     )
     return [
-        Params(name="baseline_144", st_tf_minutes=45, scale_tp1=False, **locked),
-        Params(name="h1st_partial", st_tf_minutes=60, scale_tp1=True, **locked),
-        Params(name="h1st_full", st_tf_minutes=60, scale_tp1=False, **locked),
+        Params(name="baseline_144", st_tf_minutes=45, scale_tp1=False, **locked),  # A
+        Params(name="m45st_partial", st_tf_minutes=45, scale_tp1=True, **locked),  # B
+        Params(name="h1st_partial", st_tf_minutes=60, scale_tp1=True, **locked),  # C
+        Params(name="h1st_full", st_tf_minutes=60, scale_tp1=False, **locked),  # D
     ]
