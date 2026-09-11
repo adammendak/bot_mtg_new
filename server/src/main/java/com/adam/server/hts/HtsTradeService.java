@@ -96,6 +96,11 @@ public class HtsTradeService {
             com.adam.server.broker.model.Account acc = risk.pickForBook(book, c.accounts());
             if (acc != null && acc.id() != null) {
                 c.selectAccount(acc.id());
+                // TEMP (reconcile-vanish investigation) — remove once the root cause is confirmed.
+                log.info("HTS reconcile-diag: selectBookAccount({}) -> {} ({})", book, acc.id(), acc.name());
+            } else {
+                log.info("HTS reconcile-diag: selectBookAccount({}) -> pickForBook returned {} (accounts seen: {})",
+                        book, acc, c.accounts() == null ? "null" : c.accounts().size());
             }
         } catch (Exception e) {
             log.warn("HTS reconcile: could not select account for {} ({})", book, e.getClass().getSimpleName());
@@ -227,6 +232,12 @@ public class HtsTradeService {
                         (t.getDealId() != null && live.ids().contains(t.getDealId()))
                                 || (t.getDealReference() != null && live.refs().contains(t.getDealReference()));
                 if (!stillOpen) {
+                    // TEMP (reconcile-vanish investigation): what THIS trade's own
+                    // row thinks its deal identifiers are, next to the liveDeals()
+                    // line just above — remove once the root cause is confirmed.
+                    log.info("HTS reconcile-diag: {} {} (id={}) NOT stillOpen — dealId={} dealReference={} openedAt={}",
+                            t.getVariant(), t.getSymbol(), t.getId(), t.getDealId(), t.getDealReference(),
+                            t.getOpenedAt());
                     // A fill can take a few seconds to show in openPositions(), and
                     // a real early stop-out needs time to land in the transaction
                     // feed so applyClose can classify it (STOP + pnl) instead of
@@ -931,7 +942,8 @@ public class HtsTradeService {
             selectBookAccount(book);
             Set<String> ids = new HashSet<>();
             Set<String> refs = new HashSet<>();
-            for (Position p : c.openPositions()) {
+            List<Position> positions = c.openPositions();
+            for (Position p : positions) {
                 if (p.dealId() != null) {
                     ids.add(p.dealId());
                 }
@@ -939,6 +951,14 @@ public class HtsTradeService {
                     refs.add(p.dealReference());
                 }
             }
+            // TEMP (reconcile-vanish investigation): the exact set the "absent from
+            // openPositions()" check compares against — if a still-open position's
+            // trade never shows up here from its very first read onward, this line
+            // (not the trade's own dealId) tells us whether openPositions() itself
+            // is the problem (wrong account / broker lag) vs a dealId format
+            // mismatch. Remove once the root cause is confirmed.
+            log.info("HTS reconcile-diag: liveDeals({}) -> {} position(s), ids={}, refs={}",
+                    book, positions.size(), ids, refs);
             return new LiveDeals(ids, refs);
         } catch (Exception e) {
             log.warn("HTS reconcile: open positions unavailable for {} ({})", book, e.getClass().getSimpleName());
