@@ -41,6 +41,6 @@ data/
 transkrypcja-*.txt
 stopDist
 
-# research backtest scratch (h4_ha_cloud_bt.py)
-tools/.candle_cache/
-tools/out/
+# Local OHLC caches for research backtests (too large; not Capital secrets)
+tools/ha_hunt_st_compare/cache/
+**/__pycache__/

@@ -23,8 +23,9 @@
 //   ST-line trail and ST-flip exit optional, default OFF
 //
 // Other locked defaults: slowLen 144, fastLen 33, reqM45Struct ON,
-// bandCrossStrict OFF, capReg 2, ST ATR 7 / factor 2.0, applyPP OFF,
-// longOnly OFF. Stop = Supertrend line of the active ST TF (default H1).
+// bandCrossStrict OFF (entry-TF), blockHtfBandOverlap OFF (M45 squeeze skip),
+// capReg 2, ST ATR 7 / factor 2.0, applyPP OFF, longOnly OFF.
+// Stop = Supertrend line of the active ST TF (default H1).
 // Optional Supertrend TF override: M45 or H1.
 // HUD book stats (default ON): last N=100 closed sim trades — WR, avg R, W/L R.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,8 +33,9 @@ indicator("HA-Hunt M15 ST v3", overlay = true, max_labels_count = 500, max_lines
 
 // ── strategy ─────────────────────────────────────────────────────────────────
 stTfMode    = input.string("H1", "Supertrend TF", options = ["M45", "H1"], tooltip = "Default H1 (bakeoff). Override to M45 for A/B. Bias + initial SL use this closed Supertrend.", group = "Strategy")
-bandCrossStrict = input.bool(false, "M15 band cross: require band-clear", tooltip = "Off (default, early): first closed M15 with close > fast high (long) or close < fast low (short), even if fast/slow bands overlap. On: also require the entire fast band clear of slow.", group = "Strategy")
-reqM45Struct = input.bool(true,  "Require M45 RMA structure gate", tooltip = "ON (default). M15 band cross may fire only when M45 is already with the trade: closed M45 RMA stack OR chart close beyond the closed M45 fast band, in active-ST direction.", group = "Strategy")
+bandCrossStrict = input.bool(false, "Entry-TF (M15) band-clear", tooltip = "Entry timeframe only — not M45. Off (default, early): first closed M15 with close > fast high (long) or close < fast low (short), even if the M15 fast/slow bands overlap. On: also require the entire M15 fast band clear of the M15 slow band.", group = "Strategy")
+blockHtfBandOverlap = input.bool(false, "Block entry when M45 bands overlap", tooltip = "Off (default — same book as today). On: skip both long and short while the last closed M45 fast and slow RMA ribbons still overlap (squeeze). Long is clear only when M45 fast-low is above M45 slow-high; short is clear only when M45 fast-high is below M45 slow-low. Overlap = not clear / the two ribbons intersect. This is not the M45 structure gate (stack OR leave).", group = "Strategy")
+reqM45Struct = input.bool(true,  "Require M45 RMA structure gate", tooltip = "ON (default). M15 band cross may fire only when M45 is already with the trade: closed M45 RMA stack OR chart close beyond the closed M45 fast band, in active-ST direction. Not an overlap/squeeze skip.", group = "Strategy")
 entryTrig  = input.string("M15 band cross", "Entry trigger", options = ["M15 band cross", "M45 band cross"], tooltip = "M15 band cross (default) = first close beyond the M15 fast high/low RMA band. M45 band cross = late A/B.", group = "Strategy")
 reqH1St    = input.bool(false, "Also require H1 Supertrend (secondary)", tooltip = "OFF (default). Extra AND when active ST is M45. Redundant when Supertrend TF is already H1.", group = "Strategy")
 longOnly   = input.bool(false, "Long only (shorts = observe-only)", tooltip = "Off (default) so both BUY and SELL print when active ST agrees.", group = "Strategy")
@@ -202,6 +204,11 @@ m45LeaveLong  = not na(m45FUp) and close > m45FUp
 m45LeaveShort = not na(m45FLo) and close < m45FLo
 m45StructLong  = m45StackLong  or m45LeaveLong
 m45StructShort = m45StackShort or m45LeaveShort
+m45ClearLong  = not na(m45FLo) and not na(m45SUp) and m45FLo > m45SUp
+m45ClearShort = not na(m45FUp) and not na(m45SLo) and m45FUp < m45SLo
+m45BandsKnown = not na(m45FUp) and not na(m45FLo) and not na(m45SUp) and not na(m45SLo)
+m45Overlap    = m45BandsKnown and not m45ClearLong and not m45ClearShort
+htfOverlapOk  = not blockHtfBandOverlap or not m45Overlap
 m45BeyondLong  = not na(m45C) and not na(m45FUp) and m45C > m45FUp
 m45BeyondShort = not na(m45C) and not na(m45FLo) and m45C < m45FLo
 m45CrossLong  = m45BeyondLong  and not m45BeyondLong[1]
@@ -382,8 +389,8 @@ trigLong  = useEntryTrig ? crossLong  : m45CrossLong
 trigShort = useEntryTrig ? crossShort : m45CrossShort
 m45GateL = (not useEntryTrig or not reqM45Struct) or m45StructLong
 m45GateS = (not useEntryTrig or not reqM45Struct) or m45StructShort
-longRaw  = stBull and trigLong  and m45GateL and h1LongOk  and ppLong
-shortRaw = stBear and trigShort and m45GateS and h1ShortOk and ppShort
+longRaw  = stBull and trigLong  and m45GateL and h1LongOk  and ppLong  and htfOverlapOk
+shortRaw = stBear and trigShort and m45GateS and h1ShortOk and ppShort and htfOverlapOk
 longSig  = longRaw and canEnter and enableLong
 shortSig = shortRaw and canEnter and enableShort and not longOnly
 
@@ -477,7 +484,7 @@ hudPos = switch hudPosIn
 
 hudBg = #1E222D
 hudLb = #B2B5BE
-hudRows = (showDbg ? 24 : 16) + (showHudStats ? 3 : 0)
+hudRows = (showDbg ? 26 : 17) + (showHudStats ? 3 : 0)
 var string hudPosUsed = na
 var int    hudRowsUsed = na
 if barstate.islast and showHud
@@ -489,7 +496,7 @@ if barstate.islast and showHud
         hudRowsUsed := hudRows
     string sideTxt = pos == 0 ? "FLAT" : pos == 1 ? "LONG" : "SHORT"
     color  sideC   = pos == 0 ? #B2B5BE : pos == 1 ? colBuy : colSell
-    string trigTxt = useEntryTrig ? (wantTfLbl + (bandCrossStrict ? " band (strict)" : " band (loose)")) : "M45 band (late A/B)"
+    string trigTxt = useEntryTrig ? (wantTfLbl + (bandCrossStrict ? " entry-TF band (strict)" : " entry-TF band (loose)")) : "M45 band (late A/B)"
     string chartTxt = wantTfLbl + " / chart " + timeframe.period + (chartOk ? "" : "  ⚠ use " + wantTfLbl)
     string mgmtTxt = (useTp1 ? "TP1" : "no TP1") + (useHalfTp1 ? " ½" : "") + (useBeAfterTp1 ? " · BE" : "") + (useHaExit ? " · M15 HA-exit" : "") + (exitStFlip ? " · ST-flip" : "") + (trailAfterTp1 ? " · trail" : "") + (exitSlowBand ? " · slow" : "")
     string runTxt = pos == 0 ? "—" : not useTp1 ? "off" : not tp1Hit ? "open → TP1" : (useBeAfterTp1 and not trailAfterTp1 ? "BE + M15 HA" : (useStSl ? "runner (ST)" : "runner (M45 band)"))
@@ -505,7 +512,10 @@ if barstate.islast and showHud
     string otherStTxt = useH1Active ? (st45Bull ? "BULL" : st45Bear ? "BEAR" : "—") : (not reqH1St ? "off" : h1Bull ? "BULL" : h1Bear ? "BEAR" : "—")
     color  otherStCol = useH1Active ? (st45Bull ? colBuy : st45Bear ? colSell : hudLb) : (not reqH1St ? hudLb : h1Bull ? colBuy : colSell)
     string m45Txt = not useEntryTrig ? "M45 trig" : not reqM45Struct ? "RMA-struct off" : (m45GateNow ? "RMA-struct✓" : "RMA-struct✗")
-    string gateTxt = (stBull ? (activeStLbl + " ST↑") : stBear ? (activeStLbl + " ST↓") : (activeStLbl + " ST—")) + "  " + m45Txt + (reqH1St ? (h1Gate ? "  H1✓" : "  H1✗") : "  H1 off") + (applyPP ? (ppGate ? "  PP✓" : "  PP✗") : "  PP off") + (canEnter ? "  in✓" : "  in✗")
+    string ovState = m45Overlap ? "overlap / squeeze" : m45ClearLong ? "clear long" : m45ClearShort ? "clear short" : "—"
+    string ovTxt = not blockHtfBandOverlap ? ("off  ·  " + ovState) : (m45Overlap ? "ON  block" : ("ON  " + ovState))
+    string ovGate = not blockHtfBandOverlap ? "  HTF-ovl off" : (htfOverlapOk ? "  HTF-ovl✓" : "  HTF-ovl✗")
+    string gateTxt = (stBull ? (activeStLbl + " ST↑") : stBear ? (activeStLbl + " ST↓") : (activeStLbl + " ST—")) + "  " + m45Txt + ovGate + (reqH1St ? (h1Gate ? "  H1✓" : "  H1✗") : "  H1 off") + (applyPP ? (ppGate ? "  PP✓" : "  PP✗") : "  PP off") + (canEnter ? "  in✓" : "  in✗")
     table.cell(hud, 0, 0, "HA-Hunt M15 ST v3", bgcolor = hudBg, text_color = color.white, text_size = size.normal)
     table.cell(hud, 1, 0, "M15 · ST " + activeStLbl, bgcolor = hudBg, text_color = color.white, text_size = size.normal)
     table.cell(hud, 0, 1, "Side", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
@@ -535,10 +545,12 @@ if barstate.islast and showHud
     table.cell(hud, 0, 13, "Fills / regime", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 13, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = hudBg, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 14, "Gates", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-    table.cell(hud, 1, 14, gateTxt, bgcolor = hudBg, text_color = (stBull or stBear) and m45GateNow and h1Gate and ppGate ? color.white : colExit, text_size = size.small)
+    table.cell(hud, 1, 14, gateTxt, bgcolor = hudBg, text_color = (stBull or stBear) and m45GateNow and h1Gate and ppGate and htfOverlapOk ? color.white : colExit, text_size = size.small)
     table.cell(hud, 0, 15, "M45 RMA / exit", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 15, m45Txt + "  ·  " + mgmtTxt, bgcolor = hudBg, text_color = useEntryTrig and reqM45Struct ? (m45GateNow ? colBuy : colSell) : hudLb, text_size = size.small)
-    int hr = 16
+    table.cell(hud, 0, 16, "M45 bands", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 16, ovTxt, bgcolor = hudBg, text_color = not blockHtfBandOverlap ? hudLb : (htfOverlapOk ? colBuy : colSell), text_size = size.small)
+    int hr = 17
     if showHudStats
         string wrLbl = "WR " + str.tostring(statsLookback)
         string wrVal = statsN == 0 ? "—" : (str.tostring(statsWrPct, "#.0") + "%" + (statsN < statsLookback ? "  " + str.tostring(statsN) + "/" + str.tostring(statsLookback) : ""))
@@ -570,6 +582,8 @@ if barstate.islast and showHud
         table.cell(hud, 1, hr + 6, (applyPP ? "" : "off / ") + (ppGate ? "yes" : "no"), bgcolor = hudBg, text_color = ppGate ? colBuy : colSell, text_size = size.small)
         table.cell(hud, 0, hr + 7, "canEnter", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
         table.cell(hud, 1, hr + 7, canEnter ? "yes" : "no", bgcolor = hudBg, text_color = canEnter ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 8, "M45 bands", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 8, ovState + (htfOverlapOk ? "  pass" : "  block"), bgcolor = hudBg, text_color = htfOverlapOk ? colBuy : colSell, text_size = size.small)
 
 var int   sFills = 0
 var int   sPos   = 0
