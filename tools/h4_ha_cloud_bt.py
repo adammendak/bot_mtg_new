@@ -139,6 +139,18 @@ TP_R_1TO1 = 1.0
 ST_HTS_VARIANTS = ["M45_ST_HTS", "M45_ST_HTS_V2"]
 VARIANTS = VARIANTS + ST_HTS_VARIANTS
 
+# Same "dream" config, one timeframe rung up: H1 Supertrend (filter+SL) / M15
+# entry, HA4's own H4-hunt/M15-entry shape with Supertrend swapping in for the
+# H4 HA hunt gate. Uses the already-fetched M15 feed — no separate M5 fetch.
+ST1_HTS_VARIANTS = ["M15_ST1_HTS", "M15_ST1_HTS_V2"]
+VARIANTS = VARIANTS + ST1_HTS_VARIANTS
+
+# PR #140's locked "v3 bakeoff": TP1 1:2 half -> BE -> confirmed LTF HA-flip
+# exit (no trailing, no ST-flip exit, no slow-band exit — all explicitly OFF
+# in their defaults). See run_st_v3().
+ST_V3_VARIANTS = ["M5_ST_V3", "M15_ST_V3"]
+VARIANTS = VARIANTS + ST_V3_VARIANTS
+
 LONGS_ONLY = False   # set from --longs-only; when True, short signals are dropped
 
 
@@ -955,135 +967,201 @@ def run_m5_st1(sym, m5r, h1r, start, end):
     return trades
 
 
-def run_m45_st_hts(sym, m5r, start, end, variant="M45_ST_HTS", tp1_mult=TP_R_1TO1,
-                    require_m45_struct=False, exit_band="m5"):
-    """M45_ST_HTS family — user's "dream" config: M45 Supertrend is BOTH the
-    direction filter and the stop-loss (its own band level, self-ratcheting);
-    entry is a fresh M5 close beyond the fast RMA-of-high/low band (HTS ribbon
-    fast=33, matching real Band.java), in the Supertrend's direction; exit is a
-    genuine half/half split — TP1 = tp1_mult x R on the first half, the other
-    half trails (SL = the M45 Supertrend band, updated as new M45 bars close)
-    until an M5 candle BODY closes beyond a slow band — the real HtsEngine
-    runner rule, with the Supertrend swapped in for the structural fast-band
-    stop. One Trade per signal, r = 0.5*(TP1 leg) + 0.5*(runner leg).
+def run_st_hts_generic(sym, ltf_bars_raw, ltf_minutes, htf_hours, start, end, variant,
+                       tp1_mult=TP_R_1TO1, require_htf_struct=False, exit_band="ltf",
+                       runner_mode="trail", pyramid=False):
+    """Generic engine behind M45_ST_HTS (ltf=M5, htf=M45, htf_hours=0.75) and
+    M15_ST_HTS (ltf=M15, htf=H1, htf_hours=1.0) — same "dream" config either
+    way: HTF Supertrend is BOTH the direction filter and the stop-loss (its
+    own band level, self-ratcheting, resampled from the LTF feed); entry is a
+    fresh LTF close beyond the LTF's fast RMA-of-high/low band (HTS ribbon
+    fast=33, matching real Band.java), in the Supertrend's direction; exit is
+    a genuine half/half split — TP1 = tp1_mult x R on the first half, the
+    other half trails (SL = the HTF Supertrend band) until a candle BODY
+    closes beyond a slow band (the real HtsEngine runner rule, Supertrend
+    swapped in for the structural fast-band stop). One Trade per signal,
+    r = 0.5*(TP1 leg) + 0.5*(runner leg).
 
-    variant="M45_ST_HTS" (default) mirrors the user's verbal spec: TP1 1:1,
-    no extra structure gate, runner's slow band is the M5 one (HTS_SLOW=144).
-    variant="M45_ST_HTS_V2" matches PR #137's locked Pine spec instead when
-    called with tp1_mult=2.0, require_m45_struct=True, exit_band="m45": TP1
-    2:1, M5 cross only counts when M45 is already "with the trade" (M45 close
-    stacked vs its own RMA33/100, OR M5 close already beyond the closed M45
-    fast band) in the ST direction, and the runner's full-exit band is M45's
-    own slow band (ST_SLOW=100) instead of M5's."""
-    m5 = to_bars(m5r)
-    m45 = resample(m5, 0.75)             # 45-minute buckets from the M5 feed
-    st45, st45_up, st45_dn = supertrend_bands(m45, ST_ATR_LEN, ST_FACTOR)
-    st_regime_id = [0] * len(m45)
-    for i in range(1, len(m45)):
-        st_regime_id[i] = i if st45[i] != st45[i - 1] else st_regime_id[i - 1]
-    fu, fl = band_rma(m5, HTS_FAST)
-    su, sl = band_rma(m5, HTS_SLOW)
-    # M45 structure (PR #137 gate) + M45's own slow band (PR #137 runner exit)
-    close_m45 = [b.c for b in m45]
-    rma_fast_m45 = wilder_rma(close_m45, RMA_FAST)
-    rma_slow_m45 = wilder_rma(close_m45, ST_SLOW)
-    fu45, fl45 = band_rma(m45, HTS_FAST)
-    su45, sl45 = band_rma(m45, ST_SLOW)
+    exit_band="ltf" (default, the user's confirmed definition): runner's
+    full-exit band is the LTF's own slow band (HTS_SLOW=144) — body closes on
+    the OPPOSITE side (below slow-band-low for a long, above slow-band-high
+    for a short). exit_band="htf": PR #137's locked-spec alternative — the
+    HTF's own slow band (ST_SLOW=100) instead. require_htf_struct=True adds
+    PR #137's structure gate (HTF stacked vs its own RMA33/100, OR LTF close
+    already beyond the closed HTF fast band, in the ST direction).
+
+    PYRAMIDING: does NOT require flat — a fresh signal opens a new ticket
+    (its own TP1+runner pair) alongside any already-open ones in the same
+    Supertrend regime, capped at CAP_PER_REGIME total per regime (matching
+    the live engine's fill cap and PR #140's "Pyramiding for ha-hunt st" fix:
+    canEnter no longer requires pos==0, it adds in the same direction up to
+    capReg instead of forcing exit-then-reenter)."""
+    ltf = to_bars(ltf_bars_raw)
+    htf = resample(ltf, htf_hours)
+    st_htf, st_up, st_dn = supertrend_bands(htf, ST_ATR_LEN, ST_FACTOR)
+    st_regime_id = [0] * len(htf)
+    for i in range(1, len(htf)):
+        st_regime_id[i] = i if st_htf[i] != st_htf[i - 1] else st_regime_id[i - 1]
+    fu, fl = band_rma(ltf, HTS_FAST)
+    su, sl = band_rma(ltf, HTS_SLOW)
+    # HTF structure (PR #137 gate) + HTF's own slow band (PR #137 runner exit)
+    close_htf = [b.c for b in htf]
+    rma_fast_htf = wilder_rma(close_htf, RMA_FAST)
+    rma_slow_htf = wilder_rma(close_htf, ST_SLOW)
+    fu_h, fl_h = band_rma(htf, HTS_FAST)
+    su_h, sl_h = band_rma(htf, ST_SLOW)
+    # runner_mode="be_haflip" (PR #140's locked v3 bakeoff): no trailing at all —
+    # runner's stop stays at the ORIGINAL fixed SL until TP1 fires, then jumps
+    # once to breakeven and sits there; full exit on a confirmed LTF Heikin-Ashi
+    # colour flip against the position (HaHuntEngine.haFlipDirection style).
+    ha_ltf = heiken_ashi(ltf) if runner_mode == "be_haflip" else None
 
     fills = {}
     trades = []
-    leg_tp1 = None    # dict: entry, stop(fixed at open), one_r, dir, t_in, rid
-    leg_run = None    # dict: entry, stop(trails), one_r, dir, t_in, rid
+    open_tickets = []   # list of {leg_tp1, leg_run} dicts — pyramiding: >1 can be open at once
 
-    def m45_idx(close_time):
-        return idx_asof(m45, close_time, 0.75)
+    def htf_idx(close_time):
+        return idx_asof(htf, close_time, htf_hours)
 
-    for i in range(HTS_SLOW + 2, len(m5)):
-        bar = m5[i]
-        close_time = bar.t + timedelta(minutes=5)
+    for i in range(HTS_SLOW + 2, len(ltf)):
+        bar = ltf[i]
+        close_time = bar.t + timedelta(minutes=ltf_minutes)
         if close_time <= start:
             continue
         if bar.t >= end:
             break
-        mi = m45_idx(close_time)
-        if mi < ST_ATR_LEN or math.isnan(st45_up[mi]) or math.isnan(st45_dn[mi]) or math.isnan(fu[i]) or math.isnan(su[i]):
+        hi = htf_idx(close_time)
+        if hi < ST_ATR_LEN or math.isnan(st_up[hi]) or math.isnan(st_dn[hi]) or math.isnan(fu[i]) or math.isnan(su[i]):
             continue
 
-        # ---- manage the two legs of an open position ----
-        if leg_tp1 is not None:
-            d = leg_tp1["dir"]
-            tp = leg_tp1["entry"] + tp1_mult * leg_tp1["one_r"] * d
-            hit_tp = bar.h >= tp if d > 0 else bar.l <= tp
-            hit_stop = bar.l <= leg_tp1["stop"] if d > 0 else bar.h >= leg_tp1["stop"]
-            if hit_stop:
-                leg_tp1["r"], leg_tp1["done"] = -1.0, True
-            elif hit_tp:
-                leg_tp1["r"], leg_tp1["done"] = tp1_mult, True
-        if leg_run is not None:
-            d = leg_run["dir"]
-            leg_run["stop"] = st45_up[mi] if d > 0 else st45_dn[mi]   # ratchets with M45 ST
-            hit_stop = bar.l <= leg_run["stop"] if d > 0 else bar.h >= leg_run["stop"]
-            if exit_band == "m45":
-                beyond_slow = (bar.c < sl45[mi]) if d > 0 else (bar.c > su45[mi])
-                slow_ok = not (math.isnan(sl45[mi]) or math.isnan(su45[mi]))
+        # ---- manage every open ticket's two legs ----
+        still_open = []
+        for tk in open_tickets:
+            leg_tp1, leg_run = tk["tp1"], tk["run"]
+            if leg_tp1 is not None and not leg_tp1.get("done"):
+                d = leg_tp1["dir"]
+                tp = leg_tp1["entry"] + tp1_mult * leg_tp1["one_r"] * d
+                hit_tp = bar.h >= tp if d > 0 else bar.l <= tp
+                hit_stop = bar.l <= leg_tp1["stop"] if d > 0 else bar.h >= leg_tp1["stop"]
+                if hit_stop:
+                    leg_tp1["r"], leg_tp1["done"] = -1.0, True
+                elif hit_tp:
+                    leg_tp1["r"], leg_tp1["done"] = tp1_mult, True
+            if leg_run is not None and not leg_run.get("done") and runner_mode == "be_haflip":
+                d = leg_run["dir"]
+                if leg_tp1 is not None and leg_tp1.get("done") and not leg_run.get("moved_to_be"):
+                    leg_run["stop"] = leg_run["entry"]   # jump to breakeven exactly once, then sit
+                    leg_run["moved_to_be"] = True
+                hit_stop = bar.l <= leg_run["stop"] if d > 0 else bar.h >= leg_run["stop"]
+                bull = ha_ltf[i].c >= ha_ltf[i].o
+                prev_bull = ha_ltf[i - 1].c >= ha_ltf[i - 1].o
+                ha_flip_against = (bull != prev_bull) and (bull != (d > 0))
+                if hit_stop:
+                    px = leg_run["stop"]
+                    leg_run["r"] = (px - leg_run["entry"]) / leg_run["one_r"] * d
+                    leg_run["done"] = True
+                elif ha_flip_against:
+                    leg_run["r"] = (bar.c - leg_run["entry"]) / leg_run["one_r"] * d
+                    leg_run["done"] = True
+            elif leg_run is not None and not leg_run.get("done"):
+                d = leg_run["dir"]
+                leg_run["stop"] = st_up[hi] if d > 0 else st_dn[hi]   # ratchets with HTF ST
+                hit_stop = bar.l <= leg_run["stop"] if d > 0 else bar.h >= leg_run["stop"]
+                if exit_band == "htf":
+                    # opposite-side close beyond the HTF's own slow band
+                    beyond_slow = (bar.c < sl_h[hi]) if d > 0 else (bar.c > su_h[hi])
+                    slow_ok = not (math.isnan(sl_h[hi]) or math.isnan(su_h[hi]))
+                else:
+                    # opposite-side close beyond the LTF's own slow band (confirmed definition)
+                    beyond_slow = (bar.c < sl[i]) if d > 0 else (bar.c > su[i])
+                    slow_ok = not (math.isnan(sl[i]) or math.isnan(su[i]))
+                if hit_stop:
+                    px = leg_run["stop"]
+                    leg_run["r"] = (px - leg_run["entry"]) / leg_run["one_r"] * d
+                    leg_run["done"] = True
+                elif slow_ok and beyond_slow:
+                    leg_run["r"] = (bar.c - leg_run["entry"]) / leg_run["one_r"] * d
+                    leg_run["done"] = True
+
+            if leg_tp1 is not None and leg_tp1.get("done") and leg_run is not None and leg_run.get("done"):
+                r = 0.5 * leg_tp1["r"] + 0.5 * leg_run["r"]
+                tr = Trade(sym, variant, leg_tp1["dir"], leg_tp1["t_in"], leg_tp1["entry"],
+                           leg_tp1["stop"], leg_tp1["one_r"], None, False, leg_tp1["rid"])
+                tr.t_out, tr.exit, tr.reason = bar.t, bar.c, "tp1+runner"
+                tr.bars = i - leg_tp1["i_in"]
+                tr.r = r
+                trades.append(tr)
             else:
-                beyond_slow = (bar.c < sl[i]) if d > 0 else (bar.c > su[i])
-                slow_ok = not (math.isnan(sl[i]) or math.isnan(su[i]))
-            if hit_stop:
-                px = leg_run["stop"]
-                leg_run["r"] = (px - leg_run["entry"]) / leg_run["one_r"] * d
-                leg_run["done"] = True
-            elif slow_ok and beyond_slow:
-                leg_run["r"] = (bar.c - leg_run["entry"]) / leg_run["one_r"] * d
-                leg_run["done"] = True
+                still_open.append(tk)
+        open_tickets = still_open
 
-        if leg_tp1 is not None and leg_tp1.get("done") and leg_run is not None and leg_run.get("done"):
-            r = 0.5 * leg_tp1["r"] + 0.5 * leg_run["r"]
-            tr = Trade(sym, variant, leg_tp1["dir"], leg_tp1["t_in"], leg_tp1["entry"],
-                       leg_tp1["stop"], leg_tp1["one_r"], None, False, leg_tp1["rid"])
-            tr.t_out, tr.exit, tr.reason = bar.t, bar.c, "tp1+runner"
-            tr.bars = i - leg_tp1["i_in"]
-            tr.r = r
-            trades.append(tr)
-            leg_tp1 = leg_run = None
-
-        # ---- entry: fresh M5 close beyond the fast band, direction == M45 ST ----
-        if leg_tp1 is None and leg_run is None:
+        # ---- entry: fresh LTF close beyond the fast band, direction == HTF ST.
+        # pyramid=True: does not require flat, only fills.get(rid) < CAP_PER_REGIME
+        # (backtested WORSE — PF 1.54/1.61 -> 1.02/1.10 on M5_ST_V3, MaxDD 13.5% ->
+        # 55.9% — default False, kept only for A/B). pyramid=False: one ticket at a
+        # time, same as before pyramiding was added. ----
+        if pyramid or not open_tickets:
             beyond_up = bar.c > fu[i]
             beyond_dn = bar.c < fl[i]
-            prev_up = (not math.isnan(fu[i - 1])) and m5[i - 1].c > fu[i - 1]
-            prev_dn = (not math.isnan(fl[i - 1])) and m5[i - 1].c < fl[i - 1]
+            prev_up = (not math.isnan(fu[i - 1])) and ltf[i - 1].c > fu[i - 1]
+            prev_dn = (not math.isnan(fl[i - 1])) and ltf[i - 1].c < fl[i - 1]
             fresh_up = beyond_up and not prev_up
             fresh_dn = beyond_dn and not prev_dn
-            st_bull = st45[mi] == 1
+            st_bull = st_htf[hi] == 1
             buy = st_bull
             trig = fresh_up if buy else fresh_dn
-            if trig and require_m45_struct:
-                m45c = close_m45[mi]
+            if trig and require_htf_struct:
+                hc = close_htf[hi]
                 if buy:
-                    struct_ok = ((not math.isnan(rma_fast_m45[mi]) and not math.isnan(rma_slow_m45[mi])
-                                  and m45c > rma_fast_m45[mi] > rma_slow_m45[mi])
-                                 or (not math.isnan(fu45[mi]) and bar.c > fu45[mi]))
+                    struct_ok = ((not math.isnan(rma_fast_htf[hi]) and not math.isnan(rma_slow_htf[hi])
+                                  and hc > rma_fast_htf[hi] > rma_slow_htf[hi])
+                                 or (not math.isnan(fu_h[hi]) and bar.c > fu_h[hi]))
                 else:
-                    struct_ok = ((not math.isnan(rma_fast_m45[mi]) and not math.isnan(rma_slow_m45[mi])
-                                  and m45c < rma_fast_m45[mi] < rma_slow_m45[mi])
-                                 or (not math.isnan(fl45[mi]) and bar.c < fl45[mi]))
+                    struct_ok = ((not math.isnan(rma_fast_htf[hi]) and not math.isnan(rma_slow_htf[hi])
+                                  and hc < rma_fast_htf[hi] < rma_slow_htf[hi])
+                                 or (not math.isnan(fl_h[hi]) and bar.c < fl_h[hi]))
                 trig = trig and struct_ok
             if trig:
-                rid = st_regime_id[mi]
+                rid = st_regime_id[hi]
                 if fills.get(rid, 0) < CAP_PER_REGIME:
                     d = 1 if buy else -1
                     entry = bar.c
-                    stop = st45_up[mi] if buy else st45_dn[mi]
+                    stop = st_up[hi] if buy else st_dn[hi]
                     one_r = abs(entry - stop)
                     valid = one_r > 0 and ((buy and stop < entry) or (not buy and stop > entry))
                     if valid:
                         base = dict(entry=entry, stop=stop, one_r=one_r, dir=d, t_in=bar.t, i_in=i, rid=rid)
-                        leg_tp1 = dict(base)
-                        leg_run = dict(base)
+                        open_tickets.append({"tp1": dict(base), "run": dict(base)})
                         fills[rid] = fills.get(rid, 0) + 1
 
     return trades
+
+
+def run_m45_st_hts(sym, m5r, start, end, variant="M45_ST_HTS", tp1_mult=TP_R_1TO1,
+                    require_m45_struct=False, exit_band="m5"):
+    """M45 (filter+SL) / M5 (entry) — see run_st_hts_generic(). exit_band "m5"/"m45"
+    map onto the generic "ltf"/"htf"."""
+    return run_st_hts_generic(sym, m5r, 5, 0.75, start, end, variant, tp1_mult,
+                              require_m45_struct, "ltf" if exit_band == "m5" else "htf")
+
+
+def run_m15_st1_hts(sym, m15r, start, end, variant="M15_ST1_HTS", tp1_mult=TP_R_1TO1,
+                     require_h1_struct=False, exit_band="m15"):
+    """H1 (filter+SL) / M15 (entry) analogue of run_m45_st_hts — one notch up
+    the timeframe ladder (HA4's own H4-hunt/M15-entry shape, Supertrend swapped
+    in for the H4 HA hunt gate). exit_band "m15"/"h1" map onto "ltf"/"htf"."""
+    return run_st_hts_generic(sym, m15r, 15, 1.0, start, end, variant, tp1_mult,
+                              require_h1_struct, "ltf" if exit_band == "m15" else "htf")
+
+
+def run_st_v3(sym, ltf_r, ltf_minutes, htf_hours, start, end, variant):
+    """PR #140's locked "v3 bakeoff" config: TP1 1:2 half, stop to breakeven
+    after TP1 (no trailing), full exit on a confirmed LTF Heikin-Ashi flip
+    against the position. M5_ST_V3 = M5 entry / M45 ST (htf_hours=0.75);
+    M15_ST_V3 = M15 entry / H1 ST (htf_hours=1.0). Structure gate ON, matching
+    reqM45Struct=true in both Pine files."""
+    return run_st_hts_generic(sym, ltf_r, ltf_minutes, htf_hours, start, end, variant,
+                              tp1_mult=2.0, require_htf_struct=True, runner_mode="be_haflip")
 
 
 # ---------------------------------------------------------------------------
@@ -1140,10 +1218,17 @@ def main():
     ap.add_argument("--warmup-days", type=int, default=120)
     ap.add_argument("--m5", action="store_true", help="also fetch M5 + run M5_ST1 (H1 Supertrend filter+SL)")
     ap.add_argument("--out-prefix", default="tools/out/h4_ha_cloud")
+    ap.add_argument("--st-atr", type=int, default=None, help="Supertrend ATR period override (default 10)")
+    ap.add_argument("--st-factor", type=float, default=None, help="Supertrend factor override (default 2.0)")
     args = ap.parse_args()
 
     global LONGS_ONLY
     LONGS_ONLY = args.longs_only
+    global ST_ATR_LEN, ST_FACTOR
+    if args.st_atr is not None:
+        ST_ATR_LEN = args.st_atr
+    if args.st_factor is not None:
+        ST_FACTOR = args.st_factor
 
     start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
     end = datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc)
@@ -1169,6 +1254,10 @@ def main():
                          m15[0]["time"].isoformat() if m15 else None,
                          m15[-1]["time"].isoformat() if m15 else None)
         tr = run_symbol(sym, m15, h1, start, end) + run_h12h1(sym, h1, start, end)
+        tr += run_m15_st1_hts(sym, m15, start, end)
+        tr += run_m15_st1_hts(sym, m15, start, end, variant="M15_ST1_HTS_V2", tp1_mult=2.0,
+                              require_h1_struct=True, exit_band="h1")
+        tr += run_st_v3(sym, m15, 15, 1.0, start, end, "M15_ST_V3")
         if args.m5:
             # M5_ST1 needs far less history than the M15/H1 warmup above (M5 = 12x
             # the bar rate) — a separate, shorter fetch avoids months of unneeded M5.
@@ -1178,6 +1267,7 @@ def main():
             tr += run_m45_st_hts(sym, m5, start, end)
             tr += run_m45_st_hts(sym, m5, start, end, variant="M45_ST_HTS_V2", tp1_mult=2.0,
                                  require_m45_struct=True, exit_band="m45")
+            tr += run_st_v3(sym, m5, 5, 0.75, start, end, "M5_ST_V3")
         per_sym[sym] = tr
         all_trades += tr
         sys.stderr.write(f"[{sym}] {len(tr)} trades\n")
