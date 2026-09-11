@@ -26,6 +26,7 @@
 // bandCrossStrict OFF, capReg 2, ST ATR 7 / factor 2.0, applyPP OFF,
 // longOnly OFF. Stop = Supertrend line of the active ST TF (default M45).
 // Optional Supertrend TF override: M45 or H1.
+// HUD book stats (default ON): last N=100 closed sim trades — WR, avg R, W/L R.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("HA-Hunt M5 ST v3", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
 
@@ -76,6 +77,8 @@ showAllSig  = input.bool(true,  "Label every gated signal", group = "Visuals")
 showHistory = input.bool(false, "Show history (past entry / SL / TP1)", group = "Visuals")
 showHud     = input.bool(true,  "Corner HUD", group = "Visuals")
 hudPosIn    = input.string("Bottom left", "HUD position", options = ["Top left", "Top right", "Bottom left", "Bottom right", "Middle left", "Middle right"], tooltip = "One table only. Default bottom-left.", group = "Visuals")
+showHudStats  = input.bool(true,  "HUD book stats (WR / R)", tooltip = "Append WR / avg R / W/L R for the last N closed simulated trades (TP1 half + runner). Same book as the overlay entries/exits. No second table.", group = "Visuals")
+statsLookback = input.int(100,    "Stats lookback (closed trades)", minval = 1, maxval = 500, tooltip = "Win rate and mean R over the last N closed book trades. Shows n/N until the window is full.", group = "Visuals")
 showEntryBands = input.bool(true,  "Plot M5 fast / slow RMA bands", tooltip = "Small band — the M5 trigger ribbon.", group = "Visuals")
 showM45Bands = input.bool(true, "Plot M45 large RMA ribbon", tooltip = "Large band — structure.", group = "Visuals")
 showDbg     = input.bool(false, "Debug last-bar gates", tooltip = "Appends gate rows to the bottom HUD. No second table.", group = "Visuals")
@@ -258,6 +261,9 @@ trailStop(isLong) =>
     float bandTr = bandOk ? (isLong ? m45FLo - buf : m45FUp + buf) : na
     useStSl ? stLine : bandTr
 
+f_fmtSignedR(float v) =>
+    na(v) ? "—" : (v > 0 ? "+" : "") + str.tostring(v, "#.00")
+
 // ── daily pivot — previous completed 21:00-UTC session ──────────────────────
 sIdx = math.floor((time / 1000 - 75600) / 86400)
 newS = ta.change(sIdx) != 0
@@ -291,6 +297,7 @@ var label lbStop  = na
 var label lbEntry = na
 var label lbTgt   = na
 var table hud     = na
+var array<float> closedR = array.new<float>()
 
 if stFlip
     fills := 0
@@ -343,6 +350,12 @@ atBe    = tp1Hit and useBeAfterTp1 and not trailAfterTp1
 exitRsn = exitStop ? (atBe ? "be" : "stop") : exitHa ? "m5_ha_flip" : exitSlow ? "m45_slow_band" : "st_flip"
 
 if doExit
+    // Book R: half at TP1 (tp1Mult) + half at runner/SL/BE when half+TP1 is on.
+    if not na(lastR) and lastR > 0 and not na(entPx)
+        float exitPx = exitStop ? stpX : close
+        float rawR = pos == 1 ? (exitPx - entPx) / lastR : (entPx - exitPx) / lastR
+        float bookR = (useTp1 and useHalfTp1 and tp1Hit) ? 0.5 * tp1Mult + 0.5 * rawR : rawR
+        array.push(closedR, bookR)
     if showBadge
         string xt = exitStop ? (atBe ? "✕  BE" : "✕  SL") : exitHa ? "✕  M5 HA" : exitSlow ? "✕  M45 slow" : ("ST  " + activeStLbl + " flip")
         color  xc = exitStop ? colSell : colExit
@@ -422,7 +435,38 @@ if pos != 0
     if showTags and not na(lbStop)
         label.set_x(lbStop, x2e), label.set_x(lbEntry, x2e), label.set_x(lbTgt, x2e)
 
-// ── HUD (one table; debug rows append when showDbg) ──────────────────────────
+// ── closed-book stats (last N simulated exits; display only) ─────────────────
+int statsN = 0
+int statsWins = 0
+int statsLosses = 0
+float statsAvgR = na
+float statsAvgWin = na
+float statsAvgLoss = na
+float statsWrPct = na
+if array.size(closedR) > 0
+    int nAll = array.size(closedR)
+    statsN := math.min(nAll, statsLookback)
+    int start = nAll - statsN
+    float sumR = 0.0
+    float sumW = 0.0
+    float sumL = 0.0
+    for i = start to nAll - 1
+        float r = array.get(closedR, i)
+        sumR += r
+        if r > 0
+            statsWins += 1
+            sumW += r
+        else if r < 0
+            statsLosses += 1
+            sumL += r
+    statsAvgR := sumR / statsN
+    statsWrPct := 100.0 * statsWins / statsN
+    if statsWins > 0
+        statsAvgWin := sumW / statsWins
+    if statsLosses > 0
+        statsAvgLoss := sumL / statsLosses
+
+// ── HUD (one table; stats + debug rows append) ───────────────────────────────
 hudPos = switch hudPosIn
     "Top left" => position.top_left
     "Top right" => position.top_right
@@ -433,7 +477,7 @@ hudPos = switch hudPosIn
 
 hudBg = #1E222D
 hudLb = #B2B5BE
-hudRows = showDbg ? 24 : 16
+hudRows = (showDbg ? 24 : 16) + (showHudStats ? 3 : 0)
 var string hudPosUsed = na
 var int    hudRowsUsed = na
 if barstate.islast and showHud
@@ -494,23 +538,38 @@ if barstate.islast and showHud
     table.cell(hud, 1, 14, gateTxt, bgcolor = hudBg, text_color = (stBull or stBear) and m45GateNow and h1Gate and ppGate ? color.white : colExit, text_size = size.small)
     table.cell(hud, 0, 15, "M45 RMA / exit", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 15, m45Txt + "  ·  " + mgmtTxt, bgcolor = hudBg, text_color = useEntryTrig and reqM45Struct ? (m45GateNow ? colBuy : colSell) : hudLb, text_size = size.small)
+    int hr = 16
+    if showHudStats
+        string wrLbl = "WR " + str.tostring(statsLookback)
+        string wrVal = statsN == 0 ? "—" : (str.tostring(statsWrPct, "#.0") + "%" + (statsN < statsLookback ? "  " + str.tostring(statsN) + "/" + str.tostring(statsLookback) : ""))
+        color  wrCol = statsN == 0 ? color.white : statsAvgR > 0 ? colBuy : statsAvgR < 0 ? colSell : color.white
+        string avgVal = statsN == 0 ? "—" : f_fmtSignedR(statsAvgR)
+        string rrTxt = (statsWins > 0 and statsLosses > 0) ? ("  RR " + str.tostring(math.abs(statsAvgWin / statsAvgLoss), "#.00")) : ""
+        string wlVal = statsN == 0 ? "—" : f_fmtSignedR(statsAvgWin) + " / " + f_fmtSignedR(statsAvgLoss) + rrTxt
+        table.cell(hud, 0, hr, wrLbl, bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr, wrVal, bgcolor = hudBg, text_color = wrCol, text_size = size.small)
+        table.cell(hud, 0, hr + 1, "avg R", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 1, avgVal, bgcolor = hudBg, text_color = wrCol, text_size = size.small)
+        table.cell(hud, 0, hr + 2, "W/L R", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 2, wlVal, bgcolor = hudBg, text_color = color.white, text_size = size.small)
+        hr += 3
     if showDbg
-        table.cell(hud, 0, 16, "M5 cross L/S", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 16, (crossLong ? "L" : "-") + " / " + (crossShort ? "S" : "-"), bgcolor = hudBg, text_color = (crossLong or crossShort) ? colBuy : hudLb, text_size = size.small)
-        table.cell(hud, 0, 17, "M45 stack", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 17, (m45StackLong ? "L" : "-") + " / " + (m45StackShort ? "S" : "-"), bgcolor = hudBg, text_color = (stBull ? m45StackLong : m45StackShort) ? colBuy : colSell, text_size = size.small)
-        table.cell(hud, 0, 18, "M45 leave", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 18, (m45LeaveLong ? "L" : "-") + " / " + (m45LeaveShort ? "S" : "-"), bgcolor = hudBg, text_color = (stBull ? m45LeaveLong : m45LeaveShort) ? colBuy : colSell, text_size = size.small)
-        table.cell(hud, 0, 19, "Active ST closed", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 19, stBull ? "yes (bull)" : stBear ? "no (bear)" : "na", bgcolor = hudBg, text_color = stBull ? colBuy : colSell, text_size = size.small)
-        table.cell(hud, 0, 20, "HA M5", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 20, eBull ? "bull" : "bear", bgcolor = hudBg, text_color = eBull ? colBuy : colSell, text_size = size.small)
-        table.cell(hud, 0, 21, "M45 RMA gate", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 21, m45GateNow ? "yes" : "no", bgcolor = hudBg, text_color = m45GateNow ? colBuy : colSell, text_size = size.small)
-        table.cell(hud, 0, 22, "pp", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 22, (applyPP ? "" : "off / ") + (ppGate ? "yes" : "no"), bgcolor = hudBg, text_color = ppGate ? colBuy : colSell, text_size = size.small)
-        table.cell(hud, 0, 23, "canEnter", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 23, canEnter ? "yes" : "no", bgcolor = hudBg, text_color = canEnter ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr, "M5 cross L/S", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr, (crossLong ? "L" : "-") + " / " + (crossShort ? "S" : "-"), bgcolor = hudBg, text_color = (crossLong or crossShort) ? colBuy : hudLb, text_size = size.small)
+        table.cell(hud, 0, hr + 1, "M45 stack", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 1, (m45StackLong ? "L" : "-") + " / " + (m45StackShort ? "S" : "-"), bgcolor = hudBg, text_color = (stBull ? m45StackLong : m45StackShort) ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 2, "M45 leave", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 2, (m45LeaveLong ? "L" : "-") + " / " + (m45LeaveShort ? "S" : "-"), bgcolor = hudBg, text_color = (stBull ? m45LeaveLong : m45LeaveShort) ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 3, "Active ST closed", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 3, stBull ? "yes (bull)" : stBear ? "no (bear)" : "na", bgcolor = hudBg, text_color = stBull ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 4, "HA M5", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 4, eBull ? "bull" : "bear", bgcolor = hudBg, text_color = eBull ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 5, "M45 RMA gate", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 5, m45GateNow ? "yes" : "no", bgcolor = hudBg, text_color = m45GateNow ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 6, "pp", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 6, (applyPP ? "" : "off / ") + (ppGate ? "yes" : "no"), bgcolor = hudBg, text_color = ppGate ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, hr + 7, "canEnter", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, hr + 7, canEnter ? "yes" : "no", bgcolor = hudBg, text_color = canEnter ? colBuy : colSell, text_size = size.small)
 
 var int   sFills = 0
 var int   sPos   = 0
