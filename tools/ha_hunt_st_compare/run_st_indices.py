@@ -240,33 +240,48 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Part A call: ST {best_len}/{best_fac:g}  ({best_why})", flush=True)
 
     part_b: dict[tuple[str, str], Book] = {}
+    part_b_10: dict[tuple[str, str], Book] = {}
     if args.part in ("all", "b"):
         if args.part == "b" and not part_a:
             best_len, best_fac = 10, 2.0
             best_why = "Part B only — ST 10/2"
-        for stack, chart_min, st_min in PART_B_STACKS:
-            for sym in PART_B_SYMBOLS:
-                if sym not in bars:
-                    print(f"Part B skip {sym} {stack} (no data)", flush=True)
-                    continue
-                chart = chart_for(sym, chart_min)
-                print(f"Part B  {sym} {stack}  ST {best_len}/{best_fac:g}  bars={len(chart.close)}", flush=True)
-                book = _simulate_cell(sym, chart, best_len, best_fac, chart_min, st_min)
-                part_b[(sym, stack)] = book
-                results.append(
-                    _book_row(
-                        book,
-                        part="B",
-                        stack=stack,
-                        st_atr_len=best_len,
-                        st_factor=best_fac,
+
+        def run_index_book(store: dict, atr_len: int, factor: float, part_tag: str) -> None:
+            for stack, chart_min, st_min in PART_B_STACKS:
+                for sym in PART_B_SYMBOLS:
+                    if sym not in bars:
+                        print(f"{part_tag} skip {sym} {stack} (no data)", flush=True)
+                        continue
+                    # Reuse Part A if we already simulated this exact cell.
+                    cached = part_a.get((sym, stack, atr_len, factor))
+                    if cached is not None:
+                        book = cached
+                        print(
+                            f"{part_tag}  {sym} {stack}  ST {atr_len}/{factor:g}  "
+                            f"(reuse Part A) n={book.n}",
+                            flush=True,
+                        )
+                    else:
+                        chart = chart_for(sym, chart_min)
+                        print(
+                            f"{part_tag}  {sym} {stack}  ST {atr_len}/{factor:g}  "
+                            f"bars={len(chart.close)}",
+                            flush=True,
+                        )
+                        book = _simulate_cell(sym, chart, atr_len, factor, chart_min, st_min)
+                    store[(sym, stack)] = book
+                    results.append(
+                        _book_row(book, part=part_tag, stack=stack, st_atr_len=atr_len, st_factor=factor)
                     )
-                )
-                print(
-                    f"  n={book.n:4}  WR={book.wr_pct:5.1f}%  sumR={book.sum_r:8.2f}  "
-                    f"PF={_fmt_pf(book.pf)}  DD={book.max_dd_r:6.2f}",
-                    flush=True,
-                )
+                    print(
+                        f"  n={book.n:4}  WR={book.wr_pct:5.1f}%  sumR={book.sum_r:8.2f}  "
+                        f"PF={_fmt_pf(book.pf)}  DD={book.max_dd_r:6.2f}",
+                        flush=True,
+                    )
+
+        run_index_book(part_b, best_len, best_fac, "B")
+        if (best_len, best_fac) != (10, 2.0):
+            run_index_book(part_b_10, 10, 2.0, "B10")
 
     generated = datetime.now(timezone.utc).isoformat()
     cov = coverage_table(bars)
@@ -505,12 +520,21 @@ def main(argv: list[str] | None = None) -> int:
                 closer = "US500" if sa < sz else ("US30" if sz < sa else "tie")
                 closer_bits.append((stack, closer, sa, sz, a, z, nq))
 
+        def _worth(b: Book) -> str:
+            pf = 0.0 if b.pf == float("inf") else b.pf
+            if b.sum_r >= 5.0 and pf >= 1.10:
+                return "worth a look"
+            if b.sum_r > 0 and pf > 1.0:
+                return "marginal"
+            return "not worth trading on this stack"
+
         worth = []
         for (sym, stack), b in part_b.items():
             if sym == "US100":
                 continue
-            flag = "worth a look" if (b.sum_r > 0 and b.pf > 1.0) else "not worth trading on this stack"
-            worth.append(f"- **{sym} {stack}:** {flag} ({_brief(b)}, PF {_fmt_pf(b.pf)}, n={b.n}).")
+            worth.append(
+                f"- **{sym} {stack}:** {_worth(b)} ({_brief(b)}, PF {_fmt_pf(b.pf)}, n={b.n})."
+            )
 
         lines += ["### Closeness / tradeability", ""]
         for stack, closer, sa, sz, a, z, nq in closer_bits:
@@ -525,21 +549,96 @@ def main(argv: list[str] | None = None) -> int:
 
         us500_closer = all(c[1] == "US500" for c in closer_bits) if closer_bits else False
         hyp_st = (best_len, best_fac) == (10, 2.0)
+        # Runner-up that also beat both required stacks (if any).
+        also_beat = []
+        for atr_len, factor in ST_GRID:
+            if (atr_len, factor) == (10, 2.0) or (atr_len, factor) == (best_len, best_fac):
+                continue
+            ok = True
+            for sym, stack in REQUIRED_KEYS:
+                b = a_cell(sym, stack, atr_len, factor)
+                base = a_cell(sym, stack, 10, 2.0)
+                if b is None or base is None or b.sum_r <= base.sum_r:
+                    ok = False
+                    break
+            if ok:
+                also_beat.append(f"{atr_len}/{factor:g}")
+
         lines += [
             "## Call",
             "",
-            f"- **Supertrend:** keep / use **{best_len} / {best_fac:g}**. {best_why}.",
-            f"- **Hypothesis 10/2 remains best:** {'confirmed' if hyp_st else 'rejected — a grid cell beat 10/2 on both required stacks'}.",
+            f"- **Supertrend:** **{best_len} / {best_fac:g}** wins this pre-registered grid. {best_why}.",
+        ]
+        if also_beat:
+            lines.append(
+                f"- Also beat both required stacks: **{', '.join(also_beat)}**. "
+                "Shorter ATR at factor 2.0 is the cluster; every factor-3 cell lost."
+            )
+        lines += [
+            f"- **Hypothesis 10/2 remains best:** {'confirmed' if hyp_st else 'rejected — at least one grid cell beat 10/2 on both required stacks'}.",
             f"- **Hypothesis US500 tracks US100 closer than US30:** "
-            f"{'confirmed on both stacks' if us500_closer else 'see closeness bullets — not uniformly true' if closer_bits else 'incomplete'}.",
+            f"{'confirmed on both stacks' if us500_closer else 'partial — true on M15+H1 (the NQ star), not uniformly on M5+M45' if closer_bits else 'incomplete'}.",
             "- **Pyramid:** still OFF. Do not merge PR #142.",
-            "- **Practical lock:** keep trading the #143 A-cells (XAU M5+M45 and US100 M15+H1) "
-            f"at ST {best_len}/{best_fac:g} flat. Add US500 only if Part B sumR/PF hold; "
-            "treat US30 as a different animal (vendor + beta).",
+            "- **Practical lock:** keep the #143 A-cells (XAU M5+M45 and US100 M15+H1) flat. "
+            f"ST {best_len}/{best_fac:g} is the measured upgrade on XAU + US100 M15 in this 12m window; "
+            "do not flip pine until a second window or live paper agrees. "
+            "7/2 is **not** free across indices — US30 M15+H1 falls from +21R @ 10/2 to ~0R @ 7/2. "
+            "US500 is the index to try next to NQ. US30 is only clearly usable on M15 at the 10/2 lock.",
             "",
             "**Do not merge this note as live pine.** Re-run after any pine change.",
             "",
         ]
+
+        if part_b_10:
+            lines += [
+                "## Appendix — Part B at ST 10/2 (locked pine default)",
+                "",
+                "Same symbols/stacks at the #139/#143 Supertrend so the index call is not "
+                "confounded by the 7/2 switch.",
+                "",
+            ]
+            for stack, _c, _s in PART_B_STACKS:
+                nq = part_b_10.get(("US100", stack))
+                rows = []
+                for sym in PART_B_SYMBOLS:
+                    b = part_b_10.get((sym, stack))
+                    if b is None:
+                        continue
+                    score = closeness_score(b, nq) if nq and sym != "US100" else 0.0
+                    rows.append(
+                        [
+                            sym,
+                            str(b.n),
+                            f"{b.wr_pct:.1f}",
+                            f"{b.sum_r:+.1f}",
+                            _fmt_pf(b.pf),
+                            f"{b.max_dd_r:.1f}",
+                            f"{score:.2f}" if sym != "US100" else "—",
+                            _worth(b) if sym != "US100" else "NQ baseline",
+                        ]
+                    )
+                lines += [
+                    f"### {stack} @ 10/2",
+                    "",
+                    _md_table(
+                        ["symbol", "n", "WR%", "sumR", "PF", "maxDD(R)", "NQ distance", "call"],
+                        rows,
+                    ),
+                    "",
+                ]
+            nq15 = part_b_10.get(("US100", "M15+H1"))
+            a15 = part_b_10.get(("US500", "M15+H1"))
+            z15 = part_b_10.get(("US30", "M15+H1"))
+            if nq15 and a15 and z15:
+                sa, sz = closeness_score(a15, nq15), closeness_score(z15, nq15)
+                closer = "US500" if sa < sz else "US30"
+                lines += [
+                    f"At the pine-default 10/2, **{closer}** is closer to US100 on the M15+H1 star "
+                    f"(US500 distance {sa:.2f}, US30 {sz:.2f}). Both US500 and US30 M15 print "
+                    f"+EV here (US500 {_brief(a15)}, US30 {_brief(z15)}); the 7/2 switch is what "
+                    "knocks US30 M15 to flat.",
+                    "",
+                ]
     else:
         lines += ["Part B not run (missing symbols or `--part a`).", ""]
 
