@@ -1,13 +1,17 @@
 """Bar-by-bar replay of ``pine/ha_hunt_m45_m5_st.pine``.
 
-Closed M45 values use the Pine ``f_*Closed()`` idiom: last *completed* M45 bar,
-then ``[1]`` (one extra closed HTF bar). Live / forming M45 is never used for
+Closed HTF values use the Pine ``f_*Closed()`` idiom: last *completed* HTF bar,
+then ``[1]`` (one extra closed HTF bar). Live / forming HTF is never used for
 bias, SL, structure, or exits.
 
 One position at a time. Conservative same-bar: stop is evaluated before TP1;
 if both the stop and TP1 are touched on the entry/exit bar, the stop wins.
-R is full-position (Pine overlay does not scale out); TP1 only arms the runner
-trail. HTS-style 50/50 split R is reported as ``r_split`` for comparison.
+
+R accounting:
+- ``scale_tp1=False`` (locked M45-ST overlay): full-position exit / initial 1R.
+- ``scale_tp1=True`` (H1 follow-up): TP1 closes 50% at +2R on that half (= +1R
+  booked); the remaining 50% trails. Combined R = 1.0 + 0.5 × runner_R after
+  TP1, or full-position R if stopped before TP1.
 """
 
 from __future__ import annotations
@@ -42,6 +46,8 @@ class Params:
     enable_short: bool = True
     htf_closed_shift: int = 1  # Pine f_*Closed [1]
     m45_minutes: int = 45
+    st_tf_minutes: int = 45  # 45 = locked M45 ST; 60 = H1 ST bias+SL
+    scale_tp1: bool = False  # True = close 50% at TP1, trail the rest
 
 
 @dataclass
@@ -197,6 +203,25 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
             return np.nan
         return float(arr[j])
 
+    # Bias + default SL Supertrend: M45 (locked) or closed H1.
+    if p.st_tf_minutes == 60:
+        h1s, _, h1h, h1l, h1c = _aggregate_htf(_bucket_starts(bars.time, 60), o, h, l, c)
+        if len(h1c) < p.st_atr_len + p.htf_closed_shift + 5:
+            return _metrics([], symbol, p.name)
+        st_line, st_dir_arr = supertrend(h1h, h1l, h1c, p.st_factor, p.st_atr_len)
+        st_closed = _map_closed_htf(m5_starts, h1s, 60, p.htf_closed_shift)
+    else:
+        st_line, st_dir_arr = m45_st, m45_dir
+        st_closed = closed_i
+
+    def st_val(arr: np.ndarray, i: int) -> float:
+        j = st_closed[i]
+        if j < 0:
+            return np.nan
+        return float(arr[j])
+
+    flip_reason = "h1_st_flip" if p.st_tf_minutes == 60 else "m45_st_flip"
+
     f_up, f_lo = rma_band(h, l, p.fast_len)
     s_up, s_lo = rma_band(h, l, p.slow_len)
 
@@ -230,7 +255,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
         px = c[i]
         atr_r = p.atr_mult * htf_val(m45_atr14, i)
         atr_sl = px - atr_r if is_long else px + atr_r
-        st = htf_val(m45_st, i)
+        st = st_val(st_line, i)
         fup = htf_val(m45_fup, i)
         flo = htf_val(m45_flo, i)
         bw = fup - flo
@@ -250,7 +275,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
 
     def trail_stop(i: int, is_long: bool) -> float:
         if p.stop_mode == "st":
-            return htf_val(m45_st, i)
+            return st_val(st_line, i)
         fup = htf_val(m45_fup, i)
         flo = htf_val(m45_flo, i)
         width = fup - flo
@@ -267,13 +292,12 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
             tp1_hit = False
             return
         if pos == 1:
-            r = (exit_px - ent) / r_dist
+            r_full = (exit_px - ent) / r_dist
         else:
-            r = (ent - exit_px) / r_dist
-        if tp1_hit:
-            r_split = 0.5 * p.tp1_mult + 0.5 * r
-        else:
-            r_split = r
+            r_full = (ent - exit_px) / r_dist
+        # HTS 50/50 always stored as r_split. Primary R uses scale_tp1 when on.
+        r_split = (0.5 * p.tp1_mult + 0.5 * r_full) if tp1_hit else r_full
+        r = r_split if (p.scale_tp1 and tp1_hit) else r_full
         trades.append(
             Trade(
                 symbol=symbol,
@@ -296,7 +320,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
     warmup = max(p.fast_len, 2)
     for i in range(n):
         j = closed_i[i]
-        st_dir = htf_val(m45_dir, i)
+        st_dir = st_val(st_dir_arr, i)
         st_bull = st_dir == -1.0
         st_bear = st_dir == 1.0
         st_flip = prev_bull is not None and st_bull != prev_bull and not np.isnan(st_dir)
@@ -314,11 +338,11 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
             )
             exit_flip = p.exit_st_flip and ((pos == 1 and not st_bull) or (pos == -1 and st_bull))
             if exit_stop:
-                close_trade(i, float(stp), "stop")
+                close_trade(i, float(stp), "trail" if tp1_hit else "stop")
             elif exit_slow:
                 close_trade(i, float(c[i]), "m45_slow_band")
             elif exit_flip:
-                close_trade(i, float(c[i]), "m45_st_flip")
+                close_trade(i, float(c[i]), flip_reason)
             else:
                 if p.use_tp1 and not tp1_hit and ((pos == 1 and h[i] >= tgt) or (pos == -1 and l[i] <= tgt)):
                     tp1_hit = True
@@ -330,7 +354,7 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
                         if pos == -1 and tr < stp:
                             stp = tr
 
-        can_enter = fills < p.cap_reg and pos == 0 and i >= warmup and j >= 0
+        can_enter = fills < p.cap_reg and pos == 0 and i >= warmup and j >= 0 and st_closed[i] >= 0
         m45_c = htf_val(hc, i)
         m45_rf_i = htf_val(m45_rf, i)
         m45_rs_i = htf_val(m45_rs, i)
@@ -387,3 +411,24 @@ def variants() -> list[Params]:
         Params(name="cap1_strict", **{**base, "cap_reg": 1, "band_cross_strict": True}),
     ]
     return out
+
+
+def h1_compare_variants() -> list[Params]:
+    """Apples-to-apples H1-ST follow-up vs locked M45-ST full-TP1."""
+    locked = dict(
+        slow_len=144,
+        band_cross_strict=False,
+        req_m45_struct=True,
+        cap_reg=2,
+        stop_mode="st",
+        st_factor=2.0,
+        long_only=False,
+        use_tp1=True,
+        tp1_mult=2.0,
+        exit_st_flip=True,
+    )
+    return [
+        Params(name="baseline_144", st_tf_minutes=45, scale_tp1=False, **locked),
+        Params(name="h1st_partial", st_tf_minutes=60, scale_tp1=True, **locked),
+        Params(name="h1st_full", st_tf_minutes=60, scale_tp1=False, **locked),
+    ]

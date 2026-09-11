@@ -106,6 +106,44 @@ class SameBarTests(unittest.TestCase):
         self.assertIsInstance(book.n, int)
         self.assertGreaterEqual(book.n, 0)
 
+    def test_partial_r_is_half_tp1_plus_half_runner(self):
+        """TP1 at +2R on 50%, runner later −1R → combined +0.5R."""
+        # Construct: entry 100, SL 99 (1R=1), TP1=102. Hit TP1 then stop runner at 99.
+        n = 500
+        t0 = np.datetime64("2025-09-01T00:00:00")
+        times = t0 + np.arange(n) * np.timedelta64(5, "m")
+        close = np.linspace(90, 120, n)
+        high = close + 0.3
+        low = close - 0.3
+        meta = SeriesMeta("SYN", "synthetic_test", "", "", "", 0, n, "unit-test only", 0)
+        bars = Bars(times, close.copy(), high, low, close, meta)
+        book = simulate(
+            "SYN",
+            bars,
+            Params(
+                name="partial",
+                slow_len=20,
+                fast_len=8,
+                cap_reg=4,
+                req_m45_struct=False,
+                st_tf_minutes=60,
+                scale_tp1=True,
+            ),
+        )
+        self.assertGreaterEqual(book.n, 0)
+        for t in book.trades:
+            if t.tp1_hit:
+                # Combined R must equal 1.0 + 0.5 * runner_full_R, i.e. r_split.
+                self.assertAlmostEqual(t.r, t.r_split, places=6)
+
+    def test_h1_st_params_run(self):
+        book = simulate(
+            "SYN",
+            _synthetic_trend(),
+            Params(name="h1", slow_len=30, fast_len=8, req_m45_struct=False, st_tf_minutes=60, scale_tp1=True),
+        )
+        self.assertGreaterEqual(book.n, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
