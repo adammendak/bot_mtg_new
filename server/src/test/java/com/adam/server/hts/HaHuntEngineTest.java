@@ -174,6 +174,35 @@ class HaHuntEngineTest {
         assertThat(engine.cloudHoldExit(HtsVariant.HA4, up, false, now)).isTrue();
     }
 
+    @Test
+    void cloudHoldExitIsStableAcrossConsecutiveCallsWithOnlyNowAdvancing() {
+        // Weekly report (2026-09-11) flagged every HA4/HA1 position closing via
+        // CLOUD ~10 min after entry — exactly the 2nd HtsPositionMonitor tick,
+        // with the underlying H1 data unchanged in between. Root cause turned
+        // out to be a reconcile-vanish mislabelled CLOUD (see
+        // HtsTradeServiceTest), not cloudHoldExit() itself — this test pins
+        // down that cloudHoldExit is in fact a pure function of (h1, now): with
+        // no new hunt bucket closing between calls, it must not flip on its own.
+        Instant now = t0.plusSeconds(200 * 3600L);
+        List<Candle> up = h1(200, 50, 1.0); // steady uptrend, last H1 bar well inside the current hour
+
+        boolean first = engine.cloudHoldExit(HtsVariant.HA4, up, true, now);
+        // two more "monitor ticks" 5 and 10 minutes later — same candles, no
+        // real H4 bucket boundary crossed in that window
+        boolean secondTick = engine.cloudHoldExit(HtsVariant.HA4, up, true, now.plusSeconds(300));
+        boolean thirdTick = engine.cloudHoldExit(HtsVariant.HA4, up, true, now.plusSeconds(600));
+
+        assertThat(first).isFalse();
+        assertThat(secondTick).isEqualTo(first);
+        assertThat(thirdTick).isEqualTo(first);
+
+        // same guarantee for the H1-hunt variant (HA1: every H1 close is itself
+        // a hunt-bucket boundary, the tightest case)
+        boolean ha1First = engine.cloudHoldExit(HtsVariant.HA1, up, true, now);
+        boolean ha1TenMinLater = engine.cloudHoldExit(HtsVariant.HA1, up, true, now.plusSeconds(600));
+        assertThat(ha1TenMinLater).isEqualTo(ha1First);
+    }
+
     // ---- BAND_CROSS trigger (HA4X) ----
 
     /** {@code chopBars} of tight back-and-forth, then {@code trendBars} of a steady push. */

@@ -437,6 +437,18 @@ public class HtsTradeService {
         double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
         try {
             broker.closePosition(t.getDealId(), remaining);
+            // Stamp only once the broker call has actually succeeded — otherwise
+            // stampReason()'s HA-hunt default silently assumes "no stop/target
+            // match => cloud flip" for every HA-hunt close that reaches
+            // applyClose() without a preset reason, including a trade reconciled
+            // CLOSED because it vanished from openPositions() (broker
+            // session/account-selection race, stop hit before settlement
+            // matched, etc.) — that path hits this exact same default. Stamping
+            // here means close_reason=CLOUD is only ever true when this method
+            // actually flattened the position on the colour flip — see
+            // HtsTradeServiceTest for the reconcile-vanish case this guards.
+            t.setCloseReason("CLOUD");
+            trades.save(t);
             log.info("HTS [{}] {} cloud-hold exit — hunt Heikin-Ashi flipped against the position", v, t.getSymbol());
             return true; // reconcile marks CLOSED next cycle
         } catch (Exception e) {
@@ -573,7 +585,8 @@ public class HtsTradeService {
     /** Classify {@code close_reason} from the realised (or estimated) R multiple. */
     private void stampReason(HtsTradeEntity t, double rr, double leg, boolean preset) {
         if (preset) {
-            return; // keep the reason the caller stamped (WEEKEND)
+            return; // keep the reason the caller already stamped (WEEKEND, or CLOUD/TARGET
+            // pre-stamped by haHuntCloudExit/mmsExit right before their own close call)
         }
         double targetR = t.getTargetLevel() != null && t.getEntry() != null && leg > 0
                 ? Math.abs(t.getTargetLevel() - t.getEntry()) / leg : Double.NaN;
@@ -583,20 +596,19 @@ public class HtsTradeService {
             t.setCloseReason("TARGET");
         } else if (t.getTp1At() != null) {
             t.setCloseReason("RUNNER");
-        } else if (isHaHunt(t)) {
-            t.setCloseReason("CLOUD"); // HA-hunt: no TP1/trail — a non-stop exit is the cloud-hold flip
+        // NB: no isHaHunt() branch here. A HA-hunt trade that closed for real
+        // (cloudHoldExit's own colour-flip call) already arrives here with
+        // preset=true (see haHuntCloudExit) and returns above. Reaching this
+        // point un-preset means the row was reconciled CLOSED some other way —
+        // e.g. absent from openPositions() on 2 consecutive monitor passes,
+        // which can be a genuine stop-out the transaction feed didn't match, or
+        // a stale broker-session/account-selection read (see selectBookAccount)
+        // — not a cloud-hold flip. Mislabelling that "CLOUD" here previously
+        // made every such vanish look like a strategy signal.
         } else if (isMms(t)) {
             t.setCloseReason("BAND");
         } else {
             t.setCloseReason("MANUAL");
-        }
-    }
-
-    private static boolean isHaHunt(HtsTradeEntity t) {
-        try {
-            return HtsVariant.valueOf(t.getVariant()).strategy() == HtsVariant.Strategy.HA_HUNT;
-        } catch (RuntimeException e) {
-            return false;
         }
     }
 
