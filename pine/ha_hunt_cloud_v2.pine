@@ -32,7 +32,12 @@
 //      RMA-stacked with it
 //   6. daily pivot aligned (previous completed 21:00-UTC session; skip for crypto)
 //   7. ≤ 2 fills per hunt regime per instrument
-//   Stop = entry ∓ 2.5 × ATR14(mid TF).  1R = that distance.
+//   Stop (Stop mode input):
+//     "ATR mid"            = entry ∓ atrMult × ATR14(mid TF). Engine default.
+//     "Fast band far edge" = structural, not ATR: long SL = fLo − buf, short SL
+//                            = fUp + buf, buf = Band SL buffer × (fUp − fLo).
+//                            1R = |close − SL| so the 2R reference still works.
+//                            If band width is 0/na or 1R ≤ 0, fall back to ATR mid.
 //   Exit = stop touch  OR  last-closed hunt HA colour flips against the position
 //          (cloud-hold — the engine has NO fixed-TP exit; the 2R line is a
 //          reference only, drawn because the engine stores that target).
@@ -58,7 +63,9 @@ enableShort = input.bool(true, "Enable SHORT signals", group = "Strategy")
 showShorts  = input.bool(true, "Show SELL setups (even in long-only)", group = "Strategy")
 applyPP    = input.bool(true,  "Daily pivot filter  (turn OFF for crypto / HA_OKX)", group = "Strategy")
 capReg     = input.int(2,      "Max entries per hunt regime", minval = 1, group = "Strategy")
-atrMult    = input.float(2.5,  "Stop = ATR ×", step = 0.1, group = "Strategy")
+stopMode   = input.string("ATR mid", "Stop mode", options = ["ATR mid", "Fast band far edge"], tooltip = "ATR mid = engine stop (entry ∓ atrMult × mid-TF ATR14). Fast band far edge = chart-TF fast high/low RMA: long SL = fast low − buffer, short SL = fast high + buffer. Not ATR. If band width is 0/na, falls back to ATR mid.", group = "Strategy")
+atrMult    = input.float(2.5,  "Stop = ATR ×", step = 0.1, tooltip = "Used when Stop mode = ATR mid (and as fallback if the fast band has no width).", group = "Strategy")
+bandSlBuf  = input.float(0.25, "Band SL buffer × width", step = 0.05, minval = 0.0, tooltip = "Used when Stop mode = Fast band far edge. SL offset = this × (fast high − fast low).", group = "Strategy")
 fastLen    = input.int(33,     "RMA fast  (engine RMA_FAST = 33)", group = "Strategy")
 slowOv     = input.int(0,      "RMA slow  (0 = auto: 100 HA4/HA1, 144 HA12)", group = "Strategy")
 
@@ -168,6 +175,17 @@ midStackShort = mClose < mRf and mRf < mRs
 withLong  = midBull or midStackLong            // engine: midBull == longDir OR stacked
 withShort = (not midBull) or midStackShort
 atrV = mAtr
+useBandSl = stopMode == "Fast band far edge"
+bw        = fUp - fLo
+// Structural SL: far edge of the chart-TF fast band ± buffer. Fall back to ATR
+// mid when width is 0/na or the resulting 1R would be ≤ 0.
+stopPrice(isLong) =>
+    float atrR = atrMult * atrV
+    bool bandOk = useBandSl and not na(fUp) and not na(fLo) and not na(bw) and bw > 0
+    float raw = isLong ? fLo - bandSlBuf * bw : fUp + bandSlBuf * bw
+    float dist = math.abs(close - raw)
+    bool useB = bandOk and not na(dist) and dist > 0
+    useB ? raw : (isLong ? close - atrR : close + atrR)
 
 // ── daily pivot — previous completed 21:00-UTC session ──────────────────────
 sIdx = math.floor((time / 1000 - 75600) / 86400)   // 75600s = 21:00 UTC roll
@@ -270,8 +288,8 @@ if longSig or shortSig
     bool isLong = longSig
     pos    := isLong ? 1 : -1
     entPx  := close
-    lastR  := atrMult * atrV
-    stpX   := isLong ? close - lastR : close + lastR
+    stpX   := stopPrice(isLong)
+    lastR  := math.abs(close - stpX)
     tgtX   := isLong ? close + 2.0 * lastR : close - 2.0 * lastR
     tgtFlag := false
     fills  := fills + 1
@@ -333,11 +351,11 @@ if barstate.islast and showHud
     table.cell(hud, 1, 3, chartTxt, bgcolor = #1E222D, text_color = chartOk ? color.white : colExit, text_size = size.small)
     table.cell(hud, 0, 4, "Entry", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 4, pos != 0 ? str.tostring(entPx, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
-    table.cell(hud, 0, 5, "Stop", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 0, 5, useBandSl ? "Stop (band)" : "Stop (ATR)", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 5, pos != 0 ? str.tostring(stpX, format.mintick) : "—", bgcolor = #1E222D, text_color = colSell, text_size = size.small)
     table.cell(hud, 0, 6, "2R ref", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 6, pos != 0 ? str.tostring(tgtX, format.mintick) : "—", bgcolor = #1E222D, text_color = colBuy, text_size = size.small)
-    table.cell(hud, 0, 7, "1R (2.5×ATR)", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 0, 7, useBandSl ? "1R (band edge)" : "1R (" + str.tostring(atrMult) + "×ATR)", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 7, pos != 0 ? str.tostring(lastR, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 8, "Fills / regime", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 8, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = #1E222D, text_color = color.white, text_size = size.small)
@@ -389,7 +407,7 @@ if sPos == -1 and (huntBull or high >= sStp)
 sTake = shortRaw and sFills < capReg and sPos == 0 and enableShort
 if sTake
     sPos   := -1
-    sStp   := close + atrMult * atrV
+    sStp   := stopPrice(false)
     sFills := sFills + 1
     if longOnly and showShorts
         label.new(bar_index, high, "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.small)
