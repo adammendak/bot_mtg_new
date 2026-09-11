@@ -36,16 +36,22 @@
 //     "ATR mid"            = entry ∓ atrMult × ATR14(mid TF). Engine default.
 //     "Fast band far edge" = structural, not ATR: long SL = fLo − buf, short SL
 //                            = fUp + buf, buf = Band SL buffer × (fUp − fLo).
-//                            1R = |close − SL| so the 2R reference still works.
+//                            1R = |close − SL| so TP1 = entry ± tp1Mult × 1R.
 //                            If band width is 0/na or 1R ≤ 0, fall back to ATR mid.
-//   Exit = stop touch  OR  last-closed hunt HA colour flips against the position
-//          (cloud-hold — the engine has NO fixed-TP exit; the 2R line is a
-//          reference only, drawn because the engine stores that target).
+//   Exits (v2 — NOT the engine's cloud-hold):
+//     TP1          = entry ± tp1Mult × |entry − SL|  (real RR from the chosen stop).
+//                    On TP1 touch: partial conceptually (badge + alert), keep runner.
+//     Runner trail = ratchet SL along the fast-band far edge (fLo/−buf long,
+//                    fUp/+buf short; same Band SL buffer). Never widen.
+//     Runner end   = candle BODY closes beyond the slow band (long: close < sLo;
+//                    short: close > sUp), confirmed bar.
+//     SL / trail   = wick touch (low/high) still full-exits at any time.
+//     Hunt HA flip = optional extra full exit, default OFF.
 //   Long-only variants: SHORT setups are shown as OBSERVE-ONLY (the bot mails
 //   them, does not execute).
 //
-// NOT in the engine, so NOT here: RMA band-separation filter, fixed-2R exit,
-// trailing / break-even.
+// NOT in the engine: TP1+runner, fast-band trail, slow-band body exit. Engine
+// HA-hunt is still cloud-hold (HTF HA flip or ATR stop).
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("HA-Hunt Cloud v2", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
 
@@ -65,7 +71,10 @@ applyPP    = input.bool(true,  "Daily pivot filter  (turn OFF for crypto / HA_OK
 capReg     = input.int(2,      "Max entries per hunt regime", minval = 1, group = "Strategy")
 stopMode   = input.string("ATR mid", "Stop mode", options = ["ATR mid", "Fast band far edge"], tooltip = "ATR mid = engine stop (entry ∓ atrMult × mid-TF ATR14). Fast band far edge = chart-TF fast high/low RMA: long SL = fast low − buffer, short SL = fast high + buffer. Not ATR. If band width is 0/na, falls back to ATR mid.", group = "Strategy")
 atrMult    = input.float(2.5,  "Stop = ATR ×", step = 0.1, tooltip = "Used when Stop mode = ATR mid (and as fallback if the fast band has no width).", group = "Strategy")
-bandSlBuf  = input.float(0.25, "Band SL buffer × width", step = 0.05, minval = 0.0, tooltip = "Used when Stop mode = Fast band far edge. SL offset = this × (fast high − fast low).", group = "Strategy")
+bandSlBuf  = input.float(0.25, "Band SL buffer × width", step = 0.05, minval = 0.0, tooltip = "Band SL and runner trail offset = this × (fast high − fast low). Long edge = fLo − buf, short = fUp + buf.", group = "Strategy")
+useTp1     = input.bool(true,  "Enable TP1 + runner", tooltip = "On (default): TP1 at entry ± R×, then trail the fast-band far edge; full exit when the body closes beyond the slow band. Off: initial SL only (+ optional hunt flip).", group = "Strategy")
+tp1Mult    = input.float(2.0,  "TP1 = R ×", step = 0.5, minval = 0.5, tooltip = "TP1 distance = this × |entry − stop|. 2.0 = 1:2 from the chosen stop.", group = "Strategy")
+exitHuntFlip = input.bool(false, "Also exit on hunt HA flip", tooltip = "Off (default). Engine cloud-hold. Primary v2 exits are SL/trail and slow-band body close.", group = "Strategy")
 fastLen    = input.int(33,     "RMA fast  (engine RMA_FAST = 33)", group = "Strategy")
 slowOv     = input.int(0,      "RMA slow  (0 = auto: 100 HA4/HA1, 144 HA12)", group = "Strategy")
 
@@ -74,10 +83,10 @@ shadeReg    = input.bool(true,  "Shade hunt regime (live HTF HA colour)", group 
 bgLongCol   = input.color(color.new(#26A69A, 94), "Background — long/bull regime", group = "Visuals")
 bgShortCol  = input.color(color.new(#EF5350, 94), "Background — short/bear regime", group = "Visuals")
 showBoxes   = input.bool(true,  "Risk / reward boxes", group = "Visuals")
-showEdge    = input.bool(true,  "SL / Entry / 2R edge lines", group = "Visuals")
+showEdge    = input.bool(true,  "SL / Entry / TP1 edge lines", group = "Visuals")
 showTags    = input.bool(true,  "Price tags on box edge", group = "Visuals")
 showBadge   = input.bool(true,  "Entry / exit badges", group = "Visuals")
-showHistory = input.bool(false, "Show history (past entry / SL / 2R)", group = "Visuals")
+showHistory = input.bool(false, "Show history (past entry / SL / TP1)", group = "Visuals")
 showHud     = input.bool(true,  "Corner HUD", group = "Visuals")
 hudPosIn    = input.string("Bottom right", "HUD position", options = ["Top left", "Top right", "Bottom left", "Bottom right", "Middle left", "Middle right"], group = "Visuals")
 showBands   = input.bool(true,  "Plot fast / slow high-low RMA bands", tooltip = "Chart-TF ribbons — the same bands Band cross uses. Not a separate M5 overlay.", group = "Visuals")
@@ -187,6 +196,13 @@ stopPrice(isLong) =>
     bool useB = bandOk and not na(dist) and dist > 0
     useB ? raw : (isLong ? close - atrR : close + atrR)
 
+// Runner trail candidate: same structural far edge as band SL (fLo/−buf, fUp/+buf).
+trailStop(isLong) =>
+    float width = fUp - fLo
+    bool ok = not na(fUp) and not na(fLo) and not na(width) and width > 0
+    float buf = bandSlBuf * nz(width, 0.0)
+    ok ? (isLong ? fLo - buf : fUp + buf) : na
+
 // ── daily pivot — previous completed 21:00-UTC session ──────────────────────
 sIdx = math.floor((time / 1000 - 75600) / 86400)   // 75600s = 21:00 UTC roll
 newS = ta.change(sIdx) != 0
@@ -208,8 +224,8 @@ var int   fills   = 0
 var int   pos     = 0
 var float entPx   = na
 var float stpX    = na
-var float tgtX    = na       // 2R reference (engine stores it; NOT an exit)
-var bool  tgtFlag = false
+var float tgtX    = na       // TP1 = entry ± tp1Mult × |entry − SL|
+var bool  tp1Hit  = false    // runner mode after TP1 touch
 var float lastR   = na
 var box   bxRisk  = na
 var box   bxRew   = na
@@ -231,18 +247,37 @@ triOff = triOffAtr * atr14
 plotshape(huntFlipLive and huntBullLive and showHuntLong ? low - triOff : na, "BULL hunt", shape.triangleup, location.absolute, colHuntL, size = size.normal)
 plotshape(huntFlipLive and not huntBullLive and showHuntShort ? high + triOff : na, "BEAR hunt", shape.triangledown, location.absolute, colHuntS, size = size.normal)
 
-// ── exit (cloud-hold only) ─────────────────────────────────────────────────
-exitStop = (pos == 1 and low <= stpX) or (pos == -1 and high >= stpX)
-exitFlip = (pos == 1 and not huntBull) or (pos == -1 and huntBull)   // engine cloudHoldExit
-doExit   = pos != 0 and (exitStop or exitFlip)
-exitRsn  = exitStop ? "stop" : "htf_ha_flip"
-tgtTouch = pos != 0 and ((pos == 1 and high >= tgtX) or (pos == -1 and low <= tgtX)) and not tgtFlag
-if tgtTouch
-    tgtFlag := true
+// ── exits: SL/trail wick, TP1→runner, slow-band body close, optional hunt flip ─
+exitStop = pos != 0 and ((pos == 1 and low <= stpX) or (pos == -1 and high >= stpX))
+exitSlow = useTp1 and tp1Hit and barstate.isconfirmed and ((pos == 1 and close < sLo) or (pos == -1 and close > sUp))
+exitFlip = exitHuntFlip and pos != 0 and ((pos == 1 and not huntBull) or (pos == -1 and huntBull))
+doExit   = pos != 0 and (exitStop or exitSlow or exitFlip)
+exitRsn  = exitStop ? "stop" : exitSlow ? "slow_band" : "htf_ha_flip"
+tp1Touch = useTp1 and pos != 0 and not tp1Hit and not doExit and ((pos == 1 and high >= tgtX) or (pos == -1 and low <= tgtX))
+if tp1Touch
+    tp1Hit := true
+    if showBadge
+        label.new(bar_index, pos == 1 ? high : low, "TP1\n" + str.tostring(tgtX, format.mintick), yloc = pos == 1 ? yloc.abovebar : yloc.belowbar, style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
+
+// After TP1: ratchet trail SL along the fast-band far edge (never widen).
+if useTp1 and tp1Hit and pos != 0 and not doExit
+    float tr = trailStop(pos == 1)
+    if not na(tr)
+        if pos == 1 and tr > stpX
+            stpX := tr
+        if pos == -1 and tr < stpX
+            stpX := tr
+        if showEdge and not na(lnStop)
+            line.set_y1(lnStop, stpX), line.set_y2(lnStop, stpX)
+        if showTags and not na(lbStop)
+            label.set_y(lbStop, stpX)
+            label.set_text(lbStop, "TRL  " + str.tostring(stpX, format.mintick))
+        if showBoxes and not na(bxRisk)
+            box.set_top(bxRisk, math.max(entPx, stpX)), box.set_bottom(bxRisk, math.min(entPx, stpX))
 
 if doExit
     if showBadge
-        string xt = exitStop ? "✕  SL" : "☁  HTF flip"
+        string xt = exitStop ? "✕  SL" : exitSlow ? "✕  slow band" : "☁  HTF flip"
         color  xc = exitStop ? colSell : colExit
         label.new(bar_index, pos == 1 ? high : low, xt + "\n" + str.tostring(close, format.mintick), yloc = pos == 1 ? yloc.abovebar : yloc.belowbar, style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.new(xc, 5), textcolor = color.white, size = size.small)
     if showHistory
@@ -259,6 +294,7 @@ if doExit
     bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
     lbStop := na, lbEntry := na, lbTgt := na
     pos := 0
+    tp1Hit := false
 
 // ── entry ──────────────────────────────────────────────────────────────────
 canEnter = fills < capReg and pos == 0
@@ -290,8 +326,8 @@ if longSig or shortSig
     entPx  := close
     stpX   := stopPrice(isLong)
     lastR  := math.abs(close - stpX)
-    tgtX   := isLong ? close + 2.0 * lastR : close - 2.0 * lastR
-    tgtFlag := false
+    tgtX   := isLong ? close + tp1Mult * lastR : close - tp1Mult * lastR
+    tp1Hit := false
     fills  := fills + 1
     int x2 = bar_index + boxExtend
     if showBoxes
@@ -304,7 +340,7 @@ if longSig or shortSig
     if showTags
         lbStop  := label.new(x2, stpX, "SL  " + str.tostring(stpX, format.mintick), style = label.style_label_left, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
         lbEntry := label.new(x2, entPx, "IN  " + str.tostring(entPx, format.mintick), style = label.style_label_left, color = color.new(colEntry, 10), textcolor = color.white, size = size.tiny)
-        lbTgt   := label.new(x2, tgtX, "2R  " + str.tostring(tgtX, format.mintick) + "  (ref)", style = label.style_label_left, color = color.new(colBuy, 0), textcolor = color.white, size = size.tiny)
+        lbTgt   := label.new(x2, tgtX, "TP1  " + str.tostring(tgtX, format.mintick), style = label.style_label_left, color = color.new(colBuy, 0), textcolor = color.white, size = size.tiny)
     if isLong
         label.new(bar_index, low, "▲ BUY", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
     else
@@ -330,21 +366,25 @@ hudPos = switch hudPosIn
     => position.bottom_right
 
 var string hudPosUsed = na
+var int    hudRowsUsed = na
 if barstate.islast and showHud
-    if na(hud) or hudPosUsed != hudPosIn
+    if na(hud) or hudPosUsed != hudPosIn or hudRowsUsed != 12
         if not na(hud)
             table.delete(hud)
-        hud := table.new(hudPos, 2, 11, bgcolor = #1E222D, border_width = 1, border_color = #787B86, frame_width = 1, frame_color = #787B86)
+        hud := table.new(hudPos, 2, 12, bgcolor = #1E222D, border_width = 1, border_color = #787B86, frame_width = 1, frame_color = #787B86)
         hudPosUsed := hudPosIn
+        hudRowsUsed := 12
     string sideTxt = pos == 0 ? "FLAT" : pos == 1 ? "LONG" : "SHORT"
     color  sideC   = pos == 0 ? color.gray : pos == 1 ? colBuy : colSell
     string vTxt = isHA4 ? "HA4  H4/M15" : isHA12 ? "HA12  H12/H1" : "HA1  H1/M5"
     string trigTxt = useCross ? (bandCrossStrict ? "Band cross (strict)" : "Band cross (loose)") : "HA flip+stack"
     string chartTxt = wantTfLbl + (chartOk ? "" : "  ⚠ now " + timeframe.period)
+    string runTxt = pos == 0 ? "—" : not useTp1 ? "off" : tp1Hit ? "runner (trail)" : "open → TP1"
+    string exitTxt = useTp1 ? "TP1 + runner" : (exitHuntFlip ? "SL + hunt flip" : "SL only")
     table.cell(hud, 0, 0, "HA-Hunt v2", bgcolor = #1E222D, text_color = color.white, text_size = size.normal)
     table.cell(hud, 1, 0, vTxt, bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.normal)
     table.cell(hud, 0, 1, "Side", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
-    table.cell(hud, 1, 1, sideTxt + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = #1E222D, text_color = sideC, text_size = size.small)
+    table.cell(hud, 1, 1, sideTxt + (tp1Hit ? "  runner" : "") + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = #1E222D, text_color = sideC, text_size = size.small)
     table.cell(hud, 0, 2, "Trigger", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 2, trigTxt, bgcolor = #1E222D, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 3, "Chart TF", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
@@ -353,16 +393,18 @@ if barstate.islast and showHud
     table.cell(hud, 1, 4, pos != 0 ? str.tostring(entPx, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 5, useBandSl ? "Stop (band)" : "Stop (ATR)", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 5, pos != 0 ? str.tostring(stpX, format.mintick) : "—", bgcolor = #1E222D, text_color = colSell, text_size = size.small)
-    table.cell(hud, 0, 6, "2R ref", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
-    table.cell(hud, 1, 6, pos != 0 ? str.tostring(tgtX, format.mintick) : "—", bgcolor = #1E222D, text_color = colBuy, text_size = size.small)
+    table.cell(hud, 0, 6, "TP1", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 6, pos != 0 ? ((tp1Hit ? "HIT  " : "") + str.tostring(tgtX, format.mintick)) : "—", bgcolor = #1E222D, text_color = colBuy, text_size = size.small)
     table.cell(hud, 0, 7, useBandSl ? "1R (band edge)" : "1R (" + str.tostring(atrMult) + "×ATR)", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
     table.cell(hud, 1, 7, pos != 0 ? str.tostring(lastR, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
-    table.cell(hud, 0, 8, "Fills / regime", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
-    table.cell(hud, 1, 8, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = #1E222D, text_color = color.white, text_size = size.small)
-    table.cell(hud, 0, 9, "Hunt HA", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
-    table.cell(hud, 1, 9, huntBullLive ? "BULL" : "BEAR", bgcolor = #1E222D, text_color = huntBullLive ? colBuy : colSell, text_size = size.small)
-    table.cell(hud, 0, 10, "Exit", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
-    table.cell(hud, 1, 10, "cloud-hold", bgcolor = #1E222D, text_color = colExit, text_size = size.small)
+    table.cell(hud, 0, 8, "Runner", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 8, runTxt, bgcolor = #1E222D, text_color = tp1Hit ? colBuy : color.white, text_size = size.small)
+    table.cell(hud, 0, 9, "Fills / regime", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 9, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 10, "Hunt HA", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 10, huntBullLive ? "BULL" : "BEAR", bgcolor = #1E222D, text_color = huntBullLive ? colBuy : colSell, text_size = size.small)
+    table.cell(hud, 0, 11, "Exit", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 11, exitTxt, bgcolor = #1E222D, text_color = colExit, text_size = size.small)
 
 if barstate.islast
     if showDbg
@@ -400,14 +442,30 @@ if barstate.islast
 var int   sFills = 0
 var int   sPos   = 0
 var float sStp   = na
+var float sTp1   = na
+var bool  sTp1Hit = false
 if huntFlip
     sFills := 0
-if sPos == -1 and (huntBull or high >= sStp)
-    sPos := 0
+if sPos == -1
+    bool sStop = high >= sStp
+    bool sSlow = useTp1 and sTp1Hit and barstate.isconfirmed and close > sUp
+    bool sFlip = exitHuntFlip and huntBull
+    if sStop or sSlow or sFlip
+        sPos := 0
+        sTp1Hit := false
+    else
+        if useTp1 and not sTp1Hit and not na(sTp1) and low <= sTp1
+            sTp1Hit := true
+        if useTp1 and sTp1Hit
+            float sTr = trailStop(false)
+            if not na(sTr) and sTr < sStp
+                sStp := sTr
 sTake = shortRaw and sFills < capReg and sPos == 0 and enableShort
 if sTake
     sPos   := -1
     sStp   := stopPrice(false)
+    sTp1   := close - tp1Mult * math.abs(close - sStp)
+    sTp1Hit := false
     sFills := sFills + 1
     if longOnly and showShorts
         label.new(bar_index, high, "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.small)
@@ -419,16 +477,18 @@ plotshape(sellShow, "Sell", shape.triangledown, location.abovebar, shortSig ? co
 bgcolor(shadeReg ? (huntBullLive ? bgLongCol : bgShortCol) : na, title = "Hunt regime")
 
 // ── alerts ─────────────────────────────────────────────────────────────────
-alertcondition(longSig, "HA-Hunt: Long entry", "HA-Hunt LONG {{ticker}} @ {{close}}")
-alertcondition(shortSig, "HA-Hunt: Short entry", "HA-Hunt SHORT {{ticker}} @ {{close}}")
-alertcondition(longOnly and showShorts and sTake and sFills == 1, "HA-Hunt: Short setup (observe)", "HA-Hunt short setup (observe) {{ticker}} @ {{close}}")
-alertcondition(doExit, "HA-Hunt: Exit", "HA-Hunt EXIT {{ticker}} @ {{close}}")
-alertcondition(tgtTouch, "HA-Hunt: 2R touched", "HA-Hunt 2R touched {{ticker}} @ {{close}}")
-alertcondition(huntFlipLive and huntBullLive, "HA-Hunt: Hunt LONG open", "HTF bull — hunt LONG setups {{ticker}}")
-alertcondition(huntFlipLive and not huntBullLive, "HA-Hunt: Hunt SHORT open", "HTF bear — hunt SHORT setups {{ticker}}")
+alertcondition(longSig, "HA-Hunt v2: Long entry", "HA-Hunt v2 LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "HA-Hunt v2: Short entry", "HA-Hunt v2 SHORT {{ticker}} @ {{close}}")
+alertcondition(longOnly and showShorts and sTake and sFills == 1, "HA-Hunt v2: Short setup (observe)", "HA-Hunt v2 short setup (observe) {{ticker}} @ {{close}}")
+alertcondition(tp1Touch, "HA-Hunt v2: TP1", "HA-Hunt v2 TP1 {{ticker}} @ {{close}}")
+alertcondition(exitStop, "HA-Hunt v2: Stop", "HA-Hunt v2 SL {{ticker}} @ {{close}}")
+alertcondition(exitSlow, "HA-Hunt v2: Runner exit (slow band)", "HA-Hunt v2 runner exit slow-band {{ticker}} @ {{close}}")
+alertcondition(doExit, "HA-Hunt v2: Exit", "HA-Hunt v2 EXIT {{ticker}} @ {{close}}")
+alertcondition(huntFlipLive and huntBullLive, "HA-Hunt v2: Hunt LONG open", "HTF bull — hunt LONG setups {{ticker}}")
+alertcondition(huntFlipLive and not huntBullLive, "HA-Hunt v2: Hunt SHORT open", "HTF bear — hunt SHORT setups {{ticker}}")
 
-if longSig or shortSig or doExit
-    ev = longSig ? "entry_long" : shortSig ? "entry_short" : "exit"
+if longSig or shortSig or tp1Touch or doExit
+    ev = longSig ? "entry_long" : shortSig ? "entry_short" : tp1Touch ? "tp1" : "exit"
     vt = isHA4 ? "HA4" : isHA12 ? "HA12" : "HA1"
-    js = '{"strat":"ha_hunt","variant":"' + vt + '","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"reason":"' + (doExit ? exitRsn : "signal") + '"}'
+    js = '{"strat":"ha_hunt_v2","variant":"' + vt + '","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"reason":"' + (doExit ? exitRsn : tp1Touch ? "tp1" : "signal") + '"}'
     alert(js, alert.freq_once_per_bar_close)
