@@ -37,16 +37,7 @@ entryTrig  = input.string("HA flip + stack", "Entry trigger",
 HTF  = "720"   // H12
 WITH = "240"   // H4
 ATRF = "240"   // H4
-WANT = "60"    // H1 chart
 useTP = exitMode == "Fixed 2R TP"
-
-// ── chart-TF reminder ────────────────────────────────────────────────────────
-var label warn = na
-if barstate.islast
-    label.delete(warn)
-    if timeframe.period != WANT
-        warn := label.new(bar_index, high, "Run this on the 1-hour chart",
-             style = label.style_label_down, color = color.orange, textcolor = color.white)
 
 // ── H1 Heikin-Ashi (from the chart's normal candles) ────────────────────────
 haClose = (open + high + low + close) / 4

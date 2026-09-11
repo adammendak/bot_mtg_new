@@ -42,17 +42,8 @@ isH4    = mode == "H4 / M15"
 htfTf   = isH4 ? "240" : "720"
 withTf  = isH4 ? "60"  : "240"
 atrTf   = isH4 ? "60"  : "240"
-wantTf  = isH4 ? "15"  : "60"
 slowLen = slowOv > 0 ? slowOv : (isH4 ? 100 : 144)
 useTP   = exitMode == "Fixed 2R TP"
-
-// ── chart-TF reminder ────────────────────────────────────────────────────────
-var label warn = na
-if barstate.islast
-    label.delete(warn)
-    if timeframe.period != wantTf
-        warn := label.new(bar_index, high, "Move to the " + wantTf + "-min chart for " + mode,
-             style = label.style_label_down, color = color.orange, textcolor = color.white)
 
 // ── entry-TF Heikin Ashi (on the chart's normal candles) ─────────────────────
 haClose = (open + high + low + close) / 4
