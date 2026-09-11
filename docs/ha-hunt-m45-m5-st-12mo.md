@@ -197,11 +197,155 @@ B/C: after the 50% fill, remaining stop jumps to **entry**, then M45/H1 ST may o
 
 Do not add half-TP1+BE to the locked stack. Do not switch ST to H1. GER40 is the only name that still prefers C.
 
+## M5 HA-flip runner (A vs B)
+
+Generated `2026-09-11T16:31:00.267609+00:00`. Same 12m data, slow **144**, M5 band-cross, M45 structure gate **ON**, cap 2, both sides unless a WR perm says otherwise.
+
+**Locked runner (this retest):** 50% at 1:2 → remaining stop to **entry (BE)** → full exit on confirmed **M5 HA colour flip** against the position (body close), or BE/stop. ST is bias + initial SL only. No M45 slow-band, no ST-line trail, ST-flip **OFF**.
+
+| cell | ST TF | exit |
+| --- | --- | --- |
+| **A** `ha_m45` | M45 | half + BE + M5 HA flip |
+| **B** `ha_h1` | H1 | half + BE + M5 HA flip |
+| **C** `baseline_144` | M45 | **OLD** full-trail (reference only — not this lock) |
+
+Win = total R > 0 (half at +2R books +1R; BE runner = 0 → trade ≈ +1R win). Loss = stopped before TP1 (−1R) or net R ≤ 0. Same-bar stop beats TP1.
+
+### Leaderboard — book
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| A M45 ST + half TP1 + BE + M5 HA flip | 1608 | 34.3 | 39.02 | 0.024 | 29.72 | 1.04 |
+| B H1 ST + half TP1 + BE + M5 HA flip | 1262 | 34.4 | 21.81 | 0.017 | 33.29 | 1.03 |
+| C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band) | 1570 | 32.9 | 141.98 | 0.090 | 40.54 | 1.15 |
+
+### Per symbol — sumR / WR (A vs B; C = OLD exit)
+
+| symbol | A sumR | B sumR | C OLD sumR | A WR | B WR | C OLD WR | HA-exit winner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| XAU | 31.00 | 38.33 | 63.97 | 37.7 | 39.4 | 37.0 | B H1 ST + half TP1 + BE + M5 HA flip |
+| US100 | 13.05 | 9.30 | 39.09 | 35.0 | 35.4 | 34.4 | A M45 ST + half TP1 + BE + M5 HA flip |
+| EURUSD | -20.18 | -4.59 | -21.78 | 31.8 | 33.3 | 28.7 | B H1 ST + half TP1 + BE + M5 HA flip |
+| GER40 | -12.07 | -4.33 | 15.11 | 31.6 | 33.0 | 31.7 | B H1 ST + half TP1 + BE + M5 HA flip |
+| BTCUSD | 27.23 | -16.90 | 45.58 | 35.5 | 31.6 | 33.4 | A M45 ST + half TP1 + BE + M5 HA flip |
+| BOOK | 39.02 | 21.81 | 141.98 | 34.3 | 34.4 | 32.9 | A M45 ST + half TP1 + BE + M5 HA flip |
+
+### Detail
+
+#### XAU
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| A M45 ST + half TP1 + BE + M5 HA flip | 273 | 37.7 | 31.00 | 0.114 | 13.00 | 1.18 |
+| B H1 ST + half TP1 + BE + M5 HA flip | 231 | 39.4 | 38.33 | 0.166 | 12.12 | 1.28 |
+| C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band) | 265 | 37.0 | 63.97 | 0.241 | 13.73 | 1.43 |
+
+Exits A: `{'stop': 170, 'm5_ha_flip': 101, 'be': 2}` · B: `{'stop': 139, 'm5_ha_flip': 90, 'be': 1, 'open_eod': 1}`. TP1 fills A 103/273 · B 91/231.
+
+#### US100
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| A M45 ST + half TP1 + BE + M5 HA flip | 303 | 35.0 | 13.05 | 0.043 | 28.90 | 1.07 |
+| B H1 ST + half TP1 + BE + M5 HA flip | 260 | 35.4 | 9.30 | 0.036 | 22.07 | 1.06 |
+| C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band) | 291 | 34.4 | 39.09 | 0.134 | 21.01 | 1.22 |
+
+Exits A: `{'m5_ha_flip': 105, 'stop': 197, 'be': 1}` · B: `{'m5_ha_flip': 90, 'stop': 168, 'be': 1, 'open_eod': 1}`. TP1 fills A 106/303 · B 91/260.
+
+#### EURUSD
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| A M45 ST + half TP1 + BE + M5 HA flip | 308 | 31.8 | -20.18 | -0.066 | 27.96 | 0.90 |
+| B H1 ST + half TP1 + BE + M5 HA flip | 237 | 33.3 | -4.59 | -0.019 | 33.29 | 0.97 |
+| C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band) | 317 | 28.7 | -21.78 | -0.069 | 39.69 | 0.89 |
+
+Exits A: `{'stop': 209, 'm5_ha_flip': 96, 'be': 2, 'open_eod': 1}` · B: `{'stop': 157, 'm5_ha_flip': 77, 'be': 2, 'open_eod': 1}`. TP1 fills A 98/308 · B 79/237.
+
+#### GER40
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| A M45 ST + half TP1 + BE + M5 HA flip | 307 | 31.6 | -12.07 | -0.039 | 29.72 | 0.94 |
+| B H1 ST + half TP1 + BE + M5 HA flip | 230 | 33.0 | -4.33 | -0.019 | 26.88 | 0.97 |
+| C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band) | 284 | 31.7 | 15.11 | 0.053 | 18.65 | 1.09 |
+
+Exits A: `{'stop': 210, 'm5_ha_flip': 96, 'be': 1}` · B: `{'stop': 154, 'm5_ha_flip': 75, 'open_eod': 1}`. TP1 fills A 97/307 · B 75/230.
+
+#### BTCUSD
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| A M45 ST + half TP1 + BE + M5 HA flip | 417 | 35.5 | 27.23 | 0.065 | 25.41 | 1.10 |
+| B H1 ST + half TP1 + BE + M5 HA flip | 304 | 31.6 | -16.90 | -0.056 | 25.02 | 0.92 |
+| C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band) | 413 | 33.4 | 45.58 | 0.110 | 40.54 | 1.19 |
+
+Exits A: `{'stop': 269, 'm5_ha_flip': 147, 'be': 1}` · B: `{'stop': 208, 'm5_ha_flip': 94, 'be': 1, 'open_eod': 1}`. TP1 fills A 148/417 · B 95/304.
+
+### Call
+
+**On this HA-exit lock, M45 ST wins the book; H1 ST wins XAU.**
+
+| | A M45 HA-exit | B H1 HA-exit | C OLD M45 full-trail |
+| --- | ---: | ---: | ---: |
+| Book sumR | **+39** | +22 | +142 (old exit) |
+| Book WR | 34.3% | 34.4% | 32.9% |
+| XAU | +31 | **+38** | +64 |
+| US100 | **+13** | +9 | +39 |
+| BTCUSD | **+27** | −17 | +46 |
+
+WR under half+BE+HA ≈ **TP1 hit rate** (A book 552/1608 = 34.3%). After TP1 the runner is almost always a win (+1R at BE or a bit more/less on HA close), so losses are the pre-TP1 stops. That is why WR stays ~33–39% — the same order as the OLD ~33% full-trail book — and why no stricter perm reached ~50% WR (best `ha_m45_strict_cap1_st3` 35.9% / +44R).
+
+HA flip cuts runners vs OLD C (−103R on the book). Use C only as the old-exit reference; do not treat it as this lock.
+
+Practical: if Adam keeps this runner, **M45 ST** is the book TF; **H1 ST** is the XAU TF. Still skip EURUSD. Do not expect ~50% WR from entry-filter tweaks alone — that needs ~50% of trades to reach 1:2 before the initial ST stop.
+
+### WR permutations (slow 144, same HA-exit lock)
+
+Win = total R > 0. Target ~50% WR. One-at-a-time plus a few stricter combos. long-only is all names; XAU/US100 long-only is the same cells restricted to those books.
+
+| cell | n | WR% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- |
+| ha_m45_strict_cap1_st3 | 576 | 35.9 | 43.91 | 0.076 | 22.08 | 1.12 |
+| ha_h1_cap1 | 931 | 35.0 | 35.22 | 0.038 | 40.90 | 1.06 |
+| ha_m45_st3 | 902 | 34.7 | 32.70 | 0.036 | 30.80 | 1.06 |
+| ha_h1_longonly | 683 | 35.0 | 25.46 | 0.037 | 35.89 | 1.06 |
+| ha_m45_strict_st3 | 690 | 34.6 | 24.63 | 0.036 | 22.08 | 1.05 |
+| ha_h1_strict_cap1 | 688 | 34.6 | 15.73 | 0.023 | 23.89 | 1.04 |
+| ha_m45_cap1 | 1188 | 33.8 | 14.14 | 0.012 | 42.09 | 1.02 |
+| ha_h1_strict_cap1_st3 | 471 | 34.4 | 11.86 | 0.025 | 23.25 | 1.04 |
+| ha_h1_strict_st3 | 583 | 34.1 | 11.45 | 0.020 | 22.28 | 1.03 |
+| ha_h1_strict | 892 | 34.3 | 10.16 | 0.011 | 27.20 | 1.02 |
+| ha_m45_strict_cap1 | 867 | 33.9 | 8.25 | 0.010 | 26.33 | 1.01 |
+| ha_m45_strict | 1092 | 33.9 | 4.53 | 0.004 | 32.97 | 1.01 |
+| ha_h1_st3 | 718 | 33.4 | 1.03 | 0.001 | 23.21 | 1.00 |
+| ha_m45_longonly | 855 | 32.7 | -16.08 | -0.019 | 30.07 | 0.97 |
+
+| perm | book WR% | book sumR | XAU sumR | US100 sumR | XAU WR | US100 WR |
+| --- | --- | --- | --- | --- | --- | --- |
+| ha_h1_strict | 34.3 | 10.2 | 31.6 | 2.6 | 40.4 | 34.8 |
+| ha_h1_cap1 | 35.0 | 35.2 | 37.6 | 15.5 | 41.1 | 37.2 |
+| ha_h1_st3 | 33.4 | 1.0 | 5.6 | -13.5 | 34.3 | 30.2 |
+| ha_h1_longonly | 35.0 | 25.5 | 18.5 | 12.9 | 38.2 | 37.4 |
+| ha_h1_strict_cap1 | 34.6 | 15.7 | 32.9 | 7.0 | 42.2 | 36.0 |
+| ha_h1_strict_st3 | 34.1 | 11.5 | 7.6 | -14.9 | 35.4 | 29.2 |
+| ha_h1_strict_cap1_st3 | 34.4 | 11.9 | 17.5 | -10.9 | 40.3 | 29.4 |
+| ha_m45_strict | 33.9 | 4.5 | 31.1 | 12.5 | 38.7 | 35.9 |
+| ha_m45_cap1 | 33.8 | 14.1 | 28.0 | -6.4 | 39.0 | 32.6 |
+| ha_m45_st3 | 34.7 | 32.7 | 5.1 | 9.0 | 34.1 | 35.5 |
+| ha_m45_longonly | 32.7 | -16.1 | 26.5 | -2.0 | 39.1 | 33.1 |
+| ha_m45_strict_cap1 | 33.9 | 8.3 | 20.0 | 8.8 | 37.9 | 35.5 |
+| ha_m45_strict_st3 | 34.6 | 24.6 | 15.5 | -11.0 | 36.8 | 30.6 |
+| ha_m45_strict_cap1_st3 | 35.9 | 43.9 | 19.1 | 8.2 | 39.2 | 36.2 |
+
+No perm reached ~50% WR. Highest WR: **ha_m45_strict_cap1_st3** WR=35.9% sumR=+43.9.
+
 ## How to rerun
 
 ```bash
 python3 -m tools.ha_hunt_st_compare.run_bakeoff
 python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup
+python3 -m tools.ha_hunt_st_compare.run_bakeoff --ha-exit
 ```
 
 With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.
