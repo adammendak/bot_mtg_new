@@ -40,3 +40,7 @@ data/
 .idea/
 transkrypcja-*.txt
 stopDist
+
+# Local OHLC caches for research backtests (too large; not Capital secrets)
+tools/ha_hunt_st_compare/cache/
+**/__pycache__/
