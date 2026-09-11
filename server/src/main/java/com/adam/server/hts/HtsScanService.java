@@ -48,6 +48,7 @@ public class HtsScanService {
     private final HtsEngine engine;
     private final HaHuntEngine haHunt;
     private final MmsEngine mms;
+    private final StV3Engine stV3;
     private final HtsSignalRepository signals;
     private final com.adam.server.config.AppProperties properties;
     private final Clock clock;
@@ -65,6 +66,7 @@ public class HtsScanService {
             HtsEngine engine,
             HaHuntEngine haHunt,
             MmsEngine mms,
+            StV3Engine stV3,
             HtsSignalRepository signals,
             com.adam.server.config.AppProperties properties,
             Clock clock,
@@ -77,6 +79,7 @@ public class HtsScanService {
         this.engine = engine;
         this.haHunt = haHunt;
         this.mms = mms;
+        this.stV3 = stV3;
         this.signals = signals;
         this.properties = properties;
         this.clock = clock;
@@ -132,6 +135,8 @@ public class HtsScanService {
                         scanHaHunt(variant, market, now, found);
                     } else if (variant.strategy() == HtsVariant.Strategy.MMS) {
                         scanMms(variant, market, now, zone, found);
+                    } else if (variant.strategy() == HtsVariant.Strategy.ST_V3) {
+                        scanStV3(variant, market, now, found);
                     } else if (variant.book().equals(Books.OKX)) {
                         BrokerClient okx = market;
                         scanVariant(variant, OkxSymbol.universe().stream()
@@ -349,6 +354,47 @@ public class HtsScanService {
                     log.info("HTS [{}] signal {} {} entry {} stop {} target {}",
                             v.label(), signal.symbol(), signal.direction(), signal.entry(),
                             signal.stopLevel(), signal.targetLevel());
+                }
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /**
+     * {@link HtsVariant#M15_ST_V3} scan: M15 candles only — {@link StV3Engine}
+     * resamples the H1 Supertrend + structure gate from this same feed, no
+     * separate broker fetch (same pattern as {@link HtsVariant#HA4}'s H1
+     * "WITH" confirm resampled from its own H1 feed — here it's H1 from M15).
+     */
+    private void scanStV3(HtsVariant v, BrokerClient market, Instant now, List<HtsScan> found) {
+        Instant fromEntry = now.minus(v.ltfLookback());
+        for (String code : v.universe()) {
+            SddSymbol sym;
+            try {
+                sym = SddSymbol.valueOf(code);
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan: unknown symbol {}", v.name(), code);
+                continue;
+            }
+            String epic = sym.epic(properties);
+            try {
+                List<Candle> entryTf = HtsCandles.fetch(market, epic, v.ltf(), fromEntry, now);
+                HtsScan signal = stV3.evaluate(v, code, epic, entryTf, now);
+                if (signal != null) {
+                    found.add(signal);
+                    persist(signal);
+                    // H1, resampled from the same M15 feed — purely descriptive (the
+                    // "HTF" picture in the analyst-note context), not what gated the
+                    // signal; HtsSignalContext.from() indexes htf.size()-1, so an
+                    // empty list would throw (context() below catches it, but this
+                    // avoids the guaranteed warning on every single fill).
+                    List<Candle> htf1h = com.adam.server.sdd.Resample.toHours(entryTf, 1, now);
+                    notify(signal, context(entryTf, htf1h, signal));
+                    execution.executeSignal(signal);
+                    log.info("HTS [{}] signal {} {} entry {} stop {} target {} (H1 ST {})",
+                            v.label(), signal.symbol(), signal.direction(), signal.entry(),
+                            signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear");
                 }
             } catch (RuntimeException e) {
                 log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
