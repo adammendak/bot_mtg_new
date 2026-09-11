@@ -1,0 +1,575 @@
+//@version=6
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HA-Hunt M15 ST v3 — RESEARCH overlay (does NOT replace ha_hunt_cloud.pine,
+// ha_hunt_cloud_v2.pine, or earlier m45_m5_st files). Sister script: pine/ha_hunt_m5_st_v3.pine.
+//
+// Chart: **M15**, NORMAL candles. HUD warns if TF ≠ 15.
+// Trigger = first M15 close beyond the M15 fast RMA band.
+// Runner exit = confirmed **M15 HA body flip** against.
+// Structure = M45 large RMA ribbon (gate default ON).
+// Java / prod HTS / HaHuntEngine / Heroku unchanged.
+//
+// Bakeoff defaults (PR #139, ~12m book, slow 144, gate ON, cap 2, half+BE+HA):
+//   Default ST = **H1 Supertrend** (bias + initial SL) — M15 half+BE+HA book winner (+67R / 35.7% WR). US100 M15+H1 ~42%. M15+M45 ST + HA-flip loses (−47R).
+//   WR still ~35% book; no cell hit ~50%. ST trail / ST flip are not the lock.
+//
+// Adam locked management (defaults ON):
+//   TP1 at 1:2 → close **50%** conceptually (badge + alert; overlay marks half)
+//   After TP1 → move stop to **break-even (entry)**
+//   Runner full exit → confirmed M15 HA body flip against
+//   Also exit if BE / initial SL is hit
+//   ST-line trail and ST-flip exit optional, default OFF
+//
+// Other locked defaults: slowLen 144, fastLen 33, reqM45Struct ON,
+// bandCrossStrict OFF, capReg 2, ST ATR 10 / factor 2.0, applyPP OFF,
+// longOnly OFF. Stop = Supertrend line of the active ST TF (default H1).
+// Optional Supertrend TF override: M45 or H1.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("HA-Hunt M15 ST v3", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+
+// ── strategy ─────────────────────────────────────────────────────────────────
+stTfMode    = input.string("H1", "Supertrend TF", options = ["M45", "H1"], tooltip = "Default H1 (bakeoff). Override to M45 for A/B. Bias + initial SL use this closed Supertrend.", group = "Strategy")
+bandCrossStrict = input.bool(false, "M15 band cross: require band-clear", tooltip = "Off (default, early): first closed M15 with close > fast high (long) or close < fast low (short), even if fast/slow bands overlap. On: also require the entire fast band clear of slow.", group = "Strategy")
+reqM45Struct = input.bool(true,  "Require M45 RMA structure gate", tooltip = "ON (default). M15 band cross may fire only when M45 is already with the trade: closed M45 RMA stack OR chart close beyond the closed M45 fast band, in active-ST direction.", group = "Strategy")
+entryTrig  = input.string("M15 band cross", "Entry trigger", options = ["M15 band cross", "M45 band cross"], tooltip = "M15 band cross (default) = first close beyond the M15 fast high/low RMA band. M45 band cross = late A/B.", group = "Strategy")
+reqH1St    = input.bool(false, "Also require H1 Supertrend (secondary)", tooltip = "OFF (default). Extra AND when active ST is M45. Redundant when Supertrend TF is already H1.", group = "Strategy")
+longOnly   = input.bool(false, "Long only (shorts = observe-only)", tooltip = "Off (default) so both BUY and SELL print when active ST agrees.", group = "Strategy")
+enableLong  = input.bool(true, "Enable LONG signals", group = "Strategy")
+enableShort = input.bool(true, "Enable SHORT signals", group = "Strategy")
+showShorts  = input.bool(true, "Show SELL setups (even in long-only)", group = "Strategy")
+applyPP    = input.bool(false, "Daily pivot filter  (OFF for indices / crypto)", tooltip = "Previous completed 21:00-UTC session. Default off.", group = "Strategy")
+capReg     = input.int(2,      "Max entries per Supertrend regime", minval = 1, tooltip = "Fills reset when the active Supertrend flips. 2 is the bakeoff default.", group = "Strategy")
+stopMode   = input.string("Supertrend (active TF)", "Stop mode", options = ["Supertrend (active TF)", "M45 ATR × 2.5", "M45 fast-band far edge"], tooltip = "Supertrend (default) = SL at the last closed active-ST line; long below, short above; 1R = |entry − ST|.", group = "Strategy")
+atrMult    = input.float(2.5,  "Stop = M45 ATR ×", step = 0.1, group = "Strategy")
+bandSlBuf  = input.float(0.25, "Band SL buffer × width", step = 0.05, minval = 0.0, group = "Strategy")
+fastLen    = input.int(33,     "RMA fast  (engine RMA_FAST = 33)", group = "Strategy")
+slowLen    = input.int(144,    "RMA slow  (bakeoff lock 144)", tooltip = "PR #139: slow 144 is the locked book default.", group = "Strategy")
+
+// ── Supertrend + HTF ─────────────────────────────────────────────────────────
+stAtrLen = input.int(10,    "Supertrend ATR period", minval = 1, group = "Supertrend")
+stFactor = input.float(2.0, "Supertrend factor", step = 0.1, minval = 0.1, group = "Supertrend")
+m45Tf    = input.timeframe("45", "M45 timeframe", group = "Supertrend", tooltip = "Large RMA ribbon + optional M45 Supertrend. Keep 45.")
+h1Tf     = input.timeframe("60", "H1 timeframe", group = "Supertrend", tooltip = "H1 Supertrend when Supertrend TF = H1. Keep 60.")
+m15Tf    = input.timeframe("15", "M15 timeframe", group = "Supertrend", tooltip = "Used when the chart is not 15. Keep 15.")
+
+// ── management (Adam lock) ───────────────────────────────────────────────────
+useTp1        = input.bool(true,  "Enable TP1", tooltip = "On (default): TP1 at entry ± R× (1:2).", group = "Management")
+tp1Mult       = input.float(2.0,  "TP1 = R ×", step = 0.5, minval = 0.5, tooltip = "2.0 = 1:2 from the chosen stop.", group = "Management")
+useHalfTp1    = input.bool(true,  "Half at TP1 (50% conceptual)", tooltip = "On (default): badge + alert mark a 50% scale at 1:2.", group = "Management")
+useBeAfterTp1 = input.bool(true, "Move stop to BE after TP1", tooltip = "On (default): after TP1 the remaining stop jumps to entry.", group = "Management")
+useHaExit     = input.bool(true,  "Runner exit: M15 HA flip", tooltip = "On (default): after TP1, full exit on a confirmed M15 Heikin-Ashi body flip against the position.", group = "Management")
+exitStFlip    = input.bool(false, "Also exit on Supertrend flip", tooltip = "Off (default).", group = "Management")
+exitSlowBand  = input.bool(false, "Also exit on M45 slow-band body", tooltip = "Off (default). Locked stack uses HA flip.", group = "Management")
+trailAfterTp1 = input.bool(false, "Trail ST / band after TP1", tooltip = "Off (default). Locked stack stays at BE.", group = "Management")
+
+// ── visuals ──────────────────────────────────────────────────────────────────
+shadeReg    = input.bool(true,  "Shade active Supertrend direction", group = "Visuals")
+bgLongCol   = input.color(color.new(#26A69A, 94), "Background — ST bull", group = "Visuals")
+bgShortCol  = input.color(color.new(#EF5350, 94), "Background — ST bear", group = "Visuals")
+showBoxes   = input.bool(true,  "Risk / reward boxes", group = "Visuals")
+showEdge    = input.bool(true,  "SL / Entry / TP1 edge lines", group = "Visuals")
+showTags    = input.bool(true,  "Price tags on box edge", group = "Visuals")
+showBadge   = input.bool(true,  "Entry / exit badges", group = "Visuals")
+showAllSig  = input.bool(true,  "Label every gated signal", group = "Visuals")
+showHistory = input.bool(false, "Show history (past entry / SL / TP1)", group = "Visuals")
+showHud     = input.bool(true,  "Corner HUD", group = "Visuals")
+hudPosIn    = input.string("Bottom left", "HUD position", options = ["Top left", "Top right", "Bottom left", "Bottom right", "Middle left", "Middle right"], tooltip = "One table only. Default bottom-left.", group = "Visuals")
+showEntryBands = input.bool(true,  "Plot M15 fast / slow RMA bands", tooltip = "Small band — the M15 trigger ribbon.", group = "Visuals")
+showM45Bands = input.bool(true, "Plot M45 large RMA ribbon", tooltip = "Large band — structure.", group = "Visuals")
+showDbg     = input.bool(false, "Debug last-bar gates", tooltip = "Appends gate rows to the bottom HUD. No second table.", group = "Visuals")
+showStFlipL = input.bool(true, "ST flip triangle — bull", group = "Visuals")
+showStFlipS = input.bool(true, "ST flip triangle — bear", group = "Visuals")
+triOffAtr   = input.float(2.5, "BULL/BEAR triangle offset × ATR", step = 0.25, minval = 0.5, group = "Visuals")
+boxExtend   = input.int(24,    "Box length (bars)", minval = 8, maxval = 100, group = "Visuals")
+boxTransR   = input.int(82,    "Risk box transparency", minval = 50, maxval = 95, group = "Visuals")
+boxTransW   = input.int(85,    "Reward box transparency", minval = 50, maxval = 95, group = "Visuals")
+
+colBuy     = input.color(#26A69A, "Buy / reward", group = "Colors")
+colSell    = input.color(#EF5350, "Sell / risk", group = "Colors")
+colEntry   = input.color(#42A5F5, "Entry line", group = "Colors")
+colExit    = input.color(#FFB74D, "HA / ST / slow-band exit", group = "Colors")
+colHuntL   = input.color(#26A69A, "ST bull banner", group = "Colors")
+colHuntS   = input.color(#EF5350, "ST bear banner", group = "Colors")
+colM45     = input.color(#7E57C2, "M45 large band", group = "Colors")
+
+useH1Active  = stTfMode == "H1"
+activeStLbl  = useH1Active ? "H1" : "M45"
+useEntryTrig = entryTrig == "M15 band cross"
+useStSl      = stopMode == "Supertrend (active TF)"
+useBandSl    = stopMode == "M45 fast-band far edge"
+wantTfLbl    = "M15"
+chartOk      = timeframe.period == "15" or timeframe.in_seconds() == 900
+
+// ── M15 Heikin-Ashi (chart when TF matches; else closed security) ────
+haClose = (open + high + low + close) / 4.0
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2.0 : (haOpen[1] + haClose[1]) / 2.0
+eBullL = haClose >= haOpen
+
+haT = ticker.heikinashi(syminfo.tickerid)
+eBullSec = request.security(haT, m15Tf, close[1] >= open[1], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+eBull    = chartOk ? eBullL : eBullSec
+haFlipLong  = eBull[1] and not eBull
+haFlipShort = not eBull[1] and eBull
+
+// ── M15 small band (chart when TF matches; else closed security) ─────
+atr14 = ta.atr(14)
+
+f_entryPack() =>
+    float aRfHi = ta.rma(high, fastLen)
+    float aRfLo = ta.rma(low, fastLen)
+    float aRsHi = ta.rma(high, slowLen)
+    float aRsLo = ta.rma(low, slowLen)
+    float aFUp = math.max(aRfHi, aRfLo)
+    float aFLo = math.min(aRfHi, aRfLo)
+    float aSUp = math.max(aRsHi, aRsLo)
+    float aSLo = math.min(aRsHi, aRsLo)
+    [close, aFUp, aFLo, aSUp, aSLo]
+
+f_entryClosed() =>
+    [c, aFUp, aFLo, aSUp, aSLo] = f_entryPack()
+    [c[1], aFUp[1], aFLo[1], aSUp[1], aSLo[1]]
+
+[locC, locFUp, locFLo, locSUp, locSLo] = f_entryPack()
+[secC, secFUp, secFLo, secSUp, secSLo] = request.security(syminfo.tickerid, m15Tf, f_entryClosed(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+trigC = chartOk ? locC : secC
+fUp   = chartOk ? locFUp : secFUp
+fLo   = chartOk ? locFLo : secFLo
+sUp   = chartOk ? locSUp : secSUp
+sLo   = chartOk ? locSLo : secSLo
+
+beyondLong  = not na(trigC) and not na(fUp) and trigC > fUp
+beyondShort = not na(trigC) and not na(fLo) and trigC < fLo
+clearLong   = not na(fLo) and not na(sUp) and fLo > sUp
+clearShort  = not na(fUp) and not na(sLo) and fUp < sLo
+longNow  = beyondLong  and (not bandCrossStrict or clearLong)
+shortNow = beyondShort and (not bandCrossStrict or clearShort)
+crossLong  = longNow  and not longNow[1]
+crossShort = shortNow and not shortNow[1]
+rawPokeLong  = beyondLong  and not beyondLong[1]
+rawPokeShort = beyondShort and not beyondShort[1]
+
+pFup = plot(showEntryBands ? fUp : na, "M15 Fast RMA high", color = color.new(colBuy, 20), linewidth = 1, display = display.pane)
+pFlo = plot(showEntryBands ? fLo : na, "M15 Fast RMA low",  color = color.new(colBuy, 20), linewidth = 1, display = display.pane)
+pSup = plot(showEntryBands ? sUp : na, "M15 Slow RMA high", color = color.new(colExit, 50), linewidth = 1, display = display.pane)
+pSlo = plot(showEntryBands ? sLo : na, "M15 Slow RMA low",  color = color.new(colExit, 50), linewidth = 1, display = display.pane)
+fill(pFlo, pFup, color = color.new(colBuy, 90), title = "M15 Fast band (trigger)")
+fill(pSlo, pSup, color = color.new(colExit, 94), title = "M15 Slow band")
+plotshape(useEntryTrig and rawPokeLong,  "Raw M15 band poke LONG",  shape.circle, location.belowbar, color.new(#78909C, 35), size = size.tiny)
+plotshape(useEntryTrig and rawPokeShort, "Raw M15 band poke SHORT", shape.circle, location.abovebar, color.new(#78909C, 35), size = size.tiny)
+
+// ── M45 large RMA band — closed (gate / band SL) + live (ribbon visual) ──────
+f_m45Pack() =>
+    float mRf = ta.rma(close, fastLen)
+    float mRs = ta.rma(close, slowLen)
+    float mRfHi = ta.rma(high, fastLen)
+    float mRfLo = ta.rma(low, fastLen)
+    float mRsHi = ta.rma(high, slowLen)
+    float mRsLo = ta.rma(low, slowLen)
+    float mFUp = math.max(mRfHi, mRfLo)
+    float mFLo = math.min(mRfHi, mRfLo)
+    float mSUp = math.max(mRsHi, mRsLo)
+    float mSLo = math.min(mRsHi, mRsLo)
+    [close, mRf, mRs, mFUp, mFLo, mSUp, mSLo]
+
+f_m45Closed() =>
+    [c, mRf, mRs, mFUp, mFLo, mSUp, mSLo] = f_m45Pack()
+    [c[1], mRf[1], mRs[1], mFUp[1], mFLo[1], mSUp[1], mSLo[1]]
+
+f_m45BandsLive() =>
+    [_c, _rf, _rs, mFUp, mFLo, mSUp, mSLo] = f_m45Pack()
+    [mFUp, mFLo, mSUp, mSLo]
+
+[m45FUpLive, m45FLoLive, m45SUpLive, m45SLoLive] = request.security(syminfo.tickerid, m45Tf, f_m45BandsLive(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[m45C, m45Rf, m45Rs, m45FUp, m45FLo, m45SUp, m45SLo] = request.security(syminfo.tickerid, m45Tf, f_m45Closed(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+p45Fup = plot(showM45Bands ? m45FUpLive : na, "M45 Fast RMA high", color = color.new(colM45, 15), linewidth = 2, style = plot.style_stepline, display = display.pane)
+p45Flo = plot(showM45Bands ? m45FLoLive : na, "M45 Fast RMA low",  color = color.new(colM45, 15), linewidth = 2, style = plot.style_stepline, display = display.pane)
+p45Sup = plot(showM45Bands ? m45SUpLive : na, "M45 Slow RMA high", color = color.new(colM45, 55), linewidth = 1, style = plot.style_stepline, display = display.pane)
+p45Slo = plot(showM45Bands ? m45SLoLive : na, "M45 Slow RMA low",  color = color.new(colM45, 55), linewidth = 1, style = plot.style_stepline, display = display.pane)
+fill(p45Flo, p45Fup, color = color.new(colM45, 88), title = "M45 Fast band (structure)")
+fill(p45Slo, p45Sup, color = color.new(colM45, 94), title = "M45 Slow band")
+
+m45StackLong  = not na(m45C) and m45C > m45Rf and m45Rf > m45Rs
+m45StackShort = not na(m45C) and m45C < m45Rf and m45Rf < m45Rs
+m45LeaveLong  = not na(m45FUp) and close > m45FUp
+m45LeaveShort = not na(m45FLo) and close < m45FLo
+m45StructLong  = m45StackLong  or m45LeaveLong
+m45StructShort = m45StackShort or m45LeaveShort
+m45BeyondLong  = not na(m45C) and not na(m45FUp) and m45C > m45FUp
+m45BeyondShort = not na(m45C) and not na(m45FLo) and m45C < m45FLo
+m45CrossLong  = m45BeyondLong  and not m45BeyondLong[1]
+m45CrossShort = m45BeyondShort and not m45BeyondShort[1]
+
+// ── Supertrend — classic TV ta.supertrend (Wilder ATR, hl2, factor) ──────────
+f_st() =>
+    [stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+    [stLine, stDir]
+
+f_stClosed() =>
+    [stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+    [stLine[1], stDir[1]]
+
+[st45Live, st45DirLive] = request.security(syminfo.tickerid, m45Tf, f_st(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[st45, st45Dir] = request.security(syminfo.tickerid, m45Tf, f_stClosed(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h1Live, h1DirLive] = request.security(syminfo.tickerid, h1Tf, f_st(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h1Line, h1Dir] = request.security(syminfo.tickerid, h1Tf, f_stClosed(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+st45Bull     = not na(st45Dir) and st45Dir == -1
+st45Bear     = not na(st45Dir) and st45Dir == 1
+st45BullLive = not na(st45DirLive) and st45DirLive == -1
+h1Bull       = not na(h1Dir) and h1Dir == -1
+h1Bear       = not na(h1Dir) and h1Dir == 1
+h1BullLive   = not na(h1DirLive) and h1DirLive == -1
+
+stLine     = useH1Active ? h1Line : st45
+stBull     = useH1Active ? h1Bull : st45Bull
+stBear     = useH1Active ? h1Bear : st45Bear
+stBullLive = useH1Active ? h1BullLive : st45BullLive
+stFlip     = stBull != stBull[1]
+stFlipLive = stBullLive != stBullLive[1]
+
+plot(st45, "M45 Supertrend (closed)", color = color.new(st45Bull ? colBuy : colSell, useH1Active ? 45 : 10), linewidth = useH1Active ? 1 : 2, style = plot.style_stepline, display = display.pane)
+plot(h1Line, "H1 Supertrend (closed)", color = color.new(h1Bull ? colBuy : colSell, useH1Active ? 10 : 50), linewidth = useH1Active ? 2 : 1, style = plot.style_stepline, display = display.pane)
+
+h1LongOk  = not reqH1St or h1Bull
+h1ShortOk = not reqH1St or h1Bear
+
+m45Atr = request.security(syminfo.tickerid, m45Tf, ta.atr(14)[1], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+bw45   = m45FUp - m45FLo
+
+stopPrice(isLong) =>
+    float atrR = atrMult * m45Atr
+    float atrSl = isLong ? close - atrR : close + atrR
+    bool stOk = useStSl and not na(stLine) and (isLong ? stLine < close : stLine > close)
+    bool bandOk = useBandSl and not na(m45FUp) and not na(m45FLo) and not na(bw45) and bw45 > 0
+    float rawB = isLong ? m45FLo - bandSlBuf * bw45 : m45FUp + bandSlBuf * bw45
+    float distB = math.abs(close - rawB)
+    bool useB = bandOk and not na(distB) and distB > 0
+    stOk ? stLine : (useB ? rawB : atrSl)
+
+trailStop(isLong) =>
+    float width = m45FUp - m45FLo
+    bool bandOk = not na(m45FUp) and not na(m45FLo) and not na(width) and width > 0
+    float buf = bandSlBuf * nz(width, 0.0)
+    float bandTr = bandOk ? (isLong ? m45FLo - buf : m45FUp + buf) : na
+    useStSl ? stLine : bandTr
+
+// ── daily pivot — previous completed 21:00-UTC session ──────────────────────
+sIdx = math.floor((time / 1000 - 75600) / 86400)
+newS = ta.change(sIdx) != 0
+var float cH = na, var float cL = na, var float cC = na
+var float pH = na, var float pL = na, var float pC = na
+if newS
+    pH := cH, pL := cL, pC := cC
+    cH := high, cL := low, cC := close
+else
+    cH := math.max(nz(cH, high), high)
+    cL := math.min(nz(cL, low), low)
+    cC := close
+pp      = (pH + pL + pC) / 3.0
+ppLong  = not applyPP or (not na(pp) and close > pp)
+ppShort = not applyPP or (not na(pp) and close < pp)
+
+// ── state ───────────────────────────────────────────────────────────────────
+var int   fills   = 0
+var int   pos     = 0
+var float entPx   = na
+var float stpX    = na
+var float tgtX    = na
+var bool  tp1Hit  = false
+var float lastR   = na
+var box   bxRisk  = na
+var box   bxRew   = na
+var line  lnStop  = na
+var line  lnEntry = na
+var line  lnTgt   = na
+var label lbStop  = na
+var label lbEntry = na
+var label lbTgt   = na
+var table hud     = na
+
+if stFlip
+    fills := 0
+
+triOff = triOffAtr * atr14
+plotshape(stFlipLive and stBullLive and showStFlipL ? low - triOff : na, "BULL ST", shape.triangleup, location.absolute, colHuntL, size = size.normal)
+plotshape(stFlipLive and not stBullLive and showStFlipS ? high + triOff : na, "BEAR ST", shape.triangledown, location.absolute, colHuntS, size = size.normal)
+
+paintStop = false
+exitStop0 = pos != 0 and ((pos == 1 and low <= stpX) or (pos == -1 and high >= stpX))
+exitSlow  = exitSlowBand and useTp1 and tp1Hit and barstate.isconfirmed and ((pos == 1 and close < m45SLo) or (pos == -1 and close > m45SUp))
+exitFlip  = exitStFlip and pos != 0 and ((pos == 1 and not stBull) or (pos == -1 and stBull))
+exitHa    = useHaExit and useTp1 and tp1Hit and barstate.isconfirmed and pos != 0 and ((pos == 1 and haFlipLong) or (pos == -1 and haFlipShort))
+doExit0   = pos != 0 and (exitStop0 or exitSlow or exitFlip or exitHa)
+tp1Touch  = useTp1 and pos != 0 and not tp1Hit and not doExit0 and ((pos == 1 and high >= tgtX) or (pos == -1 and low <= tgtX))
+if tp1Touch
+    tp1Hit := true
+    if useBeAfterTp1
+        stpX := entPx
+        paintStop := true
+    if showBadge
+        string halfTxt = useHalfTp1 ? "TP1 ½" : "TP1"
+        label.new(bar_index, pos == 1 ? high : low, halfTxt + "\n" + str.tostring(tgtX, format.mintick), yloc = pos == 1 ? yloc.abovebar : yloc.belowbar, style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
+
+exitBeSame = tp1Touch and useBeAfterTp1 and ((pos == 1 and low <= entPx) or (pos == -1 and high >= entPx))
+exitStop   = exitStop0 or exitBeSame
+
+if useTp1 and tp1Hit and trailAfterTp1 and pos != 0 and not (exitStop or exitSlow or exitFlip or exitHa)
+    float tr = trailStop(pos == 1)
+    if not na(tr)
+        if pos == 1 and tr > stpX
+            stpX := tr
+            paintStop := true
+        if pos == -1 and tr < stpX
+            stpX := tr
+            paintStop := true
+
+if paintStop
+    if showEdge and not na(lnStop)
+        line.set_y1(lnStop, stpX), line.set_y2(lnStop, stpX)
+    if showTags and not na(lbStop)
+        label.set_y(lbStop, stpX)
+        bool beNow = useBeAfterTp1 and tp1Hit and not trailAfterTp1
+        label.set_text(lbStop, (beNow ? "BE  " : "TRL  ") + str.tostring(stpX, format.mintick))
+    if showBoxes and not na(bxRisk)
+        box.set_top(bxRisk, math.max(entPx, stpX)), box.set_bottom(bxRisk, math.min(entPx, stpX))
+
+doExit  = pos != 0 and (exitStop or exitSlow or exitFlip or exitHa)
+atBe    = tp1Hit and useBeAfterTp1 and not trailAfterTp1
+exitRsn = exitStop ? (atBe ? "be" : "stop") : exitHa ? "m15_ha_flip" : exitSlow ? "m45_slow_band" : "st_flip"
+
+if doExit
+    if showBadge
+        string xt = exitStop ? (atBe ? "✕  BE" : "✕  SL") : exitHa ? "✕  M15 HA" : exitSlow ? "✕  M45 slow" : ("ST  " + activeStLbl + " flip")
+        color  xc = exitStop ? colSell : colExit
+        label.new(bar_index, pos == 1 ? high : low, xt + "\n" + str.tostring(close, format.mintick), yloc = pos == 1 ? yloc.abovebar : yloc.belowbar, style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.new(xc, 5), textcolor = color.white, size = size.small)
+    if showHistory
+        if not na(bxRisk)
+            box.set_right(bxRisk, bar_index), box.set_right(bxRew, bar_index)
+        if not na(lnStop)
+            line.set_x2(lnStop, bar_index), line.set_x2(lnEntry, bar_index), line.set_x2(lnTgt, bar_index)
+        if not na(lbStop)
+            label.set_x(lbStop, bar_index), label.set_x(lbEntry, bar_index), label.set_x(lbTgt, bar_index)
+    else
+        box.delete(bxRisk), box.delete(bxRew)
+        line.delete(lnStop), line.delete(lnEntry), line.delete(lnTgt)
+        label.delete(lbStop), label.delete(lbEntry), label.delete(lbTgt)
+    bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
+    lbStop := na, lbEntry := na, lbTgt := na
+    pos := 0
+    tp1Hit := false
+
+// ── entry: M15 (or M45) band cross gated by active ST + M45 structure
+canEnter = fills < capReg and pos == 0
+trigLong  = useEntryTrig ? crossLong  : m45CrossLong
+trigShort = useEntryTrig ? crossShort : m45CrossShort
+m45GateL = (not useEntryTrig or not reqM45Struct) or m45StructLong
+m45GateS = (not useEntryTrig or not reqM45Struct) or m45StructShort
+longRaw  = stBull and trigLong  and m45GateL and h1LongOk  and ppLong
+shortRaw = stBear and trigShort and m45GateS and h1ShortOk and ppShort
+longSig  = longRaw and canEnter and enableLong
+shortSig = shortRaw and canEnter and enableShort and not longOnly
+
+if longSig or shortSig
+    if showHistory
+        if not na(bxRisk)
+            box.set_right(bxRisk, bar_index), box.set_right(bxRew, bar_index)
+        if not na(lnStop)
+            line.set_x2(lnStop, bar_index), line.set_x2(lnEntry, bar_index), line.set_x2(lnTgt, bar_index)
+    else
+        box.delete(bxRisk), box.delete(bxRew)
+        line.delete(lnStop), line.delete(lnEntry), line.delete(lnTgt)
+        label.delete(lbStop), label.delete(lbEntry), label.delete(lbTgt)
+    bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
+    lbStop := na, lbEntry := na, lbTgt := na
+
+    bool isLong = longSig
+    pos    := isLong ? 1 : -1
+    entPx  := close
+    stpX   := stopPrice(isLong)
+    lastR  := math.abs(close - stpX)
+    tgtX   := isLong ? close + tp1Mult * lastR : close - tp1Mult * lastR
+    tp1Hit := false
+    fills  := fills + 1
+    int x2 = bar_index + boxExtend
+    if showBoxes
+        bxRisk := box.new(bar_index, math.max(entPx, stpX), x2, math.min(entPx, stpX), bgcolor = color.new(colSell, boxTransR), border_color = color.new(colSell, 35), border_width = 2)
+        bxRew  := box.new(bar_index, math.max(entPx, tgtX), x2, math.min(entPx, tgtX), bgcolor = color.new(colBuy, boxTransW), border_color = color.new(colBuy, 35), border_width = 2)
+    if showEdge
+        lnStop  := line.new(bar_index, stpX, x2, stpX, color = colSell, width = 2)
+        lnEntry := line.new(bar_index, entPx, x2, entPx, color = colEntry, width = 1, style = line.style_dotted)
+        lnTgt   := line.new(bar_index, tgtX, x2, tgtX, color = colBuy, width = 1, style = line.style_dashed)
+    if showTags
+        lbStop  := label.new(x2, stpX, "SL  " + str.tostring(stpX, format.mintick), style = label.style_label_left, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
+        lbEntry := label.new(x2, entPx, "IN  " + str.tostring(entPx, format.mintick), style = label.style_label_left, color = color.new(colEntry, 10), textcolor = color.white, size = size.tiny)
+        lbTgt   := label.new(x2, tgtX, "TP1  " + str.tostring(tgtX, format.mintick), style = label.style_label_left, color = color.new(colBuy, 0), textcolor = color.white, size = size.tiny)
+    if showBadge
+        if isLong
+            label.new(bar_index, low, "▲ BUY", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
+        else
+            label.new(bar_index, high, "▼ SELL", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
+
+if pos != 0
+    int x2e = bar_index + boxExtend
+    if showBoxes and not na(bxRisk)
+        box.set_right(bxRisk, x2e), box.set_right(bxRew, x2e)
+    if showEdge and not na(lnStop)
+        line.set_x2(lnStop, x2e), line.set_x2(lnEntry, x2e), line.set_x2(lnTgt, x2e)
+    if showTags and not na(lbStop)
+        label.set_x(lbStop, x2e), label.set_x(lbEntry, x2e), label.set_x(lbTgt, x2e)
+
+// ── HUD (one table; debug rows append when showDbg) ──────────────────────────
+hudPos = switch hudPosIn
+    "Top left" => position.top_left
+    "Top right" => position.top_right
+    "Bottom right" => position.bottom_right
+    "Middle left" => position.middle_left
+    "Middle right" => position.middle_right
+    => position.bottom_left
+
+hudBg = #1E222D
+hudLb = #B2B5BE
+hudRows = showDbg ? 24 : 16
+var string hudPosUsed = na
+var int    hudRowsUsed = na
+if barstate.islast and showHud
+    if na(hud) or hudPosUsed != hudPosIn or hudRowsUsed != hudRows
+        if not na(hud)
+            table.delete(hud)
+        hud := table.new(hudPos, 2, hudRows, bgcolor = hudBg, border_width = 1, border_color = #787B86, frame_width = 2, frame_color = #B2B5BE)
+        hudPosUsed := hudPosIn
+        hudRowsUsed := hudRows
+    string sideTxt = pos == 0 ? "FLAT" : pos == 1 ? "LONG" : "SHORT"
+    color  sideC   = pos == 0 ? #B2B5BE : pos == 1 ? colBuy : colSell
+    string trigTxt = useEntryTrig ? (wantTfLbl + (bandCrossStrict ? " band (strict)" : " band (loose)")) : "M45 band (late A/B)"
+    string chartTxt = wantTfLbl + " / chart " + timeframe.period + (chartOk ? "" : "  ⚠ use " + wantTfLbl)
+    string mgmtTxt = (useTp1 ? "TP1" : "no TP1") + (useHalfTp1 ? " ½" : "") + (useBeAfterTp1 ? " · BE" : "") + (useHaExit ? " · M15 HA-exit" : "") + (exitStFlip ? " · ST-flip" : "") + (trailAfterTp1 ? " · trail" : "") + (exitSlowBand ? " · slow" : "")
+    string runTxt = pos == 0 ? "—" : not useTp1 ? "off" : not tp1Hit ? "open → TP1" : (useBeAfterTp1 and not trailAfterTp1 ? "BE + M15 HA" : (useStSl ? "runner (ST)" : "runner (M45 band)"))
+    string stopModeTxt = useStSl ? ("Supertrend " + activeStLbl) : useBandSl ? "M45 fast-band" : "M45 ATR × " + str.tostring(atrMult)
+    bool stKnown = useH1Active ? not na(h1DirLive) : not na(st45DirLive)
+    string stTxt = not stKnown ? "—" : stBullLive ? "BULL" : "BEAR"
+    color  stCol = not stKnown ? #B2B5BE : stBullLive ? colBuy : colSell
+    string stPx  = na(stLine) ? "" : "  " + str.tostring(stLine, format.mintick)
+    bool m45GateNow = stBull ? m45GateL : m45GateS
+    bool ppGate     = stBull ? ppLong : ppShort
+    bool h1Gate     = stBull ? h1LongOk : h1ShortOk
+    string otherStLbl = useH1Active ? "M45 ST" : "H1 ST"
+    string otherStTxt = useH1Active ? (st45Bull ? "BULL" : st45Bear ? "BEAR" : "—") : (not reqH1St ? "off" : h1Bull ? "BULL" : h1Bear ? "BEAR" : "—")
+    color  otherStCol = useH1Active ? (st45Bull ? colBuy : st45Bear ? colSell : hudLb) : (not reqH1St ? hudLb : h1Bull ? colBuy : colSell)
+    string m45Txt = not useEntryTrig ? "M45 trig" : not reqM45Struct ? "RMA-struct off" : (m45GateNow ? "RMA-struct✓" : "RMA-struct✗")
+    string gateTxt = (stBull ? (activeStLbl + " ST↑") : stBear ? (activeStLbl + " ST↓") : (activeStLbl + " ST—")) + "  " + m45Txt + (reqH1St ? (h1Gate ? "  H1✓" : "  H1✗") : "  H1 off") + (applyPP ? (ppGate ? "  PP✓" : "  PP✗") : "  PP off") + (canEnter ? "  in✓" : "  in✗")
+    table.cell(hud, 0, 0, "HA-Hunt M15 ST v3", bgcolor = hudBg, text_color = color.white, text_size = size.normal)
+    table.cell(hud, 1, 0, "M15 · ST " + activeStLbl, bgcolor = hudBg, text_color = color.white, text_size = size.normal)
+    table.cell(hud, 0, 1, "Side", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 1, sideTxt + (tp1Hit ? "  runner" : "") + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = hudBg, text_color = sideC, text_size = size.small)
+    table.cell(hud, 0, 2, "Mode", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 2, "M15 trigger · slow " + str.tostring(slowLen), bgcolor = hudBg, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 3, "Chart TF", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 3, chartTxt, bgcolor = hudBg, text_color = chartOk ? color.white : colExit, text_size = size.small)
+    table.cell(hud, 0, 4, "Trigger", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 4, trigTxt, bgcolor = hudBg, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 5, "Active ST", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 5, activeStLbl + "  " + stTxt + stPx, bgcolor = hudBg, text_color = stCol, text_size = size.small)
+    table.cell(hud, 0, 6, otherStLbl, bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 6, otherStTxt, bgcolor = hudBg, text_color = otherStCol, text_size = size.small)
+    table.cell(hud, 0, 7, "Stop mode", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 7, stopModeTxt, bgcolor = hudBg, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 8, "Entry / Stop", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 8, pos != 0 ? (str.tostring(entPx, format.mintick) + "  /  " + str.tostring(stpX, format.mintick) + (atBe ? "  BE" : "")) : "—", bgcolor = hudBg, text_color = pos != 0 ? colSell : color.white, text_size = size.small)
+    table.cell(hud, 0, 9, "TP1", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 9, pos != 0 ? ((tp1Hit ? (useHalfTp1 ? "HALF  " : "HIT  ") : "") + str.tostring(tgtX, format.mintick)) : "—", bgcolor = hudBg, text_color = colBuy, text_size = size.small)
+    table.cell(hud, 0, 10, useStSl ? ("1R (" + activeStLbl + " ST)") : useBandSl ? "1R (M45 band)" : "1R (" + str.tostring(atrMult) + "×M45 ATR)", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 10, pos != 0 ? str.tostring(lastR, format.mintick) : "—", bgcolor = hudBg, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 11, "Mgmt", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 11, mgmtTxt, bgcolor = hudBg, text_color = (useTp1 and useHalfTp1 and useBeAfterTp1 and useHaExit) ? colBuy : colExit, text_size = size.small)
+    table.cell(hud, 0, 12, "Runner", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 12, runTxt, bgcolor = hudBg, text_color = tp1Hit ? colBuy : color.white, text_size = size.small)
+    table.cell(hud, 0, 13, "Fills / regime", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 13, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = hudBg, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 14, "Gates", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 14, gateTxt, bgcolor = hudBg, text_color = (stBull or stBear) and m45GateNow and h1Gate and ppGate ? color.white : colExit, text_size = size.small)
+    table.cell(hud, 0, 15, "M45 RMA / exit", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+    table.cell(hud, 1, 15, m45Txt + "  ·  " + mgmtTxt, bgcolor = hudBg, text_color = useEntryTrig and reqM45Struct ? (m45GateNow ? colBuy : colSell) : hudLb, text_size = size.small)
+    if showDbg
+        table.cell(hud, 0, 16, "M15 cross L/S", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 16, (crossLong ? "L" : "-") + " / " + (crossShort ? "S" : "-"), bgcolor = hudBg, text_color = (crossLong or crossShort) ? colBuy : hudLb, text_size = size.small)
+        table.cell(hud, 0, 17, "M45 stack", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 17, (m45StackLong ? "L" : "-") + " / " + (m45StackShort ? "S" : "-"), bgcolor = hudBg, text_color = (stBull ? m45StackLong : m45StackShort) ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, 18, "M45 leave", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 18, (m45LeaveLong ? "L" : "-") + " / " + (m45LeaveShort ? "S" : "-"), bgcolor = hudBg, text_color = (stBull ? m45LeaveLong : m45LeaveShort) ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, 19, "Active ST closed", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 19, stBull ? "yes (bull)" : stBear ? "no (bear)" : "na", bgcolor = hudBg, text_color = stBull ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, 20, "HA M15", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 20, eBull ? "bull" : "bear", bgcolor = hudBg, text_color = eBull ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, 21, "M45 RMA gate", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 21, m45GateNow ? "yes" : "no", bgcolor = hudBg, text_color = m45GateNow ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, 22, "pp", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 22, (applyPP ? "" : "off / ") + (ppGate ? "yes" : "no"), bgcolor = hudBg, text_color = ppGate ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 0, 23, "canEnter", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
+        table.cell(hud, 1, 23, canEnter ? "yes" : "no", bgcolor = hudBg, text_color = canEnter ? colBuy : colSell, text_size = size.small)
+
+var int   sFills = 0
+var int   sPos   = 0
+var float sEnt   = na
+var float sStp   = na
+var float sTp1   = na
+var bool  sTp1Hit = false
+if stFlip
+    sFills := 0
+if sPos == -1
+    bool sStop = high >= sStp
+    bool sSlow = exitSlowBand and useTp1 and sTp1Hit and barstate.isconfirmed and close > m45SUp
+    bool sFlip = exitStFlip and stBull
+    bool sHa   = useHaExit and useTp1 and sTp1Hit and barstate.isconfirmed and haFlipShort
+    if sStop or sSlow or sFlip or sHa
+        sPos := 0
+        sTp1Hit := false
+    else
+        if useTp1 and not sTp1Hit and not na(sTp1) and low <= sTp1
+            sTp1Hit := true
+            if useBeAfterTp1
+                sStp := sEnt
+        if useTp1 and sTp1Hit and trailAfterTp1
+            float sTr = trailStop(false)
+            if not na(sTr) and sTr < sStp
+                sStp := sTr
+sTake = shortRaw and sFills < capReg and sPos == 0 and enableShort
+if sTake
+    sPos   := -1
+    sEnt   := close
+    sStp   := stopPrice(false)
+    sTp1   := close - tp1Mult * math.abs(close - sStp)
+    sTp1Hit := false
+    sFills := sFills + 1
+    if longOnly and showShorts and showBadge
+        label.new(bar_index, high, "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.small)
+
+if showAllSig and showBadge
+    if longRaw and enableLong and not longSig
+        label.new(bar_index, low, "▲ BUY", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 30), textcolor = color.white, size = size.tiny)
+    if shortRaw and enableShort and not shortSig and not (longOnly and sTake)
+        label.new(bar_index, high, "▼ SELL", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colSell, 30), textcolor = color.white, size = size.tiny)
+
+sellShow = shortSig or (longOnly and showShorts and sTake)
+plotshape(longSig,  "Buy",  shape.triangleup,   location.belowbar, colBuy, size = size.small)
+plotshape(sellShow, "Sell", shape.triangledown, location.abovebar, shortSig ? colSell : colHuntS, size = size.small)
+
+bgcolor(shadeReg ? (stBullLive ? bgLongCol : bgShortCol) : na, title = "Active Supertrend direction")
+
+alertcondition(longSig, "HA-Hunt M15 ST v3: Long entry", "HA-Hunt M15 ST v3 LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "HA-Hunt M15 ST v3: Short entry", "HA-Hunt M15 ST v3 SHORT {{ticker}} @ {{close}}")
+alertcondition(longOnly and showShorts and sTake and sFills == 1, "HA-Hunt M15 ST v3: Short setup (observe)", "HA-Hunt M15 ST v3 short setup (observe) {{ticker}} @ {{close}}")
+alertcondition(tp1Touch, "HA-Hunt M15 ST v3: TP1 half", "HA-Hunt M15 ST v3 TP1 half {{ticker}} @ {{close}}")
+alertcondition(exitStop, "HA-Hunt M15 ST v3: Stop / BE", "HA-Hunt M15 ST v3 SL/BE {{ticker}} @ {{close}}")
+alertcondition(exitHa, "HA-Hunt M15 ST v3: Runner HA flip", "HA-Hunt M15 ST v3 runner HA flip {{ticker}} @ {{close}}")
+alertcondition(doExit, "HA-Hunt M15 ST v3: Exit", "HA-Hunt M15 ST v3 EXIT {{ticker}} @ {{close}}")
+alertcondition(stFlipLive and stBullLive, "HA-Hunt M15 ST v3: Active ST bull", "Active Supertrend bull {{ticker}}")
+alertcondition(stFlipLive and not stBullLive, "HA-Hunt M15 ST v3: Active ST bear", "Active Supertrend bear {{ticker}}")
+
+if longSig or shortSig or tp1Touch or doExit
+    ev = longSig ? "entry_long" : shortSig ? "entry_short" : tp1Touch ? "tp1_half" : "exit"
+    js = '{"strat":"ha_hunt_m15_st_v3","variant":"M15_' + activeStLbl + 'ST","mode":"M15","st":"' + activeStLbl + '","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"reason":"' + (doExit ? exitRsn : tp1Touch ? "tp1_half" : "signal") + '"}'
+    alert(js, alert.freq_once_per_bar_close)
