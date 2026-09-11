@@ -49,6 +49,7 @@ public class HtsTradeService {
     private static final Logger log = LoggerFactory.getLogger(HtsTradeService.class);
     private static final double REASON_TOLERANCE = 0.15;   // fraction of the leg for STOP / TARGET labelling
     private static final double TRAIL_MIN_STEP = 0.10;     // only amend the stop if it moved this fraction of the leg
+    private static final double ST_V3_TP1_MULT = 2.0;      // M15_ST_V3: TP1 = 2R on half, then stop -> breakeven
     /** A just-placed position can lag in openPositions(); don't reconcile-close a row this young. */
     private static final Duration RECONCILE_GRACE = Duration.ofSeconds(120);
     /** Consecutive reconcile passes a trade must be absent from openPositions() before it is force-closed (guards the account-selection race). */
@@ -321,6 +322,9 @@ public class HtsTradeService {
         if (v.strategy() == HtsVariant.Strategy.MMS) {
             return mmsExit(t, v, buy, market, candleCache);
         }
+        if (v.strategy() == HtsVariant.Strategy.ST_V3) {
+            return stV3Exit(t, v, buy, market, candleCache);
+        }
         double entry = t.getEntry();
         double leg = Math.abs(entry - t.getStopLevel());
         if (leg <= 0) {
@@ -464,6 +468,105 @@ public class HtsTradeService {
             return true; // reconcile marks CLOSED next cycle
         } catch (Exception e) {
             log.warn("HTS [{}] {}: cloud-hold close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /**
+     * {@link HtsVariant#M15_ST_V3} runner: TP1 = 2R on half (stop still the
+     * original H1-Supertrend line up to here — the broker holds it). After
+     * TP1, the remaining half's stop jumps ONCE to exact breakeven and sits
+     * there — no trail, no slow-band exit, no re-checking the Supertrend —
+     * until a confirmed M15 Heikin-Ashi colour flip against the position
+     * flattens it. A real stop order is amended at the broker throughout, so
+     * a stop touch is picked up by the normal reconcile pass, not here.
+     */
+    private boolean stV3Exit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
+                             Map<String, List<Candle>> candleCache) {
+        Double entryBoxed = t.getEntry();
+        if (entryBoxed == null || t.getStopLevel() == null || t.getSize() == null) {
+            return false;
+        }
+        double entry = entryBoxed;
+        double leg = Math.abs(entry - t.getStopLevel());
+        if (leg <= 0) {
+            return false;
+        }
+        String cacheKey = t.getEpic() + "|" + v.ltf().name();
+        List<Candle> ltf = candleCache.get(cacheKey);
+        if (ltf == null) {
+            try {
+                Instant now = Instant.now();
+                ltf = HtsCandles.fetch(market, t.getEpic(), v.ltf(), now.minus(v.ltfLookback()), now);
+            } catch (Exception e) {
+                log.warn("HTS runner [{}] {}: candle fetch failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+                return false;
+            }
+            candleCache.put(cacheKey, ltf);
+        }
+        if (ltf == null || ltf.size() < 2) {
+            return false;
+        }
+        double lastClose = ltf.getLast().close();
+        selectBookAccount(t.getBook()); // amend / close must hit the trade's own sub-account
+        BrokerClient broker = books.forBook(t.getBook());
+
+        // ---- before TP1: close half, jump the remaining stop to exact breakeven ----
+        if (t.getTp1At() == null) {
+            double tp1 = buy ? entry + ST_V3_TP1_MULT * leg : entry - ST_V3_TP1_MULT * leg;
+            boolean hit = buy ? lastClose >= tp1 : lastClose <= tp1;
+            if (!hit) {
+                return false;
+            }
+            double half = Math.round(t.getSize() / 2.0 * 100.0) / 100.0;
+            double min = properties.getMinDealSize();
+            boolean splittable = half >= min && (t.getSize() - half) >= min;
+            try {
+                if (splittable) {
+                    broker.closePosition(t.getDealId(), half);
+                    t.setRemainingSize(t.getSize() - half);
+                    log.info("HTS runner [{}] {} TP1 — closed half {} @ ~{}, stop → BE {}",
+                            v, t.getSymbol(), half, lastClose, round(entry));
+                } else {
+                    t.setRemainingSize(t.getSize());
+                    log.info("HTS runner [{}] {} TP1 — size {} too small to split, whole position runs; stop → BE {}",
+                            v, t.getSymbol(), t.getSize(), round(entry));
+                }
+                broker.amendPosition(t.getDealId(), entry, false);
+                t.setTp1At(Instant.now());
+                t.setRunnerStop(entry);
+                trades.save(t);
+                return true;
+            } catch (Exception e) {
+                log.warn("HTS runner [{}] {}: TP1 close/amend failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+                return false;
+            }
+        }
+
+        // ---- after TP1: no trailing — full exit only on a confirmed entry-TF (M15) HA flip against the position ----
+        List<com.adam.server.sdd.HeikenAshi.Bar> ha = com.adam.server.sdd.HeikenAshi.from(ltf);
+        if (ha.size() < 2) {
+            return false;
+        }
+        com.adam.server.sdd.HeikenAshi.Bar last = ha.get(ha.size() - 1);
+        com.adam.server.sdd.HeikenAshi.Bar prev = ha.get(ha.size() - 2);
+        boolean flipAgainst = last.bullish() != prev.bullish() && last.bullish() != buy;
+        if (!flipAgainst) {
+            return false;
+        }
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        try {
+            broker.closePosition(t.getDealId(), remaining);
+            // Stamp only once the broker call has actually succeeded — same
+            // reasoning as haHuntCloudExit()'s CLOUD stamp: an un-preset close
+            // that reaches applyClose() (e.g. a reconcile-vanish force-close)
+            // must never be mistaken for a real HA-flip exit.
+            t.setCloseReason("HA_FLIP");
+            trades.save(t);
+            log.info("HTS runner [{}] {} confirmed M15 HA flip against — flattening runner", v, t.getSymbol());
+            return true; // reconcile marks CLOSED next cycle
+        } catch (Exception e) {
+            log.warn("HTS runner [{}] {}: HA-flip close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
             return false;
         }
     }

@@ -102,9 +102,9 @@ class HtsVariantTest {
     }
 
     @Test
-    void mmsIsUnparkedOnItsOwnAccountMmsBook() {
+    void mmsIsParkedNoBacktestEdge() {
         assertThat(HtsVariant.MMS.strategy()).isEqualTo(HtsVariant.Strategy.MMS);
-        assertThat(HtsVariant.MMS.parked()).isFalse();
+        assertThat(HtsVariant.MMS.parked()).isTrue();
         assertThat(HtsVariant.MMS.live()).isFalse();
         assertThat(HtsVariant.MMS.longOnly()).isFalse();
         assertThat(HtsVariant.MMS.book()).isEqualTo(com.adam.server.broker.Books.MMS);
@@ -131,6 +131,28 @@ class HtsVariantTest {
         assertThat(HtsVariant.MMS.dueAtMinute(0)).isTrue();
         assertThat(HtsVariant.MMS.dueAtMinute(16)).isTrue();
         assertThat(HtsVariant.MMS.dueAtMinute(7)).isFalse();
+    }
+
+    @Test
+    void m15StV3IsUnparkedAndTookTheMmsBook() {
+        assertThat(HtsVariant.M15_ST_V3.strategy()).isEqualTo(HtsVariant.Strategy.ST_V3);
+        assertThat(HtsVariant.M15_ST_V3.parked()).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.live()).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.longOnly()).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.book()).isEqualTo(com.adam.server.broker.Books.MMS);
+        assertThat(HtsVariant.M15_ST_V3.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
+        assertThat(HtsVariant.M15_ST_V3.ltfMinutes()).isEqualTo(15);
+        assertThat(HtsVariant.M15_ST_V3.universe()).containsExactly("BTC", "XAU", "US100");
+        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("BTC")).isTrue();
+        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("XAU")).isTrue();
+        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("US100")).isTrue();
+        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("GER40")).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.htfLabel()).isEqualTo("H1");
+        assertThat(HtsVariant.M15_ST_V3.label()).contains("H1-ST");
+        // M15 entry — too frequent for mail, same reasoning as HA4
+        assertThat(HtsVariant.M15_ST_V3.mailsSignals()).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.dueAtMinute(0)).isTrue();
+        assertThat(HtsVariant.M15_ST_V3.dueAtMinute(16)).isTrue();
     }
 
     @Test

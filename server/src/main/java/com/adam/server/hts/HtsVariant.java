@@ -33,12 +33,13 @@ import java.util.List;
  *       on the {@code okx} book: ETH + XRP linear USDT perpetual swaps, long
  *       only, plus a funding-rate crowding skip. OKX HA-hunt backtest dropped
  *       BTC (net loser) for XRP; execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
- *   <li>{@link #MMS} — MastermindZX mean-reversion (TMA/ATR envelope, M15
- *       default) on BTC / XAU / US100 → its own isolated {@code mms} book
- *       ("Account MMS" / {@code MMS_ACCOUNT_NAME}; never HA4's
- *       "Account m15"). Unparked: scanned like the other active variants.
- *       Demo fills honour {@code HTS_EXECUTION_ENABLED}; {@code live()} is
- *       false. See {@code docs/MMS-STRATEGY.md}.</li>
+ *   <li>{@link #MMS} — MastermindZX mean-reversion. <b>Parked</b> — no
+ *       backtest edge, see {@code docs/MMS-STRATEGY.md}.</li>
+ *   <li>{@link #M15_ST_V3} — M15 entry / H1-Supertrend filter+stop, TP1 2:1
+ *       half + breakeven + confirmed M15 HA-flip runner exit, on BTC / XAU /
+ *       US100 → the {@code mms} book ("Account MMS") {@link #MMS} vacated —
+ *       every symbol positive in both a 12-mo in-sample and 12-mo
+ *       out-of-sample backtest (PF 1.12-1.37).</li>
  * </ul>
  *
  * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST} and
@@ -50,8 +51,9 @@ import java.util.List;
  * band-cross A/B was decided on the numbers, {@link #HA12} took its book.
  * {@link #CORE_LIVE} — the real-money variant — is detached: nothing trades the
  * {@code live} book any more, every strategy is demo/swing/hts/okx only.
- * {@link #MMS} is unparked on its own {@code mms} book ("Account MMS");
- * execution still honours {@code HTS_EXECUTION_ENABLED}. {@code live()} is false.
+ * {@link #MMS} is parked (no backtest edge); {@link #M15_ST_V3} is unparked on
+ * its {@code mms} book ("Account MMS") instead; execution still honours
+ * {@code HTS_EXECUTION_ENABLED}. {@code live()} is false for both.
  *
  * <p>Ribbon variants ({@link Strategy#RIBBON}) run {@link HtsEngine};
  * HA-hunt variants ({@link Strategy#HA_HUNT}) run {@link HaHuntEngine} with a
@@ -61,7 +63,8 @@ import java.util.List;
  * MMS ({@link Strategy#MMS}) runs {@link MmsEngine}: fade a TMA/ATR envelope
  * after a closed-bar band touch + first reactive candle; opposite-band or
  * 1:1 TP; mandatory %-of-price SL (no trail); sequential delever after a
- * full base SL (add-on wick stops do not cut the unit).
+ * full base SL (add-on wick stops do not cut the unit). ST_V3
+ * ({@link Strategy#ST_V3}) runs {@link StV3Engine}: see {@link #M15_ST_V3}.
  */
 public enum HtsVariant {
 
@@ -104,15 +107,43 @@ public enum HtsVariant {
      * {@link com.adam.server.hts.MmsEngine.TpMode#FIXED_1R} (tester clips).
      * Mandatory SL, no trail. Optional one-bar add-on ×1 (default off).
      * Universe: BTC (Capital {@code BTCUSD} / OKX {@code BTC-USDT-SWAP} if
-     * remapped), XAU/GOLD, US100/NQ. Both sides. Unparked on book
-     * {@link com.adam.server.broker.Books#MMS} ("Account MMS") — not scanned
-     * onto HA4's demo book. Site: https://mastermindzx.pl/ (BTCUSDT
-     * monthly-optimised backtests; no WR copied into code).
+     * remapped), XAU/GOLD, US100/NQ. Both sides. <b>Parked</b> — no backtest
+     * edge (PF 0.79-0.94, see {@code docs/MMS-STRATEGY.md}); {@link #M15_ST_V3}
+     * took the {@code mms} book instead. Site: https://mastermindzx.pl/
+     * (BTCUSDT monthly-optimised backtests; no WR copied into code).
      */
-    MMS(Books.MMS, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE);
+    MMS(Books.MMS, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE),
 
-    /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, or {@link MmsEngine}. */
-    public enum Strategy { RIBBON, HA_HUNT, MMS }
+    /**
+     * M15 entry / H1-Supertrend filter+stop (ATR 10, factor 2.0 — the research
+     * scripts' default, not {@link com.adam.server.sdd.Supertrend}'s own 3.0
+     * — ATR 12/factor 3.0 backtested to ~breakeven, PF 1.01 IS/1.16 OOS,
+     * clearly worse), TP1 2:1 on half then the remaining half's stop jumps
+     * once to breakeven and sits there — no trail, no slow-band exit — until
+     * a confirmed M15 Heikin-Ashi colour flip against the position flattens
+     * the runner (PR #140's locked "v3 bakeoff" config, ported from Pine).
+     * H1 structure gate required: H1 close stacked vs its own RMA33/144, OR
+     * the M15 close already beyond the closed H1 fast band, in the
+     * Supertrend direction. Cap 2 fills per Supertrend regime, no
+     * pyramiding (backtested WORSE: PF 1.54/1.61 -> 1.02/1.10 with
+     * pyramiding on the M5/M45 pairing, MaxDD 13.5% -> 55.9%). Both sides.
+     *
+     * <p>The original M5-entry/M45-Supertrend pairing (same idea, one
+     * timeframe rung down) backtested markedly worse once a TP1/runner
+     * double-counting bug in the research tool was fixed (a completed leg
+     * kept being silently re-evaluated on later bars instead of locking its
+     * result) — PF 1.09 IS / 1.08 OOS overall, with US100 and US30 flipping
+     * negative OOS. This M15/H1 pairing, restricted to BTC/XAU/US100, is the
+     * one that held up: 12&nbsp;mo IS 2025-09→2026-09 + 12&nbsp;mo OOS
+     * 2024-10→2025-09, no fees — every one of BTC/XAU/US100 positive in BOTH
+     * windows (XAU PF 1.31 IS / 1.12 OOS, BTC 1.31/1.22, US100 1.37/1.35;
+     * combined PF 1.33 IS / 1.23 OOS). Took the {@code mms} book
+     * ("Account MMS") from {@link #MMS} (no edge, parked).
+     */
+    M15_ST_V3(Resolution.M15, Books.MMS, Duration.ofDays(10), 15, Mms.UNIVERSE);
+
+    /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, or {@link StV3Engine}. */
+    public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3 }
 
     /**
      * How an HA-hunt variant decides entry-TF direction (the hunt gate, RMA
@@ -200,6 +231,17 @@ public enum HtsVariant {
                 0, 0, 0, 0, universe, false, EntryTrigger.HA_FLIP);
     }
 
+    /**
+     * ST_V3 variant: M5 entry, M45-Supertrend filter+SL, TP1 2:1 half + BE +
+     * confirmed-HA-flip runner (all fixed in {@link StV3Engine} — this shape
+     * only carries the book/lookback/universe, same idea as the MMS
+     * constructor above).
+     */
+    HtsVariant(Resolution entryTf, String book, Duration ltfLookback, int ltfMinutes, List<String> universe) {
+        this(Strategy.ST_V3, null, entryTf, book, Duration.ofDays(60), ltfLookback, ltfMinutes, false,
+                0, 0, 0, 0, universe, false, EntryTrigger.HA_FLIP);
+    }
+
     HtsVariant(Strategy strategy, Resolution htf, Resolution ltf, String book, Duration htfLookback,
                Duration ltfLookback, int ltfMinutes, boolean live, int huntHours, int atrHours, int atrMinutes,
                int slowLen, List<String> universe, boolean longOnly, EntryTrigger entryTrigger) {
@@ -254,10 +296,12 @@ public enum HtsVariant {
      * {@link #HA_OKX}, FAST_OKX's M5 ribbon would churn LTC/BTC every 5&nbsp;min
      * (the same reason {@link #FAST} is parked) and CORE_OKX ribbon has the same
      * zero-edge history as CORE. Only {@link #HA_OKX} trades the OKX book now.
+     * {@link #MMS} is parked too — no backtest edge — and {@link #M15_ST_V3}
+     * took its {@code mms} book.
      */
     public boolean parked() {
         return this == CORE || this == SWING || this == HA4X || this == FAST
-                || this == CORE_OKX || this == FAST_OKX || this == CORE_LIVE;
+                || this == CORE_OKX || this == FAST_OKX || this == CORE_LIVE || this == MMS;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
@@ -287,6 +331,9 @@ public enum HtsVariant {
         if (strategy == Strategy.MMS) {
             return ltf != null ? ltf.name() : "M15";
         }
+        if (strategy == Strategy.ST_V3) {
+            return "H1";
+        }
         return htf != null ? htf.name() : "H" + huntHours;
     }
 
@@ -310,6 +357,9 @@ public enum HtsVariant {
     public String label() {
         if (strategy == Strategy.MMS) {
             return name() + " " + ltf + " TMA-ATR";
+        }
+        if (strategy == Strategy.ST_V3) {
+            return name() + " H1-ST/" + ltf;
         }
         if (strategy != Strategy.HA_HUNT) {
             return name() + " " + htf + "/" + ltf;
@@ -369,7 +419,7 @@ public enum HtsVariant {
         if (this == CORE_LIVE) {
             return !"GER40".equalsIgnoreCase(symbolCode);
         }
-        if (strategy == Strategy.MMS) {
+        if (strategy == Strategy.MMS || strategy == Strategy.ST_V3) {
             if (symbolCode == null) {
                 return false;
             }
