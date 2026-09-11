@@ -47,6 +47,8 @@ slowOv     = input.int(0,      "RMA slow  (0 = auto: 100 HA4/HA1, 144 HA12)", gr
 
 // ── visuals ──────────────────────────────────────────────────────────────────
 shadeReg    = input.bool(true,  "Shade hunt regime (live HTF HA colour)", group = "Visuals")
+bgLongCol   = input.color(color.new(#26A69A, 94), "Background — long/bull regime", group = "Visuals")
+bgShortCol  = input.color(color.new(#EF5350, 94), "Background — short/bear regime", group = "Visuals")
 showBoxes   = input.bool(true,  "Risk / reward boxes", group = "Visuals")
 showEdge    = input.bool(true,  "SL / Entry / 2R edge lines", group = "Visuals")
 showTags    = input.bool(true,  "Price tags on box edge", group = "Visuals")
@@ -312,7 +314,7 @@ sellShow = shortSig or (longOnly and showShorts and sTake)
 plotshape(longSig and not showBadge, "Buy", shape.triangleup, location.belowbar, colBuy, size = size.tiny)
 plotshape(sellShow and not showBadge, "Sell", shape.triangledown, location.abovebar, shortSig ? colSell : colHuntS, size = size.tiny)
 
-bgcolor(shadeReg ? (huntBullLive ? color.new(colBuy, 94) : color.new(colSell, 94)) : na, title = "Hunt regime")
+bgcolor(shadeReg ? (huntBullLive ? bgLongCol : bgShortCol) : na, title = "Hunt regime")
 
 // ── alerts ─────────────────────────────────────────────────────────────────
 alertcondition(longSig, "HA-Hunt: Long entry", "HA-Hunt LONG {{ticker}} @ {{close}}")
