@@ -114,7 +114,8 @@ class HtsVariantTest {
         assertThat(HtsVariant.SWING.parked()).isTrue();
         assertThat(HtsVariant.HA4.parked()).isFalse();
         assertThat(HtsVariant.HA12.parked()).isFalse();
-        assertThat(HtsVariant.CORE_LIVE.parked()).isFalse();
+        // CORE_LIVE (the only real-money variant) is detached — parked now
+        assertThat(HtsVariant.CORE_LIVE.parked()).isTrue();
         assertThat(HtsVariant.HA4.book()).isEqualTo(com.adam.server.broker.Books.DEMO);
         assertThat(HtsVariant.MMS.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
         assertThat(HtsVariant.MMS.ltfMinutes()).isEqualTo(15);
@@ -125,10 +126,23 @@ class HtsVariantTest {
         assertThat(HtsVariant.MMS.tradesSymbol("GER40")).isFalse();
         assertThat(HtsVariant.MMS.htfLabel()).isEqualTo("M15");
         assertThat(HtsVariant.MMS.label()).contains("TMA-ATR");
-        assertThat(HtsVariant.MMS.mailsSignals()).isTrue();
+        // mail is H1-entry only now (see mailsSignalsIsRestrictedToH1EntryVariants) — MMS is M15
+        assertThat(HtsVariant.MMS.mailsSignals()).isFalse();
         assertThat(HtsVariant.MMS.dueAtMinute(0)).isTrue();
         assertThat(HtsVariant.MMS.dueAtMinute(16)).isTrue();
         assertThat(HtsVariant.MMS.dueAtMinute(7)).isFalse();
+    }
+
+    @Test
+    void mailsSignalsIsRestrictedToH1EntryVariants() {
+        // HA12 is the only H1-entry HA-hunt variant — the rest fire too often to mail
+        assertThat(HtsVariant.HA12.ltf()).isEqualTo(com.adam.server.broker.Resolution.H1);
+        assertThat(HtsVariant.HA12.mailsSignals()).isTrue();
+        assertThat(HtsVariant.HA4.mailsSignals()).isFalse();   // M15
+        assertThat(HtsVariant.HA1.mailsSignals()).isFalse();   // M5
+        assertThat(HtsVariant.HA_OKX.mailsSignals()).isFalse(); // M15
+        assertThat(HtsVariant.MMS.mailsSignals()).isFalse();   // M15
+        assertThat(HtsVariant.CORE_LIVE.mailsSignals()).isFalse(); // ribbon, never mailed
     }
 
     @Test

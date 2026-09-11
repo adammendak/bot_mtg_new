@@ -23,15 +23,23 @@ import java.util.Map;
 /**
  * Aggregate open-risk watchdog for the <b>Główne</b> ({@code "main"}) account —
  * the view-only account the bot never trades. Every cycle it reads the open
- * positions on US100 / US500 / GER40 / XAU, sums the stop-distance risk
- * ({@code |entry − stop| × size × point-value}, in the account currency), and
- * e-mails once (30-min throttle) when the total exceeds
+ * positions on XAU / XAG / US100 / US500 / US30 / GER40 / J225 / EURUSD /
+ * USDJPY, sums the stop-distance risk ({@code |entry − stop| × size ×
+ * point-value}, in the account currency), and e-mails once (30-min throttle,
+ * see {@link com.adam.server.scan.Mailer}) when the total exceeds
  * {@code app.glowne.risk-alert-pct} (default 3 %) of the account balance.
  *
  * <p>Positions with no stop-loss set are left out of the sum but listed in the
  * mail as "risk undefined". No-ops when the Główne book is not configured.
  *
- * <p>Cron: {@code app.glowne.risk-alert-cron} (default every 10 min).
+ * <p>Frequency control, two layers: the cron only checks every 30 min (matches
+ * the mail throttle — checking more often than the throttle can ever mail was
+ * pure overhead), and the throttle is only re-armed once risk drops to
+ * {@link #CLEAR_HYSTERESIS} of the limit (2.4 % at the 3 % default), not the
+ * instant it dips under the limit — otherwise risk oscillating right at the
+ * boundary would re-trigger an alert almost every cycle.
+ *
+ * <p>Cron: {@code app.glowne.risk-alert-cron} (default every 30 min).
  * Toggle: {@code app.glowne.risk-alert-enabled} (default true — fail toward ON).
  */
 @Component
@@ -39,6 +47,9 @@ public class GlowneRiskWatcher {
 
     private static final Logger log = LoggerFactory.getLogger(GlowneRiskWatcher.class);
     private static final String MAIL_KEY = "glowne-risk";
+    /** Only re-arm the throttle once risk drops to this fraction of the limit — avoids
+     *  flapping a new alert right after clearing when risk sits near the boundary. */
+    private static final double CLEAR_HYSTERESIS = 0.8;
 
     private final BrokerBooks books;
     private final AppProperties properties;
@@ -58,14 +69,19 @@ public class GlowneRiskWatcher {
         this.alertPct = alertPct;
     }
 
-    /** epic (upper-case) -> short name, for the four watched instruments. */
+    /** epic (upper-case) -> short name, for the nine watched instruments. */
     private Map<String, String> watched() {
         AppProperties.Epics e = properties.getSdd().getEpics();
         Map<String, String> m = new LinkedHashMap<>();
+        m.put(e.getXau().toUpperCase(Locale.ROOT), "XAU");
+        m.put(e.getXag().toUpperCase(Locale.ROOT), "XAG");
         m.put(e.getUs100().toUpperCase(Locale.ROOT), "US100");
         m.put(e.getUs500().toUpperCase(Locale.ROOT), "US500");
+        m.put(e.getUs30().toUpperCase(Locale.ROOT), "US30");
         m.put(e.getGer40().toUpperCase(Locale.ROOT), "GER40");
-        m.put(e.getXau().toUpperCase(Locale.ROOT), "XAU");
+        m.put(e.getJ225().toUpperCase(Locale.ROOT), "J225");
+        m.put(e.getEurusd().toUpperCase(Locale.ROOT), "EURUSD");
+        m.put(e.getUsdjpy().toUpperCase(Locale.ROOT), "USDJPY");
         return m;
     }
 
@@ -99,7 +115,7 @@ public class GlowneRiskWatcher {
                 }
                 String name = watched.get(p.epic().toUpperCase(Locale.ROOT));
                 if (name == null) {
-                    continue; // not one of the four
+                    continue; // not one of the nine watched instruments
                 }
                 if (p.stopLevel() == null) {
                     stopless.add(String.format(Locale.ROOT, "  %-6s %s size %s @ %s — NO STOP (risk undefined)",
@@ -117,7 +133,10 @@ public class GlowneRiskWatcher {
 
             double pct = totalRisk / acct.balance() * 100.0;
             if (pct <= alertPct && stopless.isEmpty()) {
-                mailer.clearThrottle(MAIL_KEY); // back under the limit — re-arm the alert
+                if (pct <= alertPct * CLEAR_HYSTERESIS) {
+                    // well back under the limit, not just brushing it — re-arm the alert
+                    mailer.clearThrottle(MAIL_KEY);
+                }
                 log.debug("Główne risk watch: {}% of {} {} — under the {}% limit",
                         String.format(Locale.ROOT, "%.2f", pct), trim(acct.balance()), acct.currency(), alertPct);
                 return;
@@ -130,14 +149,16 @@ public class GlowneRiskWatcher {
             body.append(String.format(Locale.ROOT, "Ryzyko razem: %s %s  (%.2f%% salda; limit %s%%)%n%n",
                     trim(totalRisk), acct.currency(), pct, trim(alertPct)));
             if (!lines.isEmpty()) {
-                body.append("Pozycje ze stopem (US100 / US500 / GER40 / XAU):\n");
+                body.append("Pozycje ze stopem (XAU/XAG/US100/US500/US30/GER40/J225/EURUSD/USDJPY):\n");
                 lines.forEach(l -> body.append(l).append('\n'));
             }
             if (!stopless.isEmpty()) {
                 body.append("\nPozycje BEZ stop-lossa — nie wliczone do sumy, sprawdź ręcznie:\n");
                 stopless.forEach(l -> body.append(l).append('\n'));
             }
-            body.append("\n(kolejny alert dopiero po ~30 min lub gdy ryzyko spadnie pod limit)\n");
+            body.append(String.format(Locale.ROOT,
+                    "%n(kolejny alert dopiero po ~30 min lub gdy ryzyko spadnie wyraźnie pod limit, poniżej %.1f%%)%n",
+                    alertPct * CLEAR_HYSTERESIS));
 
             String subject = String.format(Locale.ROOT,
                     "⚠ Główne — ryzyko %.2f%% (limit %s%%), %s %s",

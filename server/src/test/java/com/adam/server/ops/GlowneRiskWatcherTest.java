@@ -37,7 +37,7 @@ class GlowneRiskWatcherTest {
         books = mock(BrokerBooks.class);
         mailer = mock(Mailer.class);
         errorLog = mock(ErrorLog.class);
-        props = new AppProperties(); // epics default: US100 / DE40 / GOLD / US500
+        props = new AppProperties(); // epics default: GOLD/SILVER/US100/US500/US30/DE40/J225/EURUSD/USDJPY
         when(books.forBook(Books.GLOWNE)).thenReturn(g);
         when(g.configured()).thenReturn(true);
         when(g.isSessionOpen()).thenReturn(true);
@@ -87,14 +87,42 @@ class GlowneRiskWatcherTest {
     }
 
     @Test
-    void ignoresInstrumentsOutsideTheWatchedFour() {
+    void ignoresInstrumentsOutsideTheWatchedNine() {
         when(g.openPositions()).thenReturn(List.of(
-                pos("EURUSD", Direction.BUY, 100_000, 1.10, 1.05),    // huge risk but not watched
+                pos("GBPUSD", Direction.BUY, 100_000, 1.30, 1.25),    // huge risk but not watched
                 pos("BTCUSD", Direction.BUY, 1, 60_000, 30_000.0)));
 
         watcher().run();
 
         verify(mailer, never()).sendThrottled(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void sumsAllNineWatchedInstruments() {
+        when(g.openPositions()).thenReturn(List.of(
+                pos("SILVER", Direction.BUY, 10, 50, 49.0),        // 10
+                pos("J225", Direction.BUY, 1, 40_000, 39_900.0),   // 100
+                pos("EURUSD", Direction.BUY, 1_000, 1.10, 1.05),   // 50
+                pos("USDJPY", Direction.BUY, 100, 150, 149.0),     // 100
+                pos("US30", Direction.BUY, 1, 40_000, 39_900.0))); // 100  -> 360 = 3.6%
+
+        watcher().run();
+
+        verify(mailer).sendThrottled(eq("glowne-risk"), contains("3.60%"), anyString());
+    }
+
+    @Test
+    void onlyClearsThrottleWellBelowTheLimitNotJustUnderIt() {
+        // 2.7% is under the 3% limit but above the 2.4% hysteresis floor (80% of limit) —
+        // no alert (under the limit), but the throttle must NOT re-arm yet either, or
+        // risk sitting near the boundary would re-trigger an alert almost every cycle.
+        when(g.openPositions()).thenReturn(List.of(
+                pos("GOLD", Direction.BUY, 1, 4_300, 4_030.0)));   // 270 = 2.7%
+
+        watcher().run();
+
+        verify(mailer, never()).sendThrottled(anyString(), anyString(), anyString());
+        verify(mailer, never()).clearThrottle(anyString());
     }
 
     @Test

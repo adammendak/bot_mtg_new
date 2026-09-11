@@ -13,8 +13,9 @@ import java.util.List;
  * <ul>
  *   <li>{@link #FAST} — ribbon, H1 / M5 → {@code hts} book ("Account m5"), demo</li>
  *   <li>{@link #CORE_LIVE} — ribbon, H4 / M15 → {@code live} book ("bot trading konto"),
- *       <b>real money</b>, 1 % of account risk; gated by
- *       {@code HTS_LIVE_EXECUTION_ENABLED} (separate from the demo flag)</li>
+ *       <b>real money</b>, 1 % of account risk. <b>Parked / detached</b> — no
+ *       strategy trades the live book any more; {@code HTS_LIVE_EXECUTION_ENABLED}
+ *       (separate from the demo flag) also defaults to off as a second guard</li>
  *   <li>{@link #CORE_OKX} / {@link #FAST_OKX} — ribbon → {@code okx} book (crypto, SWAP), 24/7</li>
  *   <li>{@link #HA4} — HA-hunt cloud, H4 hunt / M15 entry, "HA flip + stack" trigger
  *       → {@code demo} book ("Account m15"); XAU / XAG / J225 / USDJPY / US100, long only.</li>
@@ -40,13 +41,15 @@ import java.util.List;
  *       false. See {@code docs/MMS-STRATEGY.md}.</li>
  * </ul>
  *
- * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X} and {@link #FAST} are
- * {@link #parked() parked} — kept in the enum but not
+ * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST} and
+ * {@link #CORE_LIVE} are {@link #parked() parked} — kept in the enum but not
  * scanned. CORE/SWING (ribbon) gave zero signals through the forward test;
  * FAST churned every non-BTC symbol on M5 and was replaced by {@link #HA1} on
  * the same ("Account m5") book; {@link #HA4X} ("M15 band cross" entry) backtested
  * to PF ~1.2 IS / ~0.8 in the recent regime, MaxDD ~30% — the HA-flip vs
  * band-cross A/B was decided on the numbers, {@link #HA12} took its book.
+ * {@link #CORE_LIVE} — the real-money variant — is detached: nothing trades the
+ * {@code live} book any more, every strategy is demo/swing/hts/okx only.
  * {@link #MMS} is unparked on its own {@code mms} book ("Account MMS");
  * execution still honours {@code HTS_EXECUTION_ENABLED}. {@code live()} is false.
  *
@@ -226,13 +229,15 @@ public enum HtsVariant {
     }
 
     /**
-     * Whether per-signal e-mail is sent for this variant. Only the HA-hunt
-     * strategies mail — they are sparse and each fill matters. FAST (M5) and
-     * the OKX crypto variants signal too often to mail; CORE_LIVE is silent in
-     * practice and its fills are visible on the dashboard / trades feed.
+     * Whether per-signal e-mail is sent for this variant. Mail is restricted to
+     * <b>H1-entry</b> variants only (currently {@link #HA12}) — M15/M5 entries
+     * fire too often for an inbox; each still shows up on the dashboard / trades
+     * feed. This also silences {@link #MMS} (M15 entry) regardless of
+     * {@code app.mms.mail-enabled} — that toggle no longer has an effect while
+     * MMS stays on M15.
      */
     public boolean mailsSignals() {
-        return strategy == Strategy.HA_HUNT || strategy == Strategy.MMS;
+        return (strategy == Strategy.HA_HUNT || strategy == Strategy.MMS) && ltf == Resolution.H1;
     }
 
     /**
@@ -240,6 +245,9 @@ public enum HtsVariant {
      * gave zero signals; FAST churned every non-BTC M5 symbol (avg hold 5-9 min)
      * on its band-edge stop; HA4X (band-cross entry) lost the HA-flip vs
      * band-cross A/B on the backtest (PF ~1.2 IS / ~0.8 recent, MaxDD ~30%).
+     * {@link #CORE_LIVE} (the only real-money variant) is parked too — the
+     * live account is detached, every strategy now trades demo/swing/hts books
+     * only; {@code HTS_LIVE_EXECUTION_ENABLED} stays as a second guard.
      *
      * <p>{@link #CORE_OKX} / {@link #FAST_OKX} (ribbon on the real-money OKX
      * book) are parked too: once {@code OKX_LIVE_EXECUTION_ENABLED} is armed for
@@ -249,7 +257,7 @@ public enum HtsVariant {
      */
     public boolean parked() {
         return this == CORE || this == SWING || this == HA4X || this == FAST
-                || this == CORE_OKX || this == FAST_OKX;
+                || this == CORE_OKX || this == FAST_OKX || this == CORE_LIVE;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
