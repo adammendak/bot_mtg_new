@@ -40,3 +40,7 @@ data/
 .idea/
 transkrypcja-*.txt
 stopDist
+
+# research backtest scratch (h4_ha_cloud_bt.py)
+tools/.candle_cache/
+tools/out/
