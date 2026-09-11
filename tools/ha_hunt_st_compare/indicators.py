@@ -106,3 +106,31 @@ def supertrend(
         prev_close = close[i]
 
     return line, tv_dir
+
+
+def heikin_ashi(
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Pine HA-Hunt entry-TF Heikin-Ashi (confirmed closed bars).
+
+    ``haClose = (o+h+l+c)/4``
+    ``haOpen  = (o+c)/2`` on bar 0, else ``(haOpen[1] + haClose[1]) / 2``
+    Colour: bull when ``haClose >= haOpen``.
+    """
+    o = open_.astype(np.float64, copy=False)
+    h = high.astype(np.float64, copy=False)
+    l = low.astype(np.float64, copy=False)
+    c = close.astype(np.float64, copy=False)
+    n = len(c)
+    ha_c = (o + h + l + c) / 4.0
+    ha_o = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return ha_o, ha_c, np.array([], dtype=bool)
+    ha_o[0] = (o[0] + c[0]) / 2.0
+    for i in range(1, n):
+        ha_o[i] = (ha_o[i - 1] + ha_c[i - 1]) / 2.0
+    ha_bull = ha_c >= ha_o
+    return ha_o, ha_c, ha_bull

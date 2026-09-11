@@ -13,7 +13,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.ha_hunt_st_compare.ohlc import SYMBOLS, coverage_table, load_symbol
-from tools.ha_hunt_st_compare.simulator import Book, Params, h1_compare_variants, variants, simulate
+from tools.ha_hunt_st_compare.simulator import (
+    Book,
+    Params,
+    h1_compare_variants,
+    ha_exit_variants,
+    ha_exit_wr_perms,
+    variants,
+    simulate,
+)
 
 DOCS = ROOT / "docs"
 OUT_MD = DOCS / "ha-hunt-m45-m5-st-12mo.md"
@@ -585,7 +593,279 @@ def run_h1_followup() -> int:
     return 0
 
 
+HA_LABELS = {
+    "ha_m45": "A M45 ST + half TP1 + BE + M5 HA flip",
+    "ha_h1": "B H1 ST + half TP1 + BE + M5 HA flip",
+    "baseline_144": "C OLD M45 ST full-trail (no half, ST trail / ST flip / slow-band)",
+}
+HA_ORDER = ["ha_m45", "ha_h1"]
+HA_SECTION = "## M5 HA-flip runner (A vs B)"
+
+
+def _old_baseline_from_payload(payload: dict) -> tuple[Book | None, dict[str, Book]]:
+    """Reference C = prior locked full-trail book (do not re-simulate)."""
+    raw_book = payload.get("baseline_book") or (payload.get("tp1_matrix") or {}).get("book", {}).get("baseline_144")
+    raw_syms = payload.get("baseline_by_symbol") or []
+    if not raw_book:
+        return None, {}
+
+    def as_book(row: dict, symbol: str) -> Book:
+        b = Book(symbol=symbol, variant="baseline_144")
+        b.n = int(row.get("n") or 0)
+        b.wr_pct = float(row.get("wr_pct") or 0)
+        b.sum_r = float(row.get("sum_r") or 0)
+        b.avg_r = float(row.get("avg_r") or 0)
+        b.max_dd_r = float(row.get("max_dd_r") or 0)
+        b.pf = float(row.get("pf") or 0)
+        b.n_long = int(row.get("n_long") or 0)
+        b.n_short = int(row.get("n_short") or 0)
+        b.n_tp1 = int(row.get("n_tp1") or 0)
+        b.exits = dict(row.get("exits") or {})
+        return b
+
+    book = as_book(raw_book, "BOOK")
+    by_sym = {row["symbol"]: as_book(row, row["symbol"]) for row in raw_syms}
+    return book, by_sym
+
+
+def run_ha_exit() -> int:
+    """Half TP1 + BE + M5 HA flip. A = M45 ST, B = H1 ST. C = OLD full-trail ref."""
+    print(f"HA-flip runner  {START.isoformat()} → {END.isoformat()}", flush=True)
+    bars, load_errors = _load_bars()
+    if not bars:
+        return 1
+
+    cells = _run_params(ha_exit_variants(), bars)
+    totals = _totals(cells)
+    by_name = {t.variant: t for t in totals}
+
+    payload = json.loads(OUT_JSON.read_text()) if OUT_JSON.exists() else {}
+    old_book, old_by_sym = _old_baseline_from_payload(payload)
+
+    def cell_of(name: str, sym: str) -> Book:
+        return next(b for b in cells if b.variant == name and b.symbol == sym)
+
+    by_symbol = {}
+    for sym in bars:
+        by_symbol[sym] = {name: _book_row(cell_of(name, sym)) for name in HA_ORDER}
+
+    winners = {}
+    for sym in list(bars) + ["BOOK"]:
+        pool = [by_name[n] for n in HA_ORDER] if sym == "BOOK" else [cell_of(n, sym) for n in HA_ORDER]
+        best = max(pool, key=_rank_key)
+        winners[sym] = HA_LABELS[best.variant]
+
+    a, b = by_name["ha_m45"], by_name["ha_h1"]
+    rec = (
+        f"HA-exit book: A (M45) n={a.n} WR={a.wr_pct:.1f}% sumR={a.sum_r:+.1f} PF={_fmt_pf(a.pf)}; "
+        f"B (H1) n={b.n} WR={b.wr_pct:.1f}% sumR={b.sum_r:+.1f} PF={_fmt_pf(b.pf)}. "
+        f"ST TF winner on this exit: **{winners['BOOK']}**."
+    )
+
+    perm_cells: list[Book] = []
+    perm_totals: list[Book] = []
+    wr_target = 50.0
+    need_perms = a.wr_pct < wr_target - 1.0 and b.wr_pct < wr_target - 1.0
+    if need_perms:
+        print("HA-exit WR below ~50% — running stricter WR permutations (slow 144).", flush=True)
+        better_tf = 45 if a.wr_pct >= b.wr_pct else 60
+        other_tf = 60 if better_tf == 45 else 45
+        perm_params = ha_exit_wr_perms(better_tf) + ha_exit_wr_perms(other_tf)
+        perm_cells = _run_params(perm_params, bars)
+        perm_totals = _totals(perm_cells)
+
+    payload["ha_exit"] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cells": {
+            "A": "M45 ST bias+SL + 50% TP1 + runner BE + M5 HA colour flip (no ST trail / no slow-band / no ST flip)",
+            "B": "H1 ST bias+SL + 50% TP1 + runner BE + M5 HA colour flip (same runner)",
+            "C": "OLD M45 ST full-trail reference (no half, ST trail + ST flip + slow-band) — not this exit",
+        },
+        "rules": {
+            "tp1": "50% at 1:2, remaining stop → entry immediately",
+            "runner": "confirmed M5 HA colour flip against the position (body close), or BE hit",
+            "st": "bias + initial SL only; no trail after TP1",
+            "st_flip_secondary": "OFF",
+            "win": "trade is a win when total R > 0 (typical +1R if half fills and runner BE)",
+        },
+        "coverage": coverage_table(bars),
+        "load_errors": load_errors,
+        "by_symbol": by_symbol,
+        "book": {name: _book_row(by_name[name]) for name in HA_ORDER},
+        "old_full_trail_book": _book_row(old_book) if old_book else None,
+        "winner": winners,
+        "recommendation": rec,
+        "wr_perms": {
+            "ran": need_perms,
+            "book": [_book_row(t) for t in sorted(perm_totals, key=_rank_key, reverse=True)],
+            "cells": [_book_row(c) for c in perm_cells],
+        },
+    }
+
+    def metrics_row(b: Book, label: str) -> list[str]:
+        return [
+            label,
+            str(b.n),
+            f"{b.wr_pct:.1f}",
+            f"{b.sum_r:.2f}",
+            f"{b.avg_r:.3f}",
+            f"{b.max_dd_r:.2f}",
+            _fmt_pf(b.pf),
+        ]
+
+    hdr = ["cell", "n", "WR%", "sumR", "avgR", "maxDD(R)", "PF"]
+    book_rows = [metrics_row(by_name[n], HA_LABELS[n]) for n in HA_ORDER]
+    if old_book:
+        book_rows.append(metrics_row(old_book, HA_LABELS["baseline_144"]))
+
+    wide = []
+    for sym in list(bars) + ["BOOK"]:
+        pool = [by_name[n] for n in HA_ORDER] if sym == "BOOK" else [cell_of(n, sym) for n in HA_ORDER]
+        old = old_book if sym == "BOOK" else old_by_sym.get(sym)
+        wide.append(
+            [sym]
+            + [f"{x.sum_r:.2f}" for x in pool]
+            + ([f"{old.sum_r:.2f}"] if old else ["—"])
+            + [f"{x.wr_pct:.1f}" for x in pool]
+            + ([f"{old.wr_pct:.1f}"] if old else ["—"])
+            + [winners[sym]]
+        )
+
+    detail = []
+    for sym in bars:
+        detail.append(f"#### {sym}")
+        detail.append("")
+        rows = [metrics_row(cell_of(n, sym), HA_LABELS[n]) for n in HA_ORDER]
+        if sym in old_by_sym:
+            rows.append(metrics_row(old_by_sym[sym], HA_LABELS["baseline_144"]))
+        detail.append(_md_table(hdr, rows))
+        detail.append("")
+        a_s, b_s = cell_of("ha_m45", sym), cell_of("ha_h1", sym)
+        detail.append(
+            f"Exits A: `{a_s.exits}` · B: `{b_s.exits}`. "
+            f"TP1 fills A {a_s.n_tp1}/{a_s.n} · B {b_s.n_tp1}/{b_s.n}."
+        )
+        detail.append("")
+
+    perm_md = []
+    if perm_totals:
+        perm_md.append("### WR permutations (slow 144, same HA-exit lock)")
+        perm_md.append("")
+        perm_md.append(
+            "Win = total R > 0. Target ~50% WR. One-at-a-time plus a few stricter combos. "
+            "long-only is all names; XAU/US100 long-only is the same cells restricted to those books."
+        )
+        perm_md.append("")
+        perm_rows = [metrics_row(t, t.variant) for t in sorted(perm_totals, key=_rank_key, reverse=True)]
+        perm_md.append(_md_table(hdr, perm_rows))
+        perm_md.append("")
+        focus = []
+        for t in perm_totals:
+            xau = next((c for c in perm_cells if c.variant == t.variant and c.symbol == "XAU"), None)
+            nq = next((c for c in perm_cells if c.variant == t.variant and c.symbol == "US100"), None)
+            if xau and nq:
+                focus.append(
+                    [t.variant, f"{t.wr_pct:.1f}", f"{t.sum_r:.1f}", f"{xau.sum_r:.1f}", f"{nq.sum_r:.1f}", f"{xau.wr_pct:.1f}", f"{nq.wr_pct:.1f}"]
+                )
+        if focus:
+            perm_md.append(
+                _md_table(
+                    ["perm", "book WR%", "book sumR", "XAU sumR", "US100 sumR", "XAU WR", "US100 WR"],
+                    focus,
+                )
+            )
+            perm_md.append("")
+        hit = [t for t in perm_totals if t.wr_pct >= wr_target - 0.5]
+        if hit:
+            best_hit = max(hit, key=_rank_key)
+            perm_md.append(
+                f"First combo at/above ~50% WR (by sumR among hits): **{best_hit.variant}** "
+                f"WR={best_hit.wr_pct:.1f}% sumR={best_hit.sum_r:+.1f}."
+            )
+        else:
+            best_wr = max(perm_totals, key=lambda t: (t.wr_pct, t.sum_r))
+            perm_md.append(
+                f"No perm reached ~50% WR. Highest WR: **{best_wr.variant}** "
+                f"WR={best_wr.wr_pct:.1f}% sumR={best_wr.sum_r:+.1f}."
+            )
+        perm_md.append("")
+
+    section = []
+    section.append(HA_SECTION)
+    section.append("")
+    section.append(
+        f"Generated `{payload['ha_exit']['generated_at']}`. Same 12m data, slow **144**, M5 band-cross, "
+        "M45 structure gate **ON**, cap 2, both sides unless a WR perm says otherwise."
+    )
+    section.append("")
+    section.append("**Locked runner (this retest):** 50% at 1:2 → remaining stop to **entry (BE)** → "
+                   "full exit on confirmed **M5 HA colour flip** against the position (body close), or BE/stop. "
+                   "ST is bias + initial SL only. No M45 slow-band, no ST-line trail, ST-flip **OFF**.")
+    section.append("")
+    section.append("| cell | ST TF | exit |")
+    section.append("| --- | --- | --- |")
+    section.append("| **A** `ha_m45` | M45 | half + BE + M5 HA flip |")
+    section.append("| **B** `ha_h1` | H1 | half + BE + M5 HA flip |")
+    section.append("| **C** `baseline_144` | M45 | **OLD** full-trail (reference only — not this lock) |")
+    section.append("")
+    section.append("Win = total R > 0 (half at +2R books +1R; BE runner = 0 → trade ≈ +1R win). "
+                   "Loss = stopped before TP1 (−1R) or net R ≤ 0. Same-bar stop beats TP1.")
+    section.append("")
+    section.append("### Leaderboard — book")
+    section.append("")
+    section.append(_md_table(hdr, book_rows))
+    section.append("")
+    section.append("### Per symbol — sumR / WR (A vs B; C = OLD exit)")
+    section.append("")
+    section.append(
+        _md_table(
+            ["symbol", "A sumR", "B sumR", "C OLD sumR", "A WR", "B WR", "C OLD WR", "HA-exit winner"],
+            wide,
+        )
+    )
+    section.append("")
+    section.append("### Detail")
+    section.append("")
+    section.extend(detail)
+    section.append("### Call")
+    section.append("")
+    section.append(rec)
+    section.append("")
+    section.extend(perm_md)
+
+    text = OUT_MD.read_text() if OUT_MD.exists() else ""
+    howto = (
+        "## How to rerun\n\n"
+        "```bash\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup\n"
+        "python3 -m tools.ha_hunt_st_compare.run_bakeoff --ha-exit\n"
+        "```\n\n"
+        "With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.\n"
+        "Caches live under `tools/ha_hunt_st_compare/cache/` (gitignored).\n"
+    )
+    if HA_SECTION in text:
+        pre = text.split(HA_SECTION)[0].rstrip()
+        text = pre + "\n\n" + "\n".join(section) + "\n" + howto
+    else:
+        how = "## How to rerun"
+        if how in text:
+            pre = text.split(how)[0].rstrip()
+            text = pre + "\n\n" + "\n".join(section) + "\n" + howto
+        else:
+            text = text.rstrip() + "\n\n" + "\n".join(section) + "\n" + howto
+
+    OUT_MD.write_text(text if text.endswith("\n") else text + "\n")
+    OUT_JSON.write_text(json.dumps(payload, indent=2) + "\n")
+    print(f"wrote {OUT_MD}")
+    print(f"wrote {OUT_JSON}")
+    print("HA-EXIT REC", rec)
+    return 0
+
+
 if __name__ == "__main__":
+    if "--ha-exit" in sys.argv:
+        raise SystemExit(run_ha_exit())
     if "--h1-followup" in sys.argv:
         raise SystemExit(run_h1_followup())
     raise SystemExit(main())

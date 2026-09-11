@@ -9,9 +9,15 @@ if both the stop and TP1 are touched on the entry/exit bar, the stop wins.
 
 R accounting:
 - ``scale_tp1=False`` (locked M45-ST overlay): full-position exit / initial 1R.
-- ``scale_tp1=True`` (H1 follow-up): TP1 closes 50% at +2R on that half (= +1R
-  booked); the remaining 50% trails. Combined R = 1.0 + 0.5 × runner_R after
-  TP1, or full-position R if stopped before TP1.
+- ``scale_tp1=True``: TP1 closes 50% at +2R on that half (= +1R booked);
+  combined R = 1.0 + 0.5 × runner_R after TP1, or full-position R if stopped
+  before TP1.
+
+Runner (Adam lock, ``exit_ha_flip=True``):
+- After TP1 the remaining stop is **entry (BE)** and stays there.
+- Full runner exit = confirmed M5 Heikin-Ashi colour flip against the
+  position (body close), or BE hit. No M45 slow-band, no ST-line trail,
+  no ST-flip (``exit_st_flip`` default OFF for that retest).
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from typing import Optional
 
 import numpy as np
 
-from .indicators import atr, rma, rma_band, supertrend
+from .indicators import atr, heikin_ashi, rma, rma_band, supertrend
 from .ohlc import Bars
 
 
@@ -47,7 +53,10 @@ class Params:
     htf_closed_shift: int = 1  # Pine f_*Closed [1]
     m45_minutes: int = 45
     st_tf_minutes: int = 45  # 45 = locked M45 ST; 60 = H1 ST bias+SL
-    scale_tp1: bool = False  # True = 50% at TP1, runner stop → BE, then trail in favor only
+    scale_tp1: bool = False  # True = 50% at TP1, runner stop → BE
+    exit_slow_band: bool = True  # M45 slow-band body after TP1 (OLD runner)
+    exit_ha_flip: bool = False  # M5 HA colour flip against the runner (NEW)
+    trail_after_tp1: bool = True  # False = stop stays at BE; no ST-line trail
 
 
 @dataclass
@@ -222,6 +231,8 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
 
     flip_reason = "h1_st_flip" if p.st_tf_minutes == 60 else "m45_st_flip"
 
+    _, _, ha_bull = heikin_ashi(o, h, l, c)
+
     f_up, f_lo = rma_band(h, l, p.fast_len)
     s_up, s_lo = rma_band(h, l, p.slow_len)
 
@@ -332,25 +343,31 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
             m45_slo_i = htf_val(m45_slo, i)
             m45_sup_i = htf_val(m45_sup, i)
             exit_slow = (
-                p.use_tp1
+                p.exit_slow_band
+                and p.use_tp1
                 and tp1_hit
                 and ((pos == 1 and c[i] < m45_slo_i) or (pos == -1 and c[i] > m45_sup_i))
             )
-            exit_flip = p.exit_st_flip and ((pos == 1 and not st_bull) or (pos == -1 and st_bull))
+            exit_st = p.exit_st_flip and ((pos == 1 and not st_bull) or (pos == -1 and st_bull))
             if exit_stop:
-                close_trade(i, float(stp), "trail" if tp1_hit else "stop")
+                if tp1_hit and p.scale_tp1 and not p.trail_after_tp1:
+                    close_trade(i, float(stp), "be")
+                else:
+                    close_trade(i, float(stp), "trail" if tp1_hit else "stop")
             elif exit_slow:
                 close_trade(i, float(c[i]), "m45_slow_band")
-            elif exit_flip:
+            elif exit_st:
                 close_trade(i, float(c[i]), flip_reason)
             else:
                 if p.use_tp1 and not tp1_hit and ((pos == 1 and h[i] >= tgt) or (pos == -1 and l[i] <= tgt)):
                     tp1_hit = True
-                    # Half-TP1 variants (B/C): runner stop jumps to entry immediately.
-                    # Full-trail A/D do not force BE.
+                    # Half-TP1: runner stop jumps to entry immediately.
+                    # Full-trail (no scale) does not force BE.
                     if p.scale_tp1:
                         stp = float(ent)
-                if p.use_tp1 and tp1_hit:
+                        if (pos == 1 and l[i] <= stp) or (pos == -1 and h[i] >= stp):
+                            close_trade(i, float(stp), "be" if not p.trail_after_tp1 else "trail")
+                if pos != 0 and p.use_tp1 and tp1_hit and p.trail_after_tp1:
                     tr = trail_stop(i, pos == 1)
                     if p.scale_tp1:
                         if pos == 1:
@@ -366,9 +383,18 @@ def simulate(symbol: str, bars: Bars, p: Params) -> Book:
                             stp = tr
                         if pos == -1 and tr < stp:
                             stp = tr
-                    # Half-TP1 only: BE may already be tagged on the TP1 bar.
                     if p.scale_tp1 and ((pos == 1 and l[i] <= stp) or (pos == -1 and h[i] >= stp)):
                         close_trade(i, float(stp), "trail")
+                # Runner: confirmed closed M5 HA colour flip against the position.
+                # Long: bull → bear (haClose < haOpen after being bull).
+                # Short: bear → bull. Only after TP1. Exit at body close.
+                if pos != 0 and p.exit_ha_flip and tp1_hit and i > 0:
+                    if pos == 1:
+                        exit_ha = bool(ha_bull[i - 1]) and (not bool(ha_bull[i]))
+                    else:
+                        exit_ha = (not bool(ha_bull[i - 1])) and bool(ha_bull[i])
+                    if exit_ha:
+                        close_trade(i, float(c[i]), "m5_ha_flip")
 
         can_enter = fills < p.cap_reg and pos == 0 and i >= warmup and j >= 0 and st_closed[i] >= 0
         m45_c = htf_val(hc, i)
@@ -448,4 +474,64 @@ def h1_compare_variants() -> list[Params]:
         Params(name="m45st_partial", st_tf_minutes=45, scale_tp1=True, **locked),  # B
         Params(name="h1st_partial", st_tf_minutes=60, scale_tp1=True, **locked),  # C
         Params(name="h1st_full", st_tf_minutes=60, scale_tp1=False, **locked),  # D
+    ]
+
+
+def _ha_exit_locked(**overrides) -> Params:
+    """Half TP1 + BE + M5 HA flip. ST is bias + initial SL only."""
+    base = dict(
+        slow_len=144,
+        band_cross_strict=False,
+        req_m45_struct=True,
+        cap_reg=2,
+        stop_mode="st",
+        st_factor=2.0,
+        long_only=False,
+        use_tp1=True,
+        tp1_mult=2.0,
+        scale_tp1=True,
+        exit_st_flip=False,
+        exit_slow_band=False,
+        exit_ha_flip=True,
+        trail_after_tp1=False,
+    )
+    base.update(overrides)
+    return Params(**base)
+
+
+def ha_exit_variants() -> list[Params]:
+    """A = M45 ST + HA runner; B = H1 ST + HA runner."""
+    return [
+        _ha_exit_locked(name="ha_m45", st_tf_minutes=45),
+        _ha_exit_locked(name="ha_h1", st_tf_minutes=60),
+    ]
+
+
+def ha_exit_wr_perms(st_tf_minutes: int) -> list[Params]:
+    """Stricter one-at-a-time + a few combos aimed at ~50% WR (slow 144)."""
+    tag = "m45" if st_tf_minutes == 45 else "h1"
+    return [
+        _ha_exit_locked(name=f"ha_{tag}_strict", st_tf_minutes=st_tf_minutes, band_cross_strict=True),
+        _ha_exit_locked(name=f"ha_{tag}_cap1", st_tf_minutes=st_tf_minutes, cap_reg=1),
+        _ha_exit_locked(name=f"ha_{tag}_st3", st_tf_minutes=st_tf_minutes, st_factor=3.0),
+        _ha_exit_locked(name=f"ha_{tag}_longonly", st_tf_minutes=st_tf_minutes, long_only=True),
+        _ha_exit_locked(
+            name=f"ha_{tag}_strict_cap1",
+            st_tf_minutes=st_tf_minutes,
+            band_cross_strict=True,
+            cap_reg=1,
+        ),
+        _ha_exit_locked(
+            name=f"ha_{tag}_strict_st3",
+            st_tf_minutes=st_tf_minutes,
+            band_cross_strict=True,
+            st_factor=3.0,
+        ),
+        _ha_exit_locked(
+            name=f"ha_{tag}_strict_cap1_st3",
+            st_tf_minutes=st_tf_minutes,
+            band_cross_strict=True,
+            cap_reg=1,
+            st_factor=3.0,
+        ),
     ]

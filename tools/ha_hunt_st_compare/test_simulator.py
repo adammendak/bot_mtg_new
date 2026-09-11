@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from tools.ha_hunt_st_compare.indicators import atr, rma, rma_band, supertrend
+from tools.ha_hunt_st_compare.indicators import atr, heikin_ashi, rma, rma_band, supertrend
 from tools.ha_hunt_st_compare.ohlc import Bars, SeriesMeta, resample_ohlc
 from tools.ha_hunt_st_compare.simulator import Params, simulate
 import pandas as pd
@@ -48,6 +48,33 @@ class RmaTests(unittest.TestCase):
         last = d[~np.isnan(d)][-1]
         self.assertEqual(last, -1.0)  # TV bull
         self.assertLess(line[~np.isnan(line)][-1], close[-1])
+
+
+class HeikinAshiTests(unittest.TestCase):
+    def test_pine_seed_then_smooth(self):
+        o = np.array([10.0, 11.0, 12.0])
+        h = np.array([12.0, 13.0, 14.0])
+        l = np.array([9.0, 10.0, 11.0])
+        c = np.array([11.0, 12.0, 13.0])
+        ha_o, ha_c, ha_bull = heikin_ashi(o, h, l, c)
+        self.assertAlmostEqual(ha_c[0], (10 + 12 + 9 + 11) / 4)
+        self.assertAlmostEqual(ha_o[0], (10 + 11) / 2)
+        self.assertAlmostEqual(ha_o[1], (ha_o[0] + ha_c[0]) / 2)
+        self.assertAlmostEqual(ha_o[2], (ha_o[1] + ha_c[1]) / 2)
+        self.assertTrue(ha_bull[0])  # 10.5 >= 10.5
+
+    def test_bear_after_bull_is_colour_flip(self):
+        n = 8
+        o = np.linspace(100, 108, n)
+        c = o + 1.0
+        h = np.maximum(o, c) + 0.2
+        l = np.minimum(o, c) - 0.2
+        # Last bar: hard down close so haClose drops below smoothed haOpen.
+        o[-1], c[-1] = 108.0, 90.0
+        h[-1], l[-1] = 108.2, 89.8
+        _, _, bull = heikin_ashi(o, h, l, c)
+        self.assertTrue(bull[-2])
+        self.assertFalse(bull[-1])
 
 
 class ResampleTests(unittest.TestCase):
@@ -177,6 +204,33 @@ class SameBarTests(unittest.TestCase):
             Params(name="h1", slow_len=30, fast_len=8, req_m45_struct=False, st_tf_minutes=60, scale_tp1=True),
         )
         self.assertGreaterEqual(book.n, 0)
+
+    def test_ha_exit_runner_reasons(self):
+        """HA-exit lock: after TP1 only BE or M5 HA flip — never ST trail / slow-band / ST flip."""
+        book = simulate(
+            "SYN",
+            _synthetic_trend(),
+            Params(
+                name="ha",
+                slow_len=30,
+                fast_len=8,
+                req_m45_struct=False,
+                cap_reg=4,
+                scale_tp1=True,
+                exit_st_flip=False,
+                exit_slow_band=False,
+                exit_ha_flip=True,
+                trail_after_tp1=False,
+            ),
+        )
+        forbidden = {"m45_st_flip", "h1_st_flip", "m45_slow_band", "trail"}
+        for t in book.trades:
+            self.assertNotIn(t.reason, forbidden)
+            if t.tp1_hit:
+                self.assertIn(t.reason, {"be", "m5_ha_flip", "open_eod"})
+                # Half at +2R booked +1R; BE runner ≥ 0 ⇒ combined ≥ +1R
+                if t.reason == "be":
+                    self.assertAlmostEqual(t.r, 1.0, places=5)
 
 
 if __name__ == "__main__":
