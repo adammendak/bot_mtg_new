@@ -18,7 +18,11 @@ public enum SddSymbol {
     /** HA-hunt only — silver. */
     XAG("XAG", false),
     /** HA-hunt only — Nikkei 225. */
-    J225("J225", false);
+    J225("J225", false),
+    /** ST_V3 only — S&amp;P 500. */
+    US500("US500", false),
+    /** ST_V3 only — Dow Jones. */
+    US30("US30", false);
 
     /** The names scanned by the ribbon HTS + SDD models — USDJPY / XAG / J225 are HA-hunt-only. */
     private static final List<SddSymbol> LEGACY = List.of(GER40, XAU, US100, EURUSD, BTC);
@@ -50,6 +54,8 @@ public enum SddSymbol {
             case USDJPY -> epics.getUsdjpy();
             case XAG -> epics.getXag();
             case J225 -> epics.getJ225();
+            case US500 -> epics.getUs500();
+            case US30 -> epics.getUs30();
         };
     }
 
