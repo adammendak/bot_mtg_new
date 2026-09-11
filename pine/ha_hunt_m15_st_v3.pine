@@ -15,11 +15,19 @@
 //   WR still ~35% book; no cell hit ~50%. ST trail / ST flip are not the lock.
 //
 // Adam locked management (defaults ON):
-//   TP1 at 1:2 → close **50%** conceptually (badge + alert; overlay marks half)
-//   After TP1 → move stop to **break-even (entry)**
+//   TP1 at 1:2 → close **50%** of the aggregated book (badge + alert; overlay marks half)
+//   After TP1 → move stop to **break-even (avg entry)**
 //   Runner full exit → confirmed M15 HA body flip against
 //   Also exit if BE / initial SL is hit
 //   ST-line trail and ST-flip exit optional, default OFF
+//
+// Pyramiding (same direction only, ON):
+//   Up to capReg fills per ST regime while already long/short (default 2).
+//   Opposite entry does NOT reverse-pyramid; opposite HA exit still applies after TP1.
+//   Book is one aggregated position: size = open units, entry = average fill.
+//   SL stays at the initial protective stop (or BE after TP1); 1R / TP1 recompute from avg.
+//   TP1 closes 50% of total size; BE + HA flip apply to the remainder.
+//   Fills reset on ST regime flip (open book is not flipped).
 //
 // Other locked defaults: slowLen 144, fastLen 33, reqM45Struct ON,
 // bandCrossStrict OFF, capReg 2, ST ATR 10 / factor 2.0, applyPP OFF,
@@ -39,7 +47,7 @@ enableLong  = input.bool(true, "Enable LONG signals", group = "Strategy")
 enableShort = input.bool(true, "Enable SHORT signals", group = "Strategy")
 showShorts  = input.bool(true, "Show SELL setups (even in long-only)", group = "Strategy")
 applyPP    = input.bool(false, "Daily pivot filter  (OFF for indices / crypto)", tooltip = "Previous completed 21:00-UTC session. Default off.", group = "Strategy")
-capReg     = input.int(2,      "Max entries per Supertrend regime", minval = 1, tooltip = "Fills reset when the active Supertrend flips. 2 is the bakeoff default.", group = "Strategy")
+capReg     = input.int(2,      "Max entries per Supertrend regime", minval = 1, tooltip = "Same-direction pyramid adds while a position is open, up to this cap. Opposite entry does not reverse. Fills reset when the active Supertrend flips. 2 is the bakeoff default.", group = "Strategy")
 stopMode   = input.string("Supertrend (active TF)", "Stop mode", options = ["Supertrend (active TF)", "M45 ATR × 2.5", "M45 fast-band far edge"], tooltip = "Supertrend (default) = SL at the last closed active-ST line; long below, short above; 1R = |entry − ST|.", group = "Strategy")
 atrMult    = input.float(2.5,  "Stop = M45 ATR ×", step = 0.1, group = "Strategy")
 bandSlBuf  = input.float(0.25, "Band SL buffer × width", step = 0.05, minval = 0.0, group = "Strategy")
@@ -56,7 +64,7 @@ m15Tf    = input.timeframe("15", "M15 timeframe", group = "Supertrend", tooltip 
 // ── management (Adam lock) ───────────────────────────────────────────────────
 useTp1        = input.bool(true,  "Enable TP1", tooltip = "On (default): TP1 at entry ± R× (1:2).", group = "Management")
 tp1Mult       = input.float(2.0,  "TP1 = R ×", step = 0.5, minval = 0.5, tooltip = "2.0 = 1:2 from the chosen stop.", group = "Management")
-useHalfTp1    = input.bool(true,  "Half at TP1 (50% conceptual)", tooltip = "On (default): badge + alert mark a 50% scale at 1:2.", group = "Management")
+useHalfTp1    = input.bool(true,  "Half at TP1 (50% conceptual)", tooltip = "On (default): badge + alert mark a 50% scale at 1:2 of the aggregated book (size = open units).", group = "Management")
 useBeAfterTp1 = input.bool(true, "Move stop to BE after TP1", tooltip = "On (default): after TP1 the remaining stop jumps to entry.", group = "Management")
 useHaExit     = input.bool(true,  "Runner exit: M15 HA flip", tooltip = "On (default): after TP1, full exit on a confirmed M15 Heikin-Ashi body flip against the position.", group = "Management")
 exitStFlip    = input.bool(false, "Also exit on Supertrend flip", tooltip = "Off (default).", group = "Management")
@@ -275,6 +283,7 @@ ppShort = not applyPP or (not na(pp) and close < pp)
 
 // ── state ───────────────────────────────────────────────────────────────────
 var int   fills   = 0
+var int   units   = 0
 var int   pos     = 0
 var float entPx   = na
 var float stpX    = na
@@ -360,18 +369,23 @@ if doExit
     bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
     lbStop := na, lbEntry := na, lbTgt := na
     pos := 0
+    units := 0
     tp1Hit := false
 
 // ── entry: M15 (or M45) band cross gated by active ST + M45 structure
-canEnter = fills < capReg and pos == 0
+// Pyramid ON: same-direction adds while open, up to capReg. Opposite entry does not reverse.
+canEnter    = fills < capReg
+canAddLong  = canEnter and (pos == 0 or pos == 1)
+canAddShort = canEnter and (pos == 0 or pos == -1)
 trigLong  = useEntryTrig ? crossLong  : m45CrossLong
 trigShort = useEntryTrig ? crossShort : m45CrossShort
 m45GateL = (not useEntryTrig or not reqM45Struct) or m45StructLong
 m45GateS = (not useEntryTrig or not reqM45Struct) or m45StructShort
 longRaw  = stBull and trigLong  and m45GateL and h1LongOk  and ppLong
 shortRaw = stBear and trigShort and m45GateS and h1ShortOk and ppShort
-longSig  = longRaw and canEnter and enableLong
-shortSig = shortRaw and canEnter and enableShort and not longOnly
+longSig  = longRaw and canAddLong and enableLong
+shortSig = shortRaw and canAddShort and enableShort and not longOnly
+isAdd    = (longSig and pos == 1) or (shortSig and pos == -1)
 
 if longSig or shortSig
     if showHistory
@@ -387,12 +401,24 @@ if longSig or shortSig
     lbStop := na, lbEntry := na, lbTgt := na
 
     bool isLong = longSig
-    pos    := isLong ? 1 : -1
-    entPx  := close
-    stpX   := stopPrice(isLong)
-    lastR  := math.abs(close - stpX)
-    tgtX   := isLong ? close + tp1Mult * lastR : close - tp1Mult * lastR
-    tp1Hit := false
+    int prevUnits = units
+    if isAdd
+        int bookN = math.max(prevUnits, 1)
+        entPx := (entPx * bookN + close) / (bookN + 1)
+        if tp1Hit and useBeAfterTp1 and not trailAfterTp1
+            stpX := entPx
+        lastR := math.abs(entPx - stpX)
+        if not tp1Hit
+            tgtX := isLong ? entPx + tp1Mult * lastR : entPx - tp1Mult * lastR
+        units := bookN + 1
+    else
+        pos    := isLong ? 1 : -1
+        entPx  := close
+        stpX   := stopPrice(isLong)
+        lastR  := math.abs(close - stpX)
+        tgtX   := isLong ? close + tp1Mult * lastR : close - tp1Mult * lastR
+        tp1Hit := false
+        units  := 1
     fills  := fills + 1
     int x2 = bar_index + boxExtend
     if showBoxes
@@ -403,14 +429,16 @@ if longSig or shortSig
         lnEntry := line.new(bar_index, entPx, x2, entPx, color = colEntry, width = 1, style = line.style_dotted)
         lnTgt   := line.new(bar_index, tgtX, x2, tgtX, color = colBuy, width = 1, style = line.style_dashed)
     if showTags
+        string inTag = isAdd ? "AVG  " : "IN  "
         lbStop  := label.new(x2, stpX, "SL  " + str.tostring(stpX, format.mintick), style = label.style_label_left, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
-        lbEntry := label.new(x2, entPx, "IN  " + str.tostring(entPx, format.mintick), style = label.style_label_left, color = color.new(colEntry, 10), textcolor = color.white, size = size.tiny)
+        lbEntry := label.new(x2, entPx, inTag + str.tostring(entPx, format.mintick), style = label.style_label_left, color = color.new(colEntry, 10), textcolor = color.white, size = size.tiny)
         lbTgt   := label.new(x2, tgtX, "TP1  " + str.tostring(tgtX, format.mintick), style = label.style_label_left, color = color.new(colBuy, 0), textcolor = color.white, size = size.tiny)
     if showBadge
+        string fillTxt = str.tostring(units) + "/" + str.tostring(capReg)
         if isLong
-            label.new(bar_index, low, "▲ BUY", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
+            label.new(bar_index, low, isAdd ? "▲ ADD " + fillTxt : "▲ BUY", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.small)
         else
-            label.new(bar_index, high, "▼ SELL", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
+            label.new(bar_index, high, isAdd ? "▼ ADD " + fillTxt : "▼ SELL", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
 
 if pos != 0
     int x2e = bar_index + boxExtend
@@ -444,6 +472,7 @@ if barstate.islast and showHud
         hudRowsUsed := hudRows
     string sideTxt = pos == 0 ? "FLAT" : pos == 1 ? "LONG" : "SHORT"
     color  sideC   = pos == 0 ? #B2B5BE : pos == 1 ? colBuy : colSell
+    string unitTxt = pos != 0 and units > 0 ? " ×" + str.tostring(units) : ""
     string trigTxt = useEntryTrig ? (wantTfLbl + (bandCrossStrict ? " band (strict)" : " band (loose)")) : "M45 band (late A/B)"
     string chartTxt = wantTfLbl + " / chart " + timeframe.period + (chartOk ? "" : "  ⚠ use " + wantTfLbl)
     string mgmtTxt = (useTp1 ? "TP1" : "no TP1") + (useHalfTp1 ? " ½" : "") + (useBeAfterTp1 ? " · BE" : "") + (useHaExit ? " · M15 HA-exit" : "") + (exitStFlip ? " · ST-flip" : "") + (trailAfterTp1 ? " · trail" : "") + (exitSlowBand ? " · slow" : "")
@@ -460,11 +489,12 @@ if barstate.islast and showHud
     string otherStTxt = useH1Active ? (st45Bull ? "BULL" : st45Bear ? "BEAR" : "—") : (not reqH1St ? "off" : h1Bull ? "BULL" : h1Bear ? "BEAR" : "—")
     color  otherStCol = useH1Active ? (st45Bull ? colBuy : st45Bear ? colSell : hudLb) : (not reqH1St ? hudLb : h1Bull ? colBuy : colSell)
     string m45Txt = not useEntryTrig ? "M45 trig" : not reqM45Struct ? "RMA-struct off" : (m45GateNow ? "RMA-struct✓" : "RMA-struct✗")
-    string gateTxt = (stBull ? (activeStLbl + " ST↑") : stBear ? (activeStLbl + " ST↓") : (activeStLbl + " ST—")) + "  " + m45Txt + (reqH1St ? (h1Gate ? "  H1✓" : "  H1✗") : "  H1 off") + (applyPP ? (ppGate ? "  PP✓" : "  PP✗") : "  PP off") + (canEnter ? "  in✓" : "  in✗")
+    bool inOk = stBull ? canAddLong : stBear ? canAddShort : canEnter
+    string gateTxt = (stBull ? (activeStLbl + " ST↑") : stBear ? (activeStLbl + " ST↓") : (activeStLbl + " ST—")) + "  " + m45Txt + (reqH1St ? (h1Gate ? "  H1✓" : "  H1✗") : "  H1 off") + (applyPP ? (ppGate ? "  PP✓" : "  PP✗") : "  PP off") + (inOk ? "  in✓" : "  in✗")
     table.cell(hud, 0, 0, "HA-Hunt M15 ST v3", bgcolor = hudBg, text_color = color.white, text_size = size.normal)
     table.cell(hud, 1, 0, "M15 · ST " + activeStLbl, bgcolor = hudBg, text_color = color.white, text_size = size.normal)
     table.cell(hud, 0, 1, "Side", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-    table.cell(hud, 1, 1, sideTxt + (tp1Hit ? "  runner" : "") + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = hudBg, text_color = sideC, text_size = size.small)
+    table.cell(hud, 1, 1, sideTxt + unitTxt + (tp1Hit ? "  runner" : "") + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = hudBg, text_color = sideC, text_size = size.small)
     table.cell(hud, 0, 2, "Mode", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 2, "M15 trigger · slow " + str.tostring(slowLen), bgcolor = hudBg, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 3, "Chart TF", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
@@ -478,7 +508,7 @@ if barstate.islast and showHud
     table.cell(hud, 0, 7, "Stop mode", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 7, stopModeTxt, bgcolor = hudBg, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 8, "Entry / Stop", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-    table.cell(hud, 1, 8, pos != 0 ? (str.tostring(entPx, format.mintick) + "  /  " + str.tostring(stpX, format.mintick) + (atBe ? "  BE" : "")) : "—", bgcolor = hudBg, text_color = pos != 0 ? colSell : color.white, text_size = size.small)
+    table.cell(hud, 1, 8, pos != 0 ? ((units > 1 ? "AVG " : "") + str.tostring(entPx, format.mintick) + "  /  " + str.tostring(stpX, format.mintick) + (atBe ? "  BE" : "")) : "—", bgcolor = hudBg, text_color = pos != 0 ? colSell : color.white, text_size = size.small)
     table.cell(hud, 0, 9, "TP1", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 9, pos != 0 ? ((tp1Hit ? (useHalfTp1 ? "HALF  " : "HIT  ") : "") + str.tostring(tgtX, format.mintick)) : "—", bgcolor = hudBg, text_color = colBuy, text_size = size.small)
     table.cell(hud, 0, 10, useStSl ? ("1R (" + activeStLbl + " ST)") : useBandSl ? "1R (M45 band)" : "1R (" + str.tostring(atrMult) + "×M45 ATR)", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
@@ -488,7 +518,7 @@ if barstate.islast and showHud
     table.cell(hud, 0, 12, "Runner", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 12, runTxt, bgcolor = hudBg, text_color = tp1Hit ? colBuy : color.white, text_size = size.small)
     table.cell(hud, 0, 13, "Fills / regime", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-    table.cell(hud, 1, 13, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = hudBg, text_color = color.white, text_size = size.small)
+    table.cell(hud, 1, 13, str.tostring(fills) + " / " + str.tostring(capReg) + "  ·  open " + str.tostring(units) + "  ·  PYR ON", bgcolor = hudBg, text_color = color.white, text_size = size.small)
     table.cell(hud, 0, 14, "Gates", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
     table.cell(hud, 1, 14, gateTxt, bgcolor = hudBg, text_color = (stBull or stBear) and m45GateNow and h1Gate and ppGate ? color.white : colExit, text_size = size.small)
     table.cell(hud, 0, 15, "M45 RMA / exit", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
@@ -509,9 +539,10 @@ if barstate.islast and showHud
         table.cell(hud, 0, 22, "pp", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
         table.cell(hud, 1, 22, (applyPP ? "" : "off / ") + (ppGate ? "yes" : "no"), bgcolor = hudBg, text_color = ppGate ? colBuy : colSell, text_size = size.small)
         table.cell(hud, 0, 23, "canEnter", bgcolor = hudBg, text_color = hudLb, text_size = size.small)
-        table.cell(hud, 1, 23, canEnter ? "yes" : "no", bgcolor = hudBg, text_color = canEnter ? colBuy : colSell, text_size = size.small)
+        table.cell(hud, 1, 23, (canEnter ? "cap ok" : "cap full") + "  L" + (canAddLong ? "✓" : "✗") + "  S" + (canAddShort ? "✓" : "✗"), bgcolor = hudBg, text_color = (canAddLong or canAddShort) ? colBuy : colSell, text_size = size.small)
 
 var int   sFills = 0
+var int   sUnits = 0
 var int   sPos   = 0
 var float sEnt   = na
 var float sStp   = na
@@ -526,6 +557,7 @@ if sPos == -1
     bool sHa   = useHaExit and useTp1 and sTp1Hit and barstate.isconfirmed and haFlipShort
     if sStop or sSlow or sFlip or sHa
         sPos := 0
+        sUnits := 0
         sTp1Hit := false
     else
         if useTp1 and not sTp1Hit and not na(sTp1) and low <= sTp1
@@ -536,16 +568,27 @@ if sPos == -1
             float sTr = trailStop(false)
             if not na(sTr) and sTr < sStp
                 sStp := sTr
-sTake = shortRaw and sFills < capReg and sPos == 0 and enableShort
+sTake = shortRaw and sFills < capReg and (sPos == 0 or sPos == -1) and enableShort
 if sTake
-    sPos   := -1
-    sEnt   := close
-    sStp   := stopPrice(false)
-    sTp1   := close - tp1Mult * math.abs(close - sStp)
-    sTp1Hit := false
+    bool sAdd = sPos == -1
+    if sAdd
+        int sN = math.max(sUnits, 1)
+        sEnt := (sEnt * sN + close) / (sN + 1)
+        if sTp1Hit and useBeAfterTp1 and not trailAfterTp1
+            sStp := sEnt
+        if not sTp1Hit
+            sTp1 := sEnt - tp1Mult * math.abs(sEnt - sStp)
+        sUnits := sN + 1
+    else
+        sPos   := -1
+        sEnt   := close
+        sStp   := stopPrice(false)
+        sTp1   := close - tp1Mult * math.abs(close - sStp)
+        sTp1Hit := false
+        sUnits := 1
     sFills := sFills + 1
     if longOnly and showShorts and showBadge
-        label.new(bar_index, high, "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.small)
+        label.new(bar_index, high, sAdd ? "▽ ADD (observe)" : "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.small)
 
 if showAllSig and showBadge
     if longRaw and enableLong and not longSig
@@ -570,6 +613,6 @@ alertcondition(stFlipLive and stBullLive, "HA-Hunt M15 ST v3: Active ST bull", "
 alertcondition(stFlipLive and not stBullLive, "HA-Hunt M15 ST v3: Active ST bear", "Active Supertrend bear {{ticker}}")
 
 if longSig or shortSig or tp1Touch or doExit
-    ev = longSig ? "entry_long" : shortSig ? "entry_short" : tp1Touch ? "tp1_half" : "exit"
-    js = '{"strat":"ha_hunt_m15_st_v3","variant":"M15_' + activeStLbl + 'ST","mode":"M15","st":"' + activeStLbl + '","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"reason":"' + (doExit ? exitRsn : tp1Touch ? "tp1_half" : "signal") + '"}'
+    ev = longSig ? (isAdd ? "add_long" : "entry_long") : shortSig ? (isAdd ? "add_short" : "entry_short") : tp1Touch ? "tp1_half" : "exit"
+    js = '{"strat":"ha_hunt_m15_st_v3","variant":"M15_' + activeStLbl + 'ST","mode":"M15","st":"' + activeStLbl + '","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"units":' + str.tostring(units) + ',"fills":' + str.tostring(fills) + ',"reason":"' + (doExit ? exitRsn : tp1Touch ? "tp1_half" : isAdd ? "pyramid" : "signal") + '"}'
     alert(js, alert.freq_once_per_bar_close)
