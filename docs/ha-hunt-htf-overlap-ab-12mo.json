@@ -1,0 +1,338 @@
+{
+  "window": {
+    "start": "2025-09-11T00:00:00+00:00",
+    "end": "2026-09-11T00:00:00+00:00"
+  },
+  "lock": {
+    "st": "7/2",
+    "mgmt": "half+BE+HA",
+    "slow": 144,
+    "gate": true,
+    "flat": true,
+    "pyramid": false
+  },
+  "call": "NO \u2014 keep OFF",
+  "why": "WR rose on 4/5 cells but combined sumR -24.1R (n cut; hypothesis: WR up, n down, sumR not better). XAU M5+M45 -1.4R (n 269\u2192231, WR 39.0\u219239.4); US100 M5+M45 +8.5R (n 311\u2192258, WR 35.7\u219237.2); US100 M15+H1 -7.7R (n 179\u2192145, WR 43.0\u219244.1); US500 M15+H1 -2.6R (n 180\u2192158, WR 38.9\u219239.9); US500 M5+M45 -21.0R (n 260\u2192242, WR 36.5\u219233.9)",
+  "results": [
+    {
+      "symbol": "XAU",
+      "variant": "st7x2_flat_m5_st45_ovloff_strictoff",
+      "n": 269,
+      "wr_pct": 39.03,
+      "sum_r": 48.07,
+      "avg_r": 0.1787,
+      "max_dd_r": 9.712,
+      "pf": 1.293,
+      "n_tp1": 105,
+      "n_long": 148,
+      "n_short": 121,
+      "exits": {
+        "stop": 164,
+        "m5_ha_flip": 104,
+        "be": 1
+      },
+      "part": "A",
+      "stack": "M5+M45",
+      "filter": "overlap_off"
+    },
+    {
+      "symbol": "XAU",
+      "variant": "st7x2_flat_m5_st45_ovlon_strictoff",
+      "n": 231,
+      "wr_pct": 39.39,
+      "sum_r": 46.697,
+      "avg_r": 0.2022,
+      "max_dd_r": 12.726,
+      "pf": 1.334,
+      "n_tp1": 91,
+      "n_long": 132,
+      "n_short": 99,
+      "exits": {
+        "stop": 140,
+        "m5_ha_flip": 90,
+        "be": 1
+      },
+      "part": "A",
+      "stack": "M5+M45",
+      "filter": "overlap_on"
+    },
+    {
+      "symbol": "XAU",
+      "variant": "st7x2_flat_m5_st45_ovloff_stricton",
+      "n": 211,
+      "wr_pct": 39.34,
+      "sum_r": 36.271,
+      "avg_r": 0.1719,
+      "max_dd_r": 12.582,
+      "pf": 1.283,
+      "n_tp1": 83,
+      "n_long": 118,
+      "n_short": 93,
+      "exits": {
+        "stop": 128,
+        "m5_ha_flip": 82,
+        "be": 1
+      },
+      "part": "B",
+      "stack": "M5+M45",
+      "filter": "strict_on"
+    },
+    {
+      "symbol": "US100",
+      "variant": "st7x2_flat_m5_st45_ovloff_strictoff",
+      "n": 311,
+      "wr_pct": 35.69,
+      "sum_r": 16.537,
+      "avg_r": 0.0532,
+      "max_dd_r": 21.969,
+      "pf": 1.083,
+      "n_tp1": 110,
+      "n_long": 165,
+      "n_short": 146,
+      "exits": {
+        "stop": 200,
+        "m5_ha_flip": 108,
+        "be": 2,
+        "open_eod": 1
+      },
+      "part": "A",
+      "stack": "M5+M45",
+      "filter": "overlap_off"
+    },
+    {
+      "symbol": "US100",
+      "variant": "st7x2_flat_m5_st45_ovlon_strictoff",
+      "n": 258,
+      "wr_pct": 37.21,
+      "sum_r": 25.087,
+      "avg_r": 0.0972,
+      "max_dd_r": 18.791,
+      "pf": 1.155,
+      "n_tp1": 95,
+      "n_long": 137,
+      "n_short": 121,
+      "exits": {
+        "stop": 162,
+        "m5_ha_flip": 94,
+        "be": 1,
+        "open_eod": 1
+      },
+      "part": "A",
+      "stack": "M5+M45",
+      "filter": "overlap_on"
+    },
+    {
+      "symbol": "US100",
+      "variant": "st7x2_flat_m5_st45_ovloff_stricton",
+      "n": 203,
+      "wr_pct": 37.44,
+      "sum_r": 23.055,
+      "avg_r": 0.1136,
+      "max_dd_r": 10.663,
+      "pf": 1.182,
+      "n_tp1": 75,
+      "n_long": 111,
+      "n_short": 92,
+      "exits": {
+        "stop": 127,
+        "m5_ha_flip": 75,
+        "open_eod": 1
+      },
+      "part": "B",
+      "stack": "M5+M45",
+      "filter": "strict_on"
+    },
+    {
+      "symbol": "US100",
+      "variant": "st7x2_flat_m15_st60_ovloff_strictoff",
+      "n": 179,
+      "wr_pct": 43.02,
+      "sum_r": 53.173,
+      "avg_r": 0.2971,
+      "max_dd_r": 6.0,
+      "pf": 1.521,
+      "n_tp1": 77,
+      "n_long": 97,
+      "n_short": 82,
+      "exits": {
+        "m15_ha_flip": 69,
+        "be": 8,
+        "stop": 102
+      },
+      "part": "A",
+      "stack": "M15+H1",
+      "filter": "overlap_off"
+    },
+    {
+      "symbol": "US100",
+      "variant": "st7x2_flat_m15_st60_ovlon_strictoff",
+      "n": 145,
+      "wr_pct": 44.14,
+      "sum_r": 45.46,
+      "avg_r": 0.3135,
+      "max_dd_r": 7.65,
+      "pf": 1.561,
+      "n_tp1": 64,
+      "n_long": 76,
+      "n_short": 69,
+      "exits": {
+        "m15_ha_flip": 58,
+        "be": 6,
+        "stop": 81
+      },
+      "part": "A",
+      "stack": "M15+H1",
+      "filter": "overlap_on"
+    },
+    {
+      "symbol": "US100",
+      "variant": "st7x2_flat_m15_st60_ovloff_stricton",
+      "n": 116,
+      "wr_pct": 39.66,
+      "sum_r": 25.471,
+      "avg_r": 0.2196,
+      "max_dd_r": 8.829,
+      "pf": 1.369,
+      "n_tp1": 46,
+      "n_long": 63,
+      "n_short": 53,
+      "exits": {
+        "m15_ha_flip": 44,
+        "stop": 69,
+        "be": 2,
+        "open_eod": 1
+      },
+      "part": "B",
+      "stack": "M15+H1",
+      "filter": "strict_on"
+    },
+    {
+      "symbol": "US500",
+      "variant": "st7x2_flat_m15_st60_ovloff_strictoff",
+      "n": 180,
+      "wr_pct": 38.89,
+      "sum_r": 21.775,
+      "avg_r": 0.121,
+      "max_dd_r": 12.835,
+      "pf": 1.198,
+      "n_tp1": 70,
+      "n_long": 89,
+      "n_short": 91,
+      "exits": {
+        "stop": 110,
+        "m15_ha_flip": 63,
+        "be": 7
+      },
+      "part": "A",
+      "stack": "M15+H1",
+      "filter": "overlap_off"
+    },
+    {
+      "symbol": "US500",
+      "variant": "st7x2_flat_m15_st60_ovlon_strictoff",
+      "n": 158,
+      "wr_pct": 39.87,
+      "sum_r": 19.172,
+      "avg_r": 0.1213,
+      "max_dd_r": 11.513,
+      "pf": 1.202,
+      "n_tp1": 63,
+      "n_long": 79,
+      "n_short": 79,
+      "exits": {
+        "stop": 95,
+        "m15_ha_flip": 55,
+        "be": 8
+      },
+      "part": "A",
+      "stack": "M15+H1",
+      "filter": "overlap_on"
+    },
+    {
+      "symbol": "US500",
+      "variant": "st7x2_flat_m15_st60_ovloff_stricton",
+      "n": 121,
+      "wr_pct": 36.36,
+      "sum_r": 5.228,
+      "avg_r": 0.0432,
+      "max_dd_r": 10.814,
+      "pf": 1.068,
+      "n_tp1": 43,
+      "n_long": 67,
+      "n_short": 54,
+      "exits": {
+        "stop": 77,
+        "m15_ha_flip": 39,
+        "be": 4,
+        "open_eod": 1
+      },
+      "part": "B",
+      "stack": "M15+H1",
+      "filter": "strict_on"
+    },
+    {
+      "symbol": "US500",
+      "variant": "st7x2_flat_m5_st45_ovloff_strictoff",
+      "n": 260,
+      "wr_pct": 36.54,
+      "sum_r": 22.393,
+      "avg_r": 0.0861,
+      "max_dd_r": 11.196,
+      "pf": 1.136,
+      "n_tp1": 95,
+      "n_long": 138,
+      "n_short": 122,
+      "exits": {
+        "m5_ha_flip": 94,
+        "stop": 165,
+        "be": 1
+      },
+      "part": "A",
+      "stack": "M5+M45",
+      "filter": "overlap_off"
+    },
+    {
+      "symbol": "US500",
+      "variant": "st7x2_flat_m5_st45_ovlon_strictoff",
+      "n": 242,
+      "wr_pct": 33.88,
+      "sum_r": 1.394,
+      "avg_r": 0.0058,
+      "max_dd_r": 11.994,
+      "pf": 1.009,
+      "n_tp1": 82,
+      "n_long": 131,
+      "n_short": 111,
+      "exits": {
+        "m5_ha_flip": 81,
+        "stop": 160,
+        "be": 1
+      },
+      "part": "A",
+      "stack": "M5+M45",
+      "filter": "overlap_on"
+    },
+    {
+      "symbol": "US500",
+      "variant": "st7x2_flat_m5_st45_ovloff_stricton",
+      "n": 201,
+      "wr_pct": 33.83,
+      "sum_r": -0.366,
+      "avg_r": -0.0018,
+      "max_dd_r": 16.621,
+      "pf": 0.997,
+      "n_tp1": 67,
+      "n_long": 108,
+      "n_short": 93,
+      "exits": {
+        "m5_ha_flip": 66,
+        "stop": 133,
+        "be": 1,
+        "open_eod": 1
+      },
+      "part": "B",
+      "stack": "M5+M45",
+      "filter": "strict_on"
+    }
+  ]
+}
