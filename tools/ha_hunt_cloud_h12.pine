@@ -1,0 +1,212 @@
+//@version=6
+// ─────────────────────────────────────────────────────────────────────────────
+// HA-Hunt Cloud — H12  (the "calmer sibling": H1 execution)
+//
+//   hunt regime : H12 Heikin-Ashi  (last CLOSED H12 bar, no repaint)
+//   entry stack : H1               (chart timeframe — run this on the 1-hour chart)
+//   "WITH" tf   : H4               (H4 HA aligned OR H4 close on the trade side of RMA33)
+//   stop        : entry ∓ 2.5 × H4 Wilder ATR(14)      → 1R = the stop distance
+//   exit        : "Cloud-hold" = H12 HA flips against OR stop ; "Fixed 2R TP" = TP or stop
+//   RMA         : fast 33 / slow 144 (Wilder) on H1 close
+//   cap         : 2 entries per H12 regime per instrument
+//
+// PUT IT ON  : the 1-hour chart, NORMAL candles (Heikin-Ashi is computed inside).
+// SYMBOLS    : validated long-only on XAU (GOLD / XAUUSD) and US100 (NAS100).
+// SHOWS      : BUY setups (green ▲), SELL setups (red ▼ solid = taken, grey ▼ = info
+//              only when Long-only is on), the stop (red), entry (teal), and the 2R
+//              take-profit line (green) with a flag on first touch.
+// Backtest   : XAU+US100 longs — IS +24R / DD 4.8% / PF 2.02 ; OOS +13R / DD 5% / PF 1.53.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("HA-Hunt Cloud — H12 (H1 exec)", overlay = true, max_labels_count = 500)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+longOnly   = input.bool(true,  "Long only")
+showShorts = input.bool(true,  "Show SELL setups (even in long-only)")
+exitMode   = input.string("Cloud-hold", "Exit", options = ["Cloud-hold", "Fixed 2R TP"])
+tpR        = input.float(2.0,  "TP = R ×", step = 0.5)
+applyPP    = input.bool(true,  "Daily pivot filter  (turn OFF for crypto)")
+capReg     = input.int(2,      "Max entries per H12 regime", minval = 1)
+atrMult    = input.float(2.5,  "Stop = H4 ATR ×", step = 0.1)
+fastLen    = input.int(33,     "RMA fast")
+slowLen    = input.int(144,    "RMA slow")
+shadeReg   = input.bool(true,  "Shade H12 regime")
+showLabels = input.bool(true,  "Buy/Sell text labels (off = small triangles)")
+entryTrig  = input.string("HA flip + stack", "Entry trigger",
+     options = ["HA flip + stack", "M15 band cross"])   // 'band cross' = faster, NOT backtested
+
+HTF  = "720"   // H12
+WITH = "240"   // H4
+ATRF = "240"   // H4
+WANT = "60"    // H1 chart
+useTP = exitMode == "Fixed 2R TP"
+
+// ── chart-TF reminder ────────────────────────────────────────────────────────
+var label warn = na
+if barstate.islast
+    label.delete(warn)
+    if timeframe.period != WANT
+        warn := label.new(bar_index, high, "Run this on the 1-hour chart",
+             style = label.style_label_down, color = color.orange, textcolor = color.white)
+
+// ── H1 Heikin-Ashi (from the chart's normal candles) ────────────────────────
+haClose = (open + high + low + close) / 4
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2 : (haOpen[1] + haClose[1]) / 2
+eBull  = haClose >= haOpen
+eFlip  = eBull != eBull[1]
+
+// ── H1 RMA stack ────────────────────────────────────────────────────────────
+rf = ta.rma(close, fastLen)
+rs = ta.rma(close, slowLen)
+stackLong  = close > rf and rf > rs
+stackShort = close < rf and rf < rs
+
+// ── M15 ribbon cross (alt entry trigger) — RMA33 vs RMA144 on M15 ───────────
+[msF, msS] = request.security(syminfo.tickerid, "15", [ta.rma(close, fastLen), ta.rma(close, slowLen)],
+     lookahead = barmerge.lookahead_off)
+m15CrossUp = msF > msS and msF[1] <= msS[1]
+m15CrossDn = msF < msS and msF[1] >= msS[1]
+useCross   = entryTrig == "M15 band cross"
+
+// ── H12 Heikin-Ashi regime — last CLOSED H12 bar (matches the backtest's idx_asof).
+//    lookahead_off on closed chart bars = last completed H12 bar on history; only
+//    the currently-forming H12 bar can shift in realtime (same as the live bot). ──
+haT = ticker.heikinashi(syminfo.tickerid)
+[hO0, hC0, hO1, hC1] = request.security(haT, HTF, [open, close, open[1], close[1]],
+     lookahead = barmerge.lookahead_off)
+htfBull     = hC0 >= hO0
+htfBullPrev = hC1 >= hO1
+htfFlip     = htfBull != htfBullPrev
+
+// ── H4 "WITH" (HA aligned OR H4 close on the trade side of RMA33), last closed ─
+[wHaO, wHaC] = request.security(haT, WITH, [open, close], lookahead = barmerge.lookahead_off)
+[wClose, wRf] = request.security(syminfo.tickerid, WITH,
+     [close, ta.rma(close, fastLen)], lookahead = barmerge.lookahead_off)
+wBull     = wHaC >= wHaO
+withLong  = wBull        or wClose > wRf
+withShort = (not wBull)  or wClose < wRf
+
+// ── H4 ATR (Wilder) for the stop, last closed bar ──────────────────────────
+atrV = request.security(syminfo.tickerid, ATRF, ta.atr(14), lookahead = barmerge.lookahead_off)
+
+// ── daily pivot, session rolls at 21:00 UTC ─────────────────────────────────
+sIdx = math.floor((time / 1000 - 75600) / 86400)          // 75600 = 21*3600
+newS = ta.change(sIdx) != 0
+var float cH = na
+var float cL = na
+var float cC = na
+var float pH = na
+var float pL = na
+var float pC = na
+if newS
+    pH := cH
+    pL := cL
+    pC := cC
+    cH := high
+    cL := low
+    cC := close
+else
+    cH := math.max(nz(cH, high), high)
+    cL := math.min(nz(cL, low), low)
+    cC := close
+pp      = (pH + pL + pC) / 3
+ppLong  = not applyPP or (not na(pp) and close > pp)
+ppShort = not applyPP or (not na(pp) and close < pp)
+
+// ── regime fill cap + position state ────────────────────────────────────────
+var int   fills  = 0
+var int   pos    = 0
+var float entPx  = na
+var float stpX   = na
+var float tpX    = na
+var bool  tpFlag = false
+if htfFlip
+    fills := 0
+
+// ── manage first (backtest order: manage, then enter) ───────────────────────
+tpHit    = (pos == 1 and high >= tpX) or (pos == -1 and low <= tpX)
+exitStop = (pos == 1 and low <= stpX) or (pos == -1 and high >= stpX)
+exitFlip = (pos == 1 and not htfBull) or (pos == -1 and htfBull)
+doExit   = pos != 0 and (exitStop or (useTP ? tpHit : exitFlip))
+exitRsn  = exitStop ? "stop" : (useTP ? "tp" : "h12_ha_flip")
+tpTouch  = pos != 0 and tpHit and not tpFlag
+if tpTouch
+    tpFlag := true
+if doExit
+    pos := 0
+
+// ── setups + entry ──────────────────────────────────────────────────────────
+canEnter = fills < capReg and pos == 0
+// "M15 band cross" = M15 RMA33 crosses RMA144  AND  the H1 close breaks its own
+// fast RMA (price beyond the H1 fast band) — fires near the break, not the low.
+trigLong  = useCross ? (m15CrossUp and close > rf) : (eFlip and eBull       and stackLong)
+trigShort = useCross ? (m15CrossDn and close < rf) : (eFlip and (not eBull) and stackShort)
+longRaw  = htfBull       and trigLong  and withLong  and ppLong
+shortRaw = (not htfBull) and trigShort and withShort and ppShort
+longSig  = longRaw  and canEnter
+shortSig = shortRaw and canEnter and not longOnly
+if longSig
+    pos    := 1
+    entPx  := close
+    stpX   := close - atrMult * atrV
+    tpX    := close + tpR * atrMult * atrV
+    tpFlag := false
+    fills  := fills + 1
+if shortSig
+    pos    := -1
+    entPx  := close
+    stpX   := close + atrMult * atrV
+    tpX    := close - tpR * atrMult * atrV
+    tpFlag := false
+    fills  := fills + 1
+
+// ── SELL display: only the shorts the model WOULD take (≤ cap/regime), so the
+//    markers are symmetric with BUY even while Long-only is on. Shadow state. ──
+var int   sFills = 0
+var int   sPos   = 0
+var float sStp   = na
+if htfFlip
+    sFills := 0
+if sPos == -1 and (htfBull or high >= sStp)
+    sPos := 0
+sTake = shortRaw and sFills < capReg and sPos == 0
+if sTake
+    sPos   := -1
+    sStp   := close + atrMult * atrV
+    sFills := sFills + 1
+
+// ── plots ───────────────────────────────────────────────────────────────────
+sellShow = shortSig or (longOnly and showShorts and sTake)
+
+plotshape(longSig  and not showLabels, "Buy ▲",  shape.triangleup,   location.belowbar, color.new(color.teal, 0), size = size.small)
+plotshape(sellShow and not showLabels, "Sell ▼", shape.triangledown, location.abovebar, shortSig ? color.new(color.red, 0) : color.new(color.gray, 25), size = size.small)
+if showLabels and longSig
+    label.new(bar_index, low, "Buy", yloc = yloc.belowbar, style = label.style_label_up,
+         color = color.new(color.teal, 0), textcolor = color.white, size = size.small)
+if showLabels and sellShow
+    label.new(bar_index, high, "Sell", yloc = yloc.abovebar, style = label.style_label_down,
+         color = shortSig ? color.new(color.red, 0) : color.new(color.gray, 15), textcolor = color.white, size = size.small)
+
+plotshape(tpTouch, "TP hit", shape.flag, location.abovebar, color.new(color.green, 0), size = size.tiny)
+plotshape(doExit,  "Exit",   shape.xcross, location.top,     color.new(color.gray, 0), size = size.tiny)
+plot(pos != 0 ? stpX : na,  "Stop",   color.new(color.red, 0),   style = plot.style_linebr, linewidth = 2)
+plot(pos != 0 ? entPx : na, "Entry",  color.new(color.teal, 0),  style = plot.style_linebr, linewidth = 1)
+plot(pos != 0 ? tpX : na,   "TP (R)", color.new(color.green, 0), style = plot.style_linebr, linewidth = 1)
+bgcolor(shadeReg ? (htfBull ? color.new(color.teal, 92) : color.new(color.red, 94)) : na, title = "H12 regime")
+
+// ── alerts ──────────────────────────────────────────────────────────────────
+alertcondition(longSig,  "HA-Hunt H12: Long entry",  "HA-Hunt H12 LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "HA-Hunt H12: Short entry", "HA-Hunt H12 SHORT {{ticker}} @ {{close}}")
+alertcondition(longOnly and showShorts and sTake, "HA-Hunt H12: Sell setup (info)", "HA-Hunt H12 sell setup {{ticker}} @ {{close}}")
+alertcondition(doExit,   "HA-Hunt H12: Exit",        "HA-Hunt H12 EXIT {{ticker}} @ {{close}}")
+alertcondition(tpTouch,  "HA-Hunt H12: 2R reached",  "HA-Hunt H12 2R reached {{ticker}} @ {{close}}")
+
+if longSig or shortSig or doExit
+    ev = longSig ? "entry_long" : shortSig ? "entry_short" : "exit"
+    js = '{"strat":"ha_hunt","mode":"H12","event":"' + ev +
+         '","symbol":"{{ticker}}","tf":"' + timeframe.period +
+         '","price":' + str.tostring(close, format.mintick) +
+         ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) +
+         ',"tp":' + str.tostring(pos != 0 ? tpX : tpX[1], format.mintick) +
+         ',"reason":"' + (doExit ? exitRsn : "signal") + '"}'
+    alert(js, alert.freq_once_per_bar_close)
