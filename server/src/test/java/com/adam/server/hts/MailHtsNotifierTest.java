@@ -26,15 +26,15 @@ class MailHtsNotifierTest {
     }
 
     @Test
-    void mailsEveryHaHuntSignalWithNoCooldown() {
+    void mailsOnlyH1EntrySignalsWithNoCooldown() {
         Mailer mailer = mock(Mailer.class);
         MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
 
-        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);
-        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);   // same setup — still mailed
-        n.onHtsSignal(signal(HtsVariant.HA12, "US100"), null);
+        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);     // M15 entry — not mailed
+        n.onHtsSignal(signal(HtsVariant.HA12, "US100"), null);  // H1 entry — mailed
+        n.onHtsSignal(signal(HtsVariant.HA12, "US100"), null);  // same setup — still mailed, no cooldown
 
-        verify(mailer, times(3)).send(anyString(), anyString());
+        verify(mailer, times(2)).send(anyString(), anyString());
     }
 
     @Test
@@ -51,17 +51,29 @@ class MailHtsNotifierTest {
     }
 
     @Test
+    void doesNotMailNonH1EntryHaHuntVariants() {
+        Mailer mailer = mock(Mailer.class);
+        MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
+
+        n.onHtsSignal(signal(HtsVariant.HA4, "XAU"), null);     // M15
+        n.onHtsSignal(signal(HtsVariant.HA1, "US100"), null);   // M5
+        n.onHtsSignal(signal(HtsVariant.HA_OKX, "ETH"), null);  // M15
+
+        verify(mailer, never()).send(anyString(), anyString());
+    }
+
+    @Test
     void subjectAndBodyUseTheHuntLabelAndDoNotNpeOnNullHtf() {
         Mailer mailer = mock(Mailer.class);
         MailHtsNotifier n = new MailHtsNotifier(mailer, new com.adam.server.config.AppProperties());
 
-        n.onHtsSignal(signal(HtsVariant.HA4, "USDJPY"), null);
+        n.onHtsSignal(signal(HtsVariant.HA12, "USDJPY"), null);
 
-        verify(mailer).send(contains("[HA4 H4-hunt/M15]"), contains("HA-hunt cloud entry"));
+        verify(mailer).send(contains("[HA12 H12-hunt/H1]"), contains("HA-hunt cloud entry"));
     }
 
     @Test
-    void mmsSignalIsNotMailedByDefaultButIsWhenMailEnabled() {
+    void mmsNeverMailsNowMailIsRestrictedToH1EntryVariants() {
         Mailer mailer = mock(Mailer.class);
         com.adam.server.config.AppProperties props = new com.adam.server.config.AppProperties();
 
@@ -69,10 +81,11 @@ class MailHtsNotifierTest {
         new MailHtsNotifier(mailer, props).onHtsSignal(signal(HtsVariant.MMS, "BTC"), null);
         verify(mailer, never()).send(anyString(), anyString());
 
-        // opt in
+        // the MMS opt-in no longer matters — mailsSignals() is gated to H1-entry
+        // variants first, and MMS is M15
         props.getMms().setMailEnabled(true);
         new MailHtsNotifier(mailer, props).onHtsSignal(signal(HtsVariant.MMS, "BTC"), null);
-        verify(mailer).send(contains("[MMS M15 TMA-ATR]"), contains("MMS mean-reversion entry"));
+        verify(mailer, never()).send(anyString(), anyString());
     }
 
     @Test

@@ -583,6 +583,7 @@ public class AppProperties {
         private String us500 = "US500";
         private String xag = "SILVER";
         private String j225 = "J225";
+        private String us30 = "US30";
 
         public String getGer40() {
             return ger40;
@@ -654,6 +655,14 @@ public class AppProperties {
 
         public void setJ225(String j225) {
             this.j225 = j225;
+        }
+
+        public String getUs30() {
+            return us30;
+        }
+
+        public void setUs30(String us30) {
+            this.us30 = us30;
         }
     }
 

@@ -8,13 +8,14 @@ import org.springframework.stereotype.Component;
  * E-mails HTS entry signals via the shared {@link Mailer} (a no-op until SMTP +
  * a recipient are configured).
  *
- * <p>HA-hunt strategies mail — see {@link HtsVariant#mailsSignals()}. They are
- * sparse and each entry is a one-bar event, so every signal is mailed with no
- * cooldown. FAST (M5) and the OKX crypto variants signal far too often to mail;
- * CORE_LIVE fills are visible on the dashboard. {@link HtsVariant#MMS} also
- * {@code mailsSignals()} but the mail is <b>off by default</b>
- * ({@code app.mms.mail-enabled}) — the observe-only forward test just needs the
- * {@code hts_signals} rows, not an inbox full of MR signals.
+ * <p>Only <b>H1-entry</b> variants mail — see {@link HtsVariant#mailsSignals()}.
+ * Today that is {@link HtsVariant#HA12} alone: it is sparse and each entry is a
+ * one-bar event, so every HA12 signal is mailed with no cooldown. M15/M5
+ * entries (HA4, HA1, HA_OKX) and FAST / the OKX ribbon variants signal far too
+ * often to mail; CORE_LIVE (parked, real-money) fills would be visible on the
+ * dashboard. {@link HtsVariant#MMS} runs on M15, so {@code mailsSignals()} is
+ * false for it regardless of {@code app.mms.mail-enabled} — that flag is now a
+ * no-op unless MMS moves to an H1 entry TF.
  *
  * <p>A short on a long-only variant is mailed too, marked
  * <b>OBSERVE ONLY</b> — the scan does not execute it.
