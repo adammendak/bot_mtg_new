@@ -340,12 +340,107 @@ Adam target **~50% WR** (win = scaled total R > 0). OLD full-trail book was **32
 XAU+US100 long-only **M45**: n=322 WR=36.0% sumR=+24.5 (XAU 39.1% / +26.5, US100 33.1% / -2.0).
 XAU+US100 long-only **H1**: n=270 WR=37.8% sumR=+31.3 (XAU 38.2% / +18.5, US100 37.4% / +12.9).
 
+## M15 HA-flip runner (vs M5)
+
+Generated `2026-09-11T16:41:28.213574+00:00`. Same 12m data resampled M5→M15 (epoch buckets). Slow **144**, M15 band-cross, M45 structure gate **ON**, cap 2, both sides.
+
+**Locked analogy:** trigger = first M15 close beyond the M15 fast RMA band. Bias+SL = closed M45 ST (A) or H1 ST (B). 50% at 1:2 → runner stop to **entry** → full exit on confirmed **M15 HA colour flip** (body) or BE. ST is bias + initial SL only.
+
+### M15 book
+
+| cell | n | WR% (R>0) | TP1% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A M15 + M45 ST + half TP1 + BE + M15 HA flip | 1087 | 32.6 | 32.5 | -47.38 | -0.044 | 36.08 | 0.94 |
+| B M15 + H1 ST + half TP1 + BE + M15 HA flip | 1037 | 35.7 | 35.5 | 66.55 | 0.064 | 37.13 | 1.10 |
+| C M15 + M45 ST full-trail (no half, ST trail) | 1132 | 30.7 | 27.7 | 154.24 | 0.136 | 38.26 | 1.21 |
+
+### Side-by-side vs M5 half+BE+HA
+
+| symbol | M15 A WR | M5 A WR | M15 B WR | M5 B WR | M15 A sumR | M5 A sumR | M15 B sumR | M5 B sumR | M15 A TP1% | M15 B TP1% |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XAU | 32.8 | 37.7 | 37.4 | 39.4 | -1.08 | 31.00 | 24.45 | 38.33 | 32.8 | 37.4 |
+| US100 | 36.2 | 35.0 | 41.8 | 35.4 | 10.70 | 13.05 | 48.31 | 9.30 | 36.2 | 41.8 |
+| EURUSD | 29.5 | 31.8 | 32.4 | 33.3 | -24.30 | -20.18 | -9.51 | -4.59 | 29.0 | 31.9 |
+| GER40 | 30.2 | 31.6 | 32.8 | 33.0 | -32.16 | -12.07 | -4.54 | -4.33 | 30.2 | 32.8 |
+| BTCUSD | 34.0 | 35.5 | 35.1 | 31.6 | -0.54 | 27.23 | 7.85 | -16.90 | 34.0 | 34.8 |
+| BOOK | 32.6 | 34.3 | 35.7 | 34.4 | -47.38 | 39.02 | 66.55 | 21.81 | 32.5 | 35.5 |
+
+### Detail (M15)
+
+#### XAU
+
+| cell | n | WR% (R>0) | TP1% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A M15 + M45 ST + half TP1 + BE + M15 HA flip | 189 | 32.8 | 32.8 | -1.08 | -0.006 | 19.56 | 0.99 |
+| B M15 + H1 ST + half TP1 + BE + M15 HA flip | 174 | 37.4 | 37.4 | 24.45 | 0.141 | 8.36 | 1.22 |
+| C M15 + M45 ST full-trail (no half, ST trail) | 201 | 31.8 | 29.4 | 101.45 | 0.505 | 15.41 | 1.83 |
+
+Exits A: `{'stop': 127, 'm15_ha_flip': 52, 'be': 10}` · B: `{'stop': 109, 'm15_ha_flip': 61, 'be': 4}`. TP1 A 62/189 · B 65/174.
+
+#### US100
+
+| cell | n | WR% (R>0) | TP1% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A M15 + M45 ST + half TP1 + BE + M15 HA flip | 177 | 36.2 | 36.2 | 10.70 | 0.060 | 24.36 | 1.09 |
+| B M15 + H1 ST + half TP1 + BE + M15 HA flip | 182 | 41.8 | 41.8 | 48.31 | 0.265 | 7.77 | 1.46 |
+| C M15 + M45 ST full-trail (no half, ST trail) | 191 | 33.5 | 28.3 | 51.37 | 0.269 | 15.75 | 1.44 |
+
+Exits A: `{'be': 10, 'm15_ha_flip': 54, 'stop': 113}` · B: `{'m15_ha_flip': 69, 'be': 7, 'stop': 106}`. TP1 A 64/177 · B 76/182.
+
+#### EURUSD
+
+| cell | n | WR% (R>0) | TP1% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A M15 + M45 ST + half TP1 + BE + M15 HA flip | 207 | 29.5 | 29.0 | -24.30 | -0.117 | 36.08 | 0.83 |
+| B M15 + H1 ST + half TP1 + BE + M15 HA flip | 207 | 32.4 | 31.9 | -9.51 | -0.046 | 37.13 | 0.93 |
+| C M15 + M45 ST full-trail (no half, ST trail) | 228 | 28.5 | 24.1 | 4.13 | 0.018 | 36.62 | 1.03 |
+
+Exits A: `{'stop': 146, 'm15_ha_flip': 57, 'be': 3, 'open_eod': 1}` · B: `{'stop': 140, 'm15_ha_flip': 66, 'open_eod': 1}`. TP1 A 60/207 · B 66/207.
+
+#### GER40
+
+| cell | n | WR% (R>0) | TP1% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A M15 + M45 ST + half TP1 + BE + M15 HA flip | 205 | 30.2 | 30.2 | -32.16 | -0.157 | 34.16 | 0.78 |
+| B M15 + H1 ST + half TP1 + BE + M15 HA flip | 198 | 32.8 | 32.8 | -4.54 | -0.023 | 18.11 | 0.97 |
+| C M15 + M45 ST full-trail (no half, ST trail) | 200 | 28.5 | 28.5 | -38.08 | -0.190 | 38.26 | 0.72 |
+
+Exits A: `{'be': 7, 'stop': 143, 'm15_ha_flip': 55}` · B: `{'stop': 133, 'm15_ha_flip': 63, 'be': 2}`. TP1 A 62/205 · B 65/198.
+
+#### BTCUSD
+
+| cell | n | WR% (R>0) | TP1% | sumR | avgR | maxDD(R) | PF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A M15 + M45 ST + half TP1 + BE + M15 HA flip | 309 | 34.0 | 34.0 | -0.54 | -0.002 | 20.54 | 1.00 |
+| B M15 + H1 ST + half TP1 + BE + M15 HA flip | 276 | 35.1 | 34.8 | 7.85 | 0.028 | 22.19 | 1.04 |
+| C M15 + M45 ST full-trail (no half, ST trail) | 312 | 31.1 | 28.2 | 35.37 | 0.113 | 33.40 | 1.18 |
+
+Exits A: `{'stop': 204, 'm15_ha_flip': 93, 'be': 12}` · B: `{'stop': 179, 'm15_ha_flip': 91, 'be': 5, 'open_eod': 1}`. TP1 A 105/309 · B 96/276.
+
+### Call
+
+**M15 does not reach ~50% WR on XAU or US100.** Closest is **B H1 ST on US100 at 41.8%** (+6.4pp vs M5’s 35.4%) — still ~8pp short. XAU is worse on M15 than M5 (A 32.8 vs 37.7; B 37.4 vs 39.4).
+
+On this exit **H1 ST wins M15** (book +67R / 35.7% WR). M45 ST on M15 **loses** (−47R / 32.6%) — do not pair M15 trigger with M45 ST + HA-flip.
+
+| | M15 A M45 HA | M15 B H1 HA | M5 A M45 HA | M5 B H1 HA |
+| --- | ---: | ---: | ---: | ---: |
+| Book WR | 32.6 | **35.7** | 34.3 | 34.4 |
+| Book sumR | −47 | **+67** | +39 | +22 |
+| XAU WR / sumR | 32.8 / −1 | 37.4 / +24 | **37.7 / +31** | **39.4 / +38** |
+| US100 WR / sumR | 36.2 / +11 | **41.8 / +48** | 35.0 / +13 | 35.4 / +9 |
+
+Optional M15 full-trail C: n=1132 WR=30.7% sumR=**+154** (XAU +101, US100 +51) — same old-exit pattern as M5: more R, still ~31% WR.
+
+WR again equals TP1%. M15+H1 on US100 is the only name that clearly moves toward 50%; it does not get there.
+
 ## How to rerun
 
 ```bash
 python3 -m tools.ha_hunt_st_compare.run_bakeoff
 python3 -m tools.ha_hunt_st_compare.run_bakeoff --h1-followup
 python3 -m tools.ha_hunt_st_compare.run_bakeoff --ha-exit
+python3 -m tools.ha_hunt_st_compare.run_bakeoff --m15
 ```
 
 With Capital DEMO env (`CAPITAL_API_KEY`, `CAPITAL_EMAIL`, `CAPITAL_API_PASSWORD`) the loader prefers Capital mid M5.
