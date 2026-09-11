@@ -37,10 +37,11 @@ class StV3EngineTest {
     @Test
     void symbolOutsideTheUniverseReturnsNull() {
         StV3Engine engine = new StV3Engine();
-        // GER40 is not in M15_ST_V3's universe (BTC/XAU/US100) — must short-circuit
-        // even with otherwise-enough bars, rather than fall through to the gates.
+        // ETH is not an SddSymbol at all, so certainly outside every ST_V3
+        // universe — must short-circuit even with otherwise-enough bars,
+        // rather than fall through to the gates.
         List<Candle> bars = flatM15(200, 100.0, Instant.parse("2026-01-01T00:00:00Z"));
-        assertThat(engine.evaluate(HtsVariant.M15_ST_V3, "GER40", "DE40", bars, Instant.now())).isNull();
+        assertThat(engine.evaluate(HtsVariant.M15_ST_V3, "ETH", "ETHUSD", bars, Instant.now())).isNull();
     }
 
     @Test
@@ -48,8 +49,12 @@ class StV3EngineTest {
         // A perfectly flat series never closes beyond the fast RMA band (it IS
         // the band), so this must stay null indefinitely — a sanity check that
         // the entry gate doesn't fire on a degenerate/no-volatility series.
+        // Exercises all three HTF spans (M45/H1/H4) via each variant's own
+        // atrMinutes(), not just the H1 one.
         StV3Engine engine = new StV3Engine();
         List<Candle> bars = flatM15(400, 100.0, Instant.parse("2026-01-01T00:00:00Z"));
         assertThat(engine.evaluate(HtsVariant.M15_ST_V3, "XAU", "GOLD", bars, Instant.now())).isNull();
+        assertThat(engine.evaluate(HtsVariant.M5_ST_V3, "XAU", "GOLD", bars, Instant.now())).isNull();
+        assertThat(engine.evaluate(HtsVariant.H1_ST_V3, "BTC", "BTCUSD", bars, Instant.now())).isNull();
     }
 }

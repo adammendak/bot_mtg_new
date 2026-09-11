@@ -8,52 +8,55 @@ import java.util.List;
 
 /**
  * The HTS strategy variants run side by side, each on its own Capital.com
- * sub-account:
+ * sub-account. As of the ST_V3 rollout, every account runs a Supertrend
+ * band-cross variant ({@link Strategy#ST_V3}, {@link StV3Engine}) — the
+ * HA-hunt cloud family ({@link #HA4}, {@link #HA12}, {@link #HA1}) is parked
+ * on real accounts (only {@link #HA_OKX} on the crypto-only OKX book keeps
+ * running its shape) so all four demo books forward-test the same idea:
  *
  * <ul>
- *   <li>{@link #FAST} — ribbon, H1 / M5 → {@code hts} book ("Account m5"), demo</li>
+ *   <li>{@link #M5_ST_V3} — M5 entry / M45-Supertrend filter+stop →
+ *       {@code hts} book ("Account m5"), took it from {@link #HA1} (parked,
+ *       no backtest evidence). Universe: {@link #M15_ST_V3B}'s
+ *       {@code SATELLITE_UNIVERSE} (see below) — same five tickers.</li>
+ *   <li>{@link #M15_ST_V3B} — M15 entry / H1-Supertrend filter+stop →
+ *       {@code demo} book ("Account m15"), took it from {@link #HA4} (parked).
+ *       Universe: US100/XAU/BTC/GER40/EURUSD — the SAME five tickers as
+ *       {@link #M5_ST_V3} and {@link #H1_ST_V3} on purpose: one week of
+ *       forward-testing gives a direct per-ticker RR comparison across the
+ *       three timeframe pairings instead of three disjoint samples. Also
+ *       deliberately overlaps {@link #M15_ST_V3}'s own (wider) universe —
+ *       same strategy, two accounts, more forward-test data.</li>
+ *   <li>{@link #H1_ST_V3} — H1 entry / H4-Supertrend filter+stop →
+ *       {@code swing} book ("Account H1"), took it from {@link #HA12}
+ *       (parked). Universe: the same five tickers as {@link #M5_ST_V3} /
+ *       {@link #M15_ST_V3B} — the weakest, thinnest-sampled pairing of the
+ *       three; kept as a smaller satellite.</li>
+ *   <li>{@link #M15_ST_V3} — same shape as {@link #M15_ST_V3B}, on the
+ *       {@code mms} book ("Account MMS") {@link #MMS} vacated (parked, no
+ *       backtest edge). Universe: all ten backtested tickers (XAU/BTC/US100/
+ *       GER40/EURUSD/US500/US30/XAG/J225/USDJPY) — the "broad" book, the
+ *       strongest and most consistent of the three pairings on the full set.</li>
+ *   <li>{@link #FAST} — ribbon, H1 / M5, parked (zero-edge forward test).</li>
  *   <li>{@link #CORE_LIVE} — ribbon, H4 / M15 → {@code live} book ("bot trading konto"),
- *       <b>real money</b>, 1 % of account risk. <b>Parked / detached</b> — no
- *       strategy trades the live book any more; {@code HTS_LIVE_EXECUTION_ENABLED}
- *       (separate from the demo flag) also defaults to off as a second guard</li>
- *   <li>{@link #CORE_OKX} / {@link #FAST_OKX} — ribbon → {@code okx} book (crypto, SWAP), 24/7</li>
- *   <li>{@link #HA4} — HA-hunt cloud, H4 hunt / M15 entry, "HA flip + stack" trigger
- *       → {@code demo} book ("Account m15"); XAU / XAG / J225 / USDJPY / US100, long only.</li>
- *   <li>{@link #HA12} — HA-hunt cloud, H12 hunt / H1 entry → {@code swing} book
- *       ("Account H1"); same universe as {@link #HA4}. Backtest's strongest
- *       config (PF ~1.8, MaxDD ~6%); ran silent for two days on first deploy,
- *       resumed on the numbers.</li>
- *   <li>{@link #HA1} — H1-HA-hunt cloud, M5 entry, ATR stop / WITH confirm on
- *       M15 (resampled from the M5 feed — no separate broker fetch) →
- *       {@code hts} book ("Account m5"); same universe as {@link #HA4}, long only.
- *       <b>No backtest evidence</b> — FAST's M5 band-edge stop churns on this
- *       book (avg hold 5–9 min on every symbol but BTC), this swaps in an
- *       ATR-based stop on the same book to see if that structurally holds up.</li>
- *   <li>{@link #HA_OKX} — HA-hunt cloud, same H4/M15/H1 shape as {@link #HA4},
- *       on the {@code okx} book: ETH + XRP linear USDT perpetual swaps, long
- *       only, plus a funding-rate crowding skip. OKX HA-hunt backtest dropped
- *       BTC (net loser) for XRP; execution gated by {@code OKX_LIVE_EXECUTION_ENABLED}.</li>
- *   <li>{@link #MMS} — MastermindZX mean-reversion. <b>Parked</b> — no
- *       backtest edge, see {@code docs/MMS-STRATEGY.md}.</li>
- *   <li>{@link #M15_ST_V3} — M15 entry / H1-Supertrend filter+stop, TP1 2:1
- *       half + breakeven + confirmed M15 HA-flip runner exit, on BTC / XAU /
- *       US100 → the {@code mms} book ("Account MMS") {@link #MMS} vacated —
- *       every symbol positive in both a 12-mo in-sample and 12-mo
- *       out-of-sample backtest (PF 1.12-1.37).</li>
+ *       <b>real money</b>. <b>Parked / detached</b> — no strategy trades the
+ *       live book any more; {@code HTS_LIVE_EXECUTION_ENABLED} (separate from
+ *       the demo flag) also defaults to off as a second guard.</li>
+ *   <li>{@link #CORE_OKX} / {@link #FAST_OKX} — ribbon → {@code okx} book (crypto, SWAP), parked.</li>
+ *   <li>{@link #HA_OKX} — HA-hunt cloud, H4/M15/H1 shape, on the {@code okx}
+ *       book: ETH + XRP linear USDT perpetual swaps, long only, plus a
+ *       funding-rate crowding skip. Still active — the ST_V3 rollout is
+ *       Capital-only so far.</li>
  * </ul>
  *
- * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST} and
- * {@link #CORE_LIVE} are {@link #parked() parked} — kept in the enum but not
- * scanned. CORE/SWING (ribbon) gave zero signals through the forward test;
- * FAST churned every non-BTC symbol on M5 and was replaced by {@link #HA1} on
- * the same ("Account m5") book; {@link #HA4X} ("M15 band cross" entry) backtested
- * to PF ~1.2 IS / ~0.8 in the recent regime, MaxDD ~30% — the HA-flip vs
- * band-cross A/B was decided on the numbers, {@link #HA12} took its book.
- * {@link #CORE_LIVE} — the real-money variant — is detached: nothing trades the
- * {@code live} book any more, every strategy is demo/swing/hts/okx only.
- * {@link #MMS} is parked (no backtest edge); {@link #M15_ST_V3} is unparked on
- * its {@code mms} book ("Account MMS") instead; execution still honours
- * {@code HTS_EXECUTION_ENABLED}. {@code live()} is false for both.
+ * <p>{@link #CORE}, {@link #SWING}, {@link #HA4X}, {@link #FAST},
+ * {@link #CORE_LIVE}, {@link #CORE_OKX}, {@link #FAST_OKX}, {@link #MMS},
+ * {@link #HA1}, {@link #HA4} and {@link #HA12} are {@link #parked() parked}
+ * — kept in the enum but not scanned, each superseded by the ST_V3 variant
+ * that now runs its book (see the bullets above for exactly which). Only
+ * {@link #HA_OKX} among the pre-ST_V3 lineup is still live, on the
+ * crypto-only OKX book the rollout does not touch. {@code live()} is false
+ * for every ST_V3 variant.
  *
  * <p>Ribbon variants ({@link Strategy#RIBBON}) run {@link HtsEngine};
  * HA-hunt variants ({@link Strategy#HA_HUNT}) run {@link HaHuntEngine} with a
@@ -64,7 +67,14 @@ import java.util.List;
  * after a closed-bar band touch + first reactive candle; opposite-band or
  * 1:1 TP; mandatory %-of-price SL (no trail); sequential delever after a
  * full base SL (add-on wick stops do not cut the unit). ST_V3
- * ({@link Strategy#ST_V3}) runs {@link StV3Engine}: see {@link #M15_ST_V3}.
+ * ({@link Strategy#ST_V3}) runs {@link StV3Engine}: HTF Supertrend is both
+ * the direction filter and the stop; entry is a fresh entry-TF close beyond
+ * its own fast RMA band, gated by an HTF structure check; exit (in
+ * {@link HtsTradeService#stV3Exit}) is TP1 2:1 on half, breakeven on the
+ * rest, full exit when the entry-TF's fast band crosses to the opposite side
+ * of its slow band. See each {@code M*_ST_V3*}/{@code H1_ST_V3} constant's
+ * own javadoc for the backtest behind its specific timeframe pairing and
+ * universe pick.
  */
 public enum HtsVariant {
 
@@ -115,32 +125,76 @@ public enum HtsVariant {
     MMS(Books.MMS, Resolution.M15, 15, Duration.ofDays(15), Mms.UNIVERSE),
 
     /**
-     * M15 entry / H1-Supertrend filter+stop (ATR 10, factor 2.0 — the research
-     * scripts' default, not {@link com.adam.server.sdd.Supertrend}'s own 3.0
-     * — ATR 12/factor 3.0 backtested to ~breakeven, PF 1.01 IS/1.16 OOS,
-     * clearly worse), TP1 2:1 on half then the remaining half's stop jumps
-     * once to breakeven and sits there — no trail, no slow-band exit — until
-     * a confirmed M15 Heikin-Ashi colour flip against the position flattens
-     * the runner (PR #140's locked "v3 bakeoff" config, ported from Pine).
+     * M15 entry / H1-Supertrend filter+stop (ATR 7, factor 2.0 — PR
+     * #144/#146's locked research default, not {@link com.adam.server.sdd.Supertrend}'s
+     * own factor 3.0; ATR 10/factor 2.0 backtested to within noise of this on
+     * the band-cross exit, no reason to diverge from the Pine lock). TP1 2:1
+     * on half, then the remaining half's stop jumps once to breakeven and
+     * sits there — no trail — until the M15 fast RMA band crosses to the
+     * opposite side of its slow band ({@link HtsTradeService#stV3Exit}).
      * H1 structure gate required: H1 close stacked vs its own RMA33/144, OR
      * the M15 close already beyond the closed H1 fast band, in the
-     * Supertrend direction. Cap 2 fills per Supertrend regime, no
-     * pyramiding (backtested WORSE: PF 1.54/1.61 -> 1.02/1.10 with
-     * pyramiding on the M5/M45 pairing, MaxDD 13.5% -> 55.9%). Both sides.
+     * Supertrend direction. Cap 2 fills per Supertrend regime, no pyramiding
+     * (backtested WORSE on this shape: PF 1.54/1.61 -&gt; 1.02/1.10, MaxDD
+     * 13.5% -&gt; 55.9%). Both sides.
      *
-     * <p>The original M5-entry/M45-Supertrend pairing (same idea, one
-     * timeframe rung down) backtested markedly worse once a TP1/runner
-     * double-counting bug in the research tool was fixed (a completed leg
-     * kept being silently re-evaluated on later bars instead of locking its
-     * result) — PF 1.09 IS / 1.08 OOS overall, with US100 and US30 flipping
-     * negative OOS. This M15/H1 pairing, restricted to BTC/XAU/US100, is the
-     * one that held up: 12&nbsp;mo IS 2025-09→2026-09 + 12&nbsp;mo OOS
-     * 2024-10→2025-09, no fees — every one of BTC/XAU/US100 positive in BOTH
-     * windows (XAU PF 1.31 IS / 1.12 OOS, BTC 1.31/1.22, US100 1.37/1.35;
-     * combined PF 1.33 IS / 1.23 OOS). Took the {@code mms} book
-     * ("Account MMS") from {@link #MMS} (no edge, parked).
+     * <p>The band-cross exit replaced an earlier HA-flip runner (PR
+     * #139/#140's original lock) after a proper 10-ticker backtest: HA-flip
+     * scored PF 1.33 IS / 1.23 OOS on BTC/XAU/US100 only; band-cross scores
+     * PF 2.10 IS / 1.65 OOS across ALL TEN tickers tested (XAU/BTC/US100/
+     * GER40/EURUSD/US500/US30/XAG/J225/USDJPY) — every single one positive
+     * in BOTH windows (12&nbsp;mo IS 2025-09→2026-09 + 12&nbsp;mo OOS
+     * 2024-10→2025-09, no fees), zero flips. XAU alone: PF 3.10 IS / 2.45
+     * OOS. Trade-off: fatter tail than HA-flip (median trade ≈ -0.5R — most
+     * trades are small losses) carried by rare large trend catches (seen up
+     * to +35R, held 6-11 days) because the exit rarely fires while a trend
+     * is still expanding — a confirmed swing-style preference, not a bug.
+     * See {@code pine/M15_FINAL.pine}'s header for the full comparison.
+     * Universe is all ten tested tickers — the "broad" book. Took the
+     * {@code mms} book ("Account MMS") from {@link #MMS} (no edge, parked).
      */
-    M15_ST_V3(Resolution.M15, Books.MMS, Duration.ofDays(10), 15, Mms.UNIVERSE);
+    M15_ST_V3(Resolution.M15, Books.MMS, Duration.ofDays(10), 15, 60, StV3.FULL_UNIVERSE),
+
+    /**
+     * Concentrated satellite copy of {@link #M15_ST_V3} (same H1/M15
+     * band-cross shape) on its own book/universe so the same strategy can be
+     * forward-tested on two accounts at once — deliberately overlapping
+     * tickers with {@link #M15_ST_V3}, not a partition. Universe is
+     * {@code StV3.SATELLITE_UNIVERSE} (US100/XAU/BTC/GER40/EURUSD) — the
+     * SAME five tickers as {@link #M5_ST_V3} and {@link #H1_ST_V3}, chosen
+     * deliberately so a week of forward-testing gives a direct per-ticker
+     * RR comparison across all three timeframe pairings instead of three
+     * disjoint samples. Took {@link #HA4}'s {@code demo} book
+     * ("Account m15") — HA4 is parked (see {@link #parked()}).
+     */
+    M15_ST_V3B(Resolution.M15, Books.DEMO, Duration.ofDays(10), 15, 60, StV3.SATELLITE_UNIVERSE),
+
+    /**
+     * M5 entry / M45-Supertrend filter+stop — same shape as {@link #M15_ST_V3}
+     * one timeframe rung down. Backtest (12mo IS/OOS, no fees, band-cross
+     * exit): every one of the 10 tested tickers positive in both windows,
+     * combined PF 1.87 IS / 1.98 OOS — broadly positive but noisier than
+     * M15/H1 per-symbol. Universe is {@code StV3.SATELLITE_UNIVERSE}
+     * (US100/XAU/BTC/GER40/EURUSD) — same five tickers as
+     * {@link #M15_ST_V3B} and {@link #H1_ST_V3}, for the cross-timeframe RR
+     * comparison. Took {@link #HA1}'s {@code hts} book ("Account m5") — HA1
+     * is parked.
+     */
+    M5_ST_V3(Resolution.M5, Books.HTS, Duration.ofDays(12), 5, 45, StV3.SATELLITE_UNIVERSE),
+
+    /**
+     * H1 entry / H4-Supertrend filter+stop — one timeframe rung up from
+     * {@link #M15_ST_V3}. Fires far less often than M15/H1 (~1/4 the
+     * signals) and is noisier per-symbol (thin per-symbol samples, ~25-50
+     * trades/12mo) despite a strong combined OOS (PF 2.04) vs a weak
+     * combined IS (PF 1.56) — kept as a smaller satellite, not the primary
+     * pick. Universe is {@code StV3.SATELLITE_UNIVERSE}
+     * (US100/XAU/BTC/GER40/EURUSD) — same five tickers as
+     * {@link #M5_ST_V3} and {@link #M15_ST_V3B}, for the cross-timeframe RR
+     * comparison. Took {@link #HA12}'s {@code swing} book
+     * ("Account H1") — HA12 is parked.
+     */
+    H1_ST_V3(Resolution.H1, Books.SWING, Duration.ofDays(35), 60, 240, StV3.SATELLITE_UNIVERSE);
 
     /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, or {@link StV3Engine}. */
     public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3 }
@@ -168,6 +222,22 @@ public enum HtsVariant {
     /** MastermindZX MMS: BTC + gold + Nasdaq (Capital epics BTCUSD / GOLD / US100). */
     private static final class Mms {
         static final java.util.List<String> UNIVERSE = java.util.List.of("BTC", "XAU", "US100");
+    }
+
+    /** ST_V3 universes — see each enum constant's javadoc for the backtest behind its pick. */
+    private static final class StV3 {
+        /** {@link HtsVariant#M15_ST_V3} — every ticker backtested, all ten. */
+        static final java.util.List<String> FULL_UNIVERSE = java.util.List.of(
+                "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY");
+        /**
+         * The SAME five tickers on every satellite book ({@link HtsVariant#M5_ST_V3},
+         * {@link HtsVariant#M15_ST_V3B}, {@link HtsVariant#H1_ST_V3}) — deliberate,
+         * so a week of forward-testing gives a direct per-ticker RR comparison
+         * across the three timeframe pairings (M45/M5 vs H1/M15 vs H4/H1) instead
+         * of three disjoint samples.
+         */
+        static final java.util.List<String> SATELLITE_UNIVERSE = java.util.List.of(
+                "US100", "XAU", "BTC", "GER40", "EURUSD");
     }
 
     private final Strategy strategy;
@@ -232,14 +302,17 @@ public enum HtsVariant {
     }
 
     /**
-     * ST_V3 variant: M5 entry, M45-Supertrend filter+SL, TP1 2:1 half + BE +
-     * confirmed-HA-flip runner (all fixed in {@link StV3Engine} — this shape
-     * only carries the book/lookback/universe, same idea as the MMS
-     * constructor above).
+     * ST_V3 variant: entry-TF band-cross gated by an HTF Supertrend that is
+     * both the direction filter and the stop-loss, TP1 2:1 half + BE +
+     * band-cross runner (all fixed in {@link StV3Engine} — this shape only
+     * carries the book/lookback/universe/HTF span; {@code stHtfMinutes} is
+     * stored in the otherwise-unused (for this strategy) {@code atrMinutes}
+     * field: 45 = M45, 60 = H1, 240 = H4).
      */
-    HtsVariant(Resolution entryTf, String book, Duration ltfLookback, int ltfMinutes, List<String> universe) {
+    HtsVariant(Resolution entryTf, String book, Duration ltfLookback, int ltfMinutes, int stHtfMinutes,
+               List<String> universe) {
         this(Strategy.ST_V3, null, entryTf, book, Duration.ofDays(60), ltfLookback, ltfMinutes, false,
-                0, 0, 0, 0, universe, false, EntryTrigger.HA_FLIP);
+                0, 0, stHtfMinutes, 0, universe, false, EntryTrigger.HA_FLIP);
     }
 
     HtsVariant(Strategy strategy, Resolution htf, Resolution ltf, String book, Duration htfLookback,
@@ -298,10 +371,17 @@ public enum HtsVariant {
      * zero-edge history as CORE. Only {@link #HA_OKX} trades the OKX book now.
      * {@link #MMS} is parked too — no backtest edge — and {@link #M15_ST_V3}
      * took its {@code mms} book.
+     *
+     * <p>The ST_V3 rollout parks the whole HA-hunt-cloud-on-Capital lineup —
+     * {@link #HA1}, {@link #HA4}, {@link #HA12} — each superseded on its own
+     * book by an ST_V3 variant (see the class javadoc's bullet list for
+     * exactly which). {@link #HA_OKX} is unaffected — the OKX crypto book is
+     * outside this rollout.
      */
     public boolean parked() {
         return this == CORE || this == SWING || this == HA4X || this == FAST
-                || this == CORE_OKX || this == FAST_OKX || this == CORE_LIVE || this == MMS;
+                || this == CORE_OKX || this == FAST_OKX || this == CORE_LIVE || this == MMS
+                || this == HA1 || this == HA4 || this == HA12;
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
@@ -332,7 +412,11 @@ public enum HtsVariant {
             return ltf != null ? ltf.name() : "M15";
         }
         if (strategy == Strategy.ST_V3) {
-            return "H1";
+            return switch (atrMinutes) {
+                case 45 -> "M45";
+                case 240 -> "H4";
+                default -> "H1";
+            };
         }
         return htf != null ? htf.name() : "H" + huntHours;
     }
@@ -359,7 +443,7 @@ public enum HtsVariant {
             return name() + " " + ltf + " TMA-ATR";
         }
         if (strategy == Strategy.ST_V3) {
-            return name() + " H1-ST/" + ltf;
+            return name() + " " + htfLabel() + "-ST/" + ltf;
         }
         if (strategy != Strategy.HA_HUNT) {
             return name() + " " + htf + "/" + ltf;

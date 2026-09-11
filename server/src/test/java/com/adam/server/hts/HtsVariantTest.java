@@ -50,10 +50,12 @@ class HtsVariantTest {
     }
 
     @Test
-    void ha12IsActiveAndHa4xIsParkedOnTheSameBook() {
-        assertThat(HtsVariant.HA12.parked()).isFalse();
+    void ha12AndHa4xAreBothParkedOnTheSameBookNowH1StV3Runs() {
+        assertThat(HtsVariant.HA12.parked()).isTrue();
         assertThat(HtsVariant.HA4X.parked()).isTrue();
         assertThat(HtsVariant.HA4X.book()).isEqualTo(HtsVariant.HA12.book()); // "Account H1"
+        assertThat(HtsVariant.H1_ST_V3.book()).isEqualTo(HtsVariant.HA12.book());
+        assertThat(HtsVariant.H1_ST_V3.parked()).isFalse();
     }
 
     @Test
@@ -81,14 +83,16 @@ class HtsVariantTest {
     }
 
     @Test
-    void ha1ReplacesTheParkedFastOnTheSameBook() {
+    void fastAndHa1AreBothParkedOnTheSameBookNowM5StV3Runs() {
         assertThat(HtsVariant.FAST.parked()).isTrue();
-        assertThat(HtsVariant.HA1.parked()).isFalse();
+        assertThat(HtsVariant.HA1.parked()).isTrue();
         assertThat(HtsVariant.HA1.book()).isEqualTo(HtsVariant.FAST.book()); // "Account m5"
         assertThat(HtsVariant.HA1.ltf()).isEqualTo(com.adam.server.broker.Resolution.M5);
         assertThat(HtsVariant.HA1.huntHours()).isEqualTo(1);
         assertThat(HtsVariant.HA1.atrHours()).isEqualTo(0);
         assertThat(HtsVariant.HA1.atrMinutes()).isEqualTo(15); // M15 WITH/stop, resampled from M5
+        assertThat(HtsVariant.M5_ST_V3.book()).isEqualTo(HtsVariant.HA1.book());
+        assertThat(HtsVariant.M5_ST_V3.parked()).isFalse();
     }
 
     @Test
@@ -112,8 +116,9 @@ class HtsVariantTest {
         assertThat(HtsVariant.CORE.parked()).isTrue();
         assertThat(HtsVariant.FAST.parked()).isTrue();
         assertThat(HtsVariant.SWING.parked()).isTrue();
-        assertThat(HtsVariant.HA4.parked()).isFalse();
-        assertThat(HtsVariant.HA12.parked()).isFalse();
+        assertThat(HtsVariant.HA4.parked()).isTrue();  // M15_ST_V3B took its book
+        assertThat(HtsVariant.HA12.parked()).isTrue(); // H1_ST_V3 took its book
+        assertThat(HtsVariant.HA1.parked()).isTrue();  // M5_ST_V3 took its book
         // CORE_LIVE (the only real-money variant) is detached — parked now
         assertThat(HtsVariant.CORE_LIVE.parked()).isTrue();
         assertThat(HtsVariant.HA4.book()).isEqualTo(com.adam.server.broker.Books.DEMO);
@@ -134,7 +139,7 @@ class HtsVariantTest {
     }
 
     @Test
-    void m15StV3IsUnparkedAndTookTheMmsBook() {
+    void m15StV3IsUnparkedOnTheMmsBookWithTheFullTenTickerUniverse() {
         assertThat(HtsVariant.M15_ST_V3.strategy()).isEqualTo(HtsVariant.Strategy.ST_V3);
         assertThat(HtsVariant.M15_ST_V3.parked()).isFalse();
         assertThat(HtsVariant.M15_ST_V3.live()).isFalse();
@@ -142,17 +147,67 @@ class HtsVariantTest {
         assertThat(HtsVariant.M15_ST_V3.book()).isEqualTo(com.adam.server.broker.Books.MMS);
         assertThat(HtsVariant.M15_ST_V3.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
         assertThat(HtsVariant.M15_ST_V3.ltfMinutes()).isEqualTo(15);
-        assertThat(HtsVariant.M15_ST_V3.universe()).containsExactly("BTC", "XAU", "US100");
-        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("BTC")).isTrue();
-        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("XAU")).isTrue();
-        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("US100")).isTrue();
-        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("GER40")).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.atrMinutes()).isEqualTo(60); // HTF span for StV3Engine's resample: H1
+        assertThat(HtsVariant.M15_ST_V3.universe()).containsExactlyInAnyOrder(
+                "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY");
+        for (String code : HtsVariant.M15_ST_V3.universe()) {
+            assertThat(HtsVariant.M15_ST_V3.tradesSymbol(code)).as(code).isTrue();
+        }
+        assertThat(HtsVariant.M15_ST_V3.tradesSymbol("ETH")).isFalse();
         assertThat(HtsVariant.M15_ST_V3.htfLabel()).isEqualTo("H1");
         assertThat(HtsVariant.M15_ST_V3.label()).contains("H1-ST");
         // M15 entry — too frequent for mail, same reasoning as HA4
         assertThat(HtsVariant.M15_ST_V3.mailsSignals()).isFalse();
         assertThat(HtsVariant.M15_ST_V3.dueAtMinute(0)).isTrue();
         assertThat(HtsVariant.M15_ST_V3.dueAtMinute(16)).isTrue();
+    }
+
+    @Test
+    void m15StV3bIsAConcentratedSatelliteOnHa4sOldBook() {
+        assertThat(HtsVariant.M15_ST_V3B.strategy()).isEqualTo(HtsVariant.Strategy.ST_V3);
+        assertThat(HtsVariant.M15_ST_V3B.parked()).isFalse();
+        assertThat(HtsVariant.M15_ST_V3B.book()).isEqualTo(com.adam.server.broker.Books.DEMO);
+        assertThat(HtsVariant.M15_ST_V3B.book()).isEqualTo(HtsVariant.HA4.book());
+        assertThat(HtsVariant.M15_ST_V3B.ltf()).isEqualTo(com.adam.server.broker.Resolution.M15);
+        assertThat(HtsVariant.M15_ST_V3B.atrMinutes()).isEqualTo(60); // same H1 pairing as M15_ST_V3
+        assertThat(HtsVariant.M15_ST_V3B.htfLabel()).isEqualTo("H1");
+        assertThat(HtsVariant.M15_ST_V3B.universe())
+                .containsExactlyInAnyOrder("US100", "XAU", "BTC", "GER40", "EURUSD");
+        // deliberately overlaps M15_ST_V3 — same pairing, two accounts, more forward-test data
+        assertThat(HtsVariant.M15_ST_V3.universe()).containsAll(HtsVariant.M15_ST_V3B.universe());
+        // and shares the exact same 5-ticker universe as the other two satellites, on purpose,
+        // for a direct per-ticker RR comparison across all three timeframe pairings
+        assertThat(HtsVariant.M15_ST_V3B.universe()).isEqualTo(HtsVariant.M5_ST_V3.universe());
+        assertThat(HtsVariant.M15_ST_V3B.universe()).isEqualTo(HtsVariant.H1_ST_V3.universe());
+    }
+
+    @Test
+    void m5StV3IsM45SupertrendOnHa1sOldBook() {
+        assertThat(HtsVariant.M5_ST_V3.strategy()).isEqualTo(HtsVariant.Strategy.ST_V3);
+        assertThat(HtsVariant.M5_ST_V3.parked()).isFalse();
+        assertThat(HtsVariant.M5_ST_V3.book()).isEqualTo(com.adam.server.broker.Books.HTS);
+        assertThat(HtsVariant.M5_ST_V3.ltf()).isEqualTo(com.adam.server.broker.Resolution.M5);
+        assertThat(HtsVariant.M5_ST_V3.atrMinutes()).isEqualTo(45); // M45 Supertrend
+        assertThat(HtsVariant.M5_ST_V3.htfLabel()).isEqualTo("M45");
+        assertThat(HtsVariant.M5_ST_V3.label()).contains("M45-ST");
+        assertThat(HtsVariant.M5_ST_V3.universe())
+                .containsExactlyInAnyOrder("US100", "XAU", "BTC", "GER40", "EURUSD");
+    }
+
+    @Test
+    void h1StV3IsH4SupertrendOnHa12sOldBook() {
+        assertThat(HtsVariant.H1_ST_V3.strategy()).isEqualTo(HtsVariant.Strategy.ST_V3);
+        assertThat(HtsVariant.H1_ST_V3.parked()).isFalse();
+        assertThat(HtsVariant.H1_ST_V3.book()).isEqualTo(com.adam.server.broker.Books.SWING);
+        assertThat(HtsVariant.H1_ST_V3.ltf()).isEqualTo(com.adam.server.broker.Resolution.H1);
+        assertThat(HtsVariant.H1_ST_V3.atrMinutes()).isEqualTo(240); // H4 Supertrend
+        assertThat(HtsVariant.H1_ST_V3.htfLabel()).isEqualTo("H4");
+        assertThat(HtsVariant.H1_ST_V3.label()).contains("H4-ST");
+        assertThat(HtsVariant.H1_ST_V3.universe())
+                .containsExactlyInAnyOrder("US100", "XAU", "BTC", "GER40", "EURUSD");
+        // H1 entry, same as HA12/HA4X's own ltf — but ST_V3 strategy never mails
+        // (mailsSignals() checks strategy == HA_HUNT || MMS, not just ltf == H1)
+        assertThat(HtsVariant.H1_ST_V3.mailsSignals()).isFalse();
     }
 
     @Test

@@ -16,38 +16,42 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Live engine for {@link HtsVariant#M15_ST_V3} — PR #140's locked "v3 bakeoff"
- * Pine config (M15/H1 pairing — the M45/M5 pairing backtested worse once a
- * TP1/runner double-counting bug in the research tool was fixed, see the
- * class javadoc on {@link HtsVariant#M15_ST_V3}), ported 1:1:
+ * Live engine for every {@link HtsVariant.Strategy#ST_V3} variant — PR #140's
+ * "v3 bakeoff" Pine config, generalised across three timeframe pairings
+ * ({@link HtsVariant#M5_ST_V3} M45/M5, {@link HtsVariant#M15_ST_V3} /
+ * {@link HtsVariant#M15_ST_V3B} H1/M15, {@link HtsVariant#H1_ST_V3} H4/H1 —
+ * the HTF span in minutes is {@code v.atrMinutes()}, repurposed for this
+ * strategy since ST_V3 has no HA-hunt "mid TF" of its own):
  *
  * <ol>
- *   <li>H1 Supertrend (ATR 10, factor 2.0 — the research default, <b>not</b>
- *       {@link Supertrend}'s own factor 3.0 — ATR 12/factor 3.0 backtested to
- *       ~breakeven, PF 1.01 IS, clearly worse), resampled from the M15 feed,
- *       is BOTH the direction bias and the initial stop-loss (its own band
- *       level on the last closed H1 bar).</li>
- *   <li>Entry trigger: the first M15 closed bar whose close is beyond the M15
- *       fast RMA-of-high/low band ({@link Band}, fast 33 / slow 144), in the
- *       Supertrend's direction.</li>
- *   <li>H1 structure gate: H1 close stacked vs its own RMA33/144, OR the M15
- *       close already beyond the closed H1 fast band, in the Supertrend
- *       direction.</li>
+ *   <li>HTF Supertrend (ATR 7, factor 2.0 — PR #144/#146's locked research
+ *       default, <b>not</b> {@link Supertrend}'s own factor 3.0), resampled
+ *       from the entry-TF feed, is BOTH the direction bias and the initial
+ *       stop-loss (its own band level on the last closed HTF bar).</li>
+ *   <li>Entry trigger: the first entry-TF closed bar whose close is beyond
+ *       its fast RMA-of-high/low band ({@link Band}, fast 33 / slow 144), in
+ *       the Supertrend's direction.</li>
+ *   <li>HTF structure gate: HTF close stacked vs its own RMA33/144, OR the
+ *       entry-TF close already beyond the closed HTF fast band, in the
+ *       Supertrend direction.</li>
  *   <li>Universe / fill cap: at most 2 fills per Supertrend regime (resets
- *       when the closed H1 Supertrend flips).</li>
+ *       when the closed HTF Supertrend flips).</li>
  * </ol>
  *
- * <p>Exit ({@link HtsTradeService#manageRunner}, not this class): TP1 = 2R on
+ * <p>Exit ({@link HtsTradeService#stV3Exit}, not this class): TP1 = 2R on
  * half the position, then the remaining half's stop jumps once to breakeven
- * and sits there — no trail, no slow-band exit — until a confirmed M15
- * Heikin-Ashi colour flip against the position flattens the runner.
+ * and sits there — no trail — until the entry-TF's own fast RMA band starts
+ * crossing to the opposite side of its slow band (band-cross exit; see that
+ * method's javadoc for why this replaced the original HA-flip runner).
  *
  * <p>Backtest (12&nbsp;mo IS 2025-09→2026-09 + 12&nbsp;mo OOS 2024-10→2025-09,
- * no fees, BTC/XAU/US100 only — the {@link HtsVariant#M5_ST_V3} pairing and
- * the wider GER40/EURUSD/US500/US30 set were weaker/inconsistent, see the
- * variant javadoc): every one of BTC/XAU/US100 positive in BOTH windows — XAU
- * PF 1.31 IS / 1.12 OOS, BTC 1.31/1.22, US100 1.37/1.35; combined PF 1.33 IS /
- * 1.23 OOS.
+ * no fees, band-cross exit, 10 tickers): H1/M15 is the strongest and most
+ * consistent pairing — every one of XAU/BTC/US100/GER40/EURUSD/US500/US30/
+ * XAG/J225/USDJPY positive in BOTH windows, combined PF 2.10 IS / 1.65 OOS.
+ * M45/M5 also broadly positive (every ticker both windows, combined PF 1.87
+ * IS / 1.98 OOS) but noisier. H4/H1 fires far less often (~1/4 the signals)
+ * and is less consistent per-symbol despite a strong combined OOS (PF 2.04) —
+ * kept as a smaller-universe satellite, not the primary pick.
  */
 @Component
 public class StV3Engine {
@@ -55,7 +59,7 @@ public class StV3Engine {
     private static final Logger log = LoggerFactory.getLogger(StV3Engine.class);
     static final int RMA_FAST = HtsEngine.FAST_LEN;   // 33
     static final int RMA_SLOW = HtsEngine.SLOW_LEN;   // 144
-    static final int ST_ATR_LEN = 10;
+    static final int ST_ATR_LEN = 7;
     static final double ST_FACTOR = 2.0;
     private static final int MAX_FILLS_PER_REGIME = 2;
 
@@ -72,8 +76,10 @@ public class StV3Engine {
     }
 
     /**
-     * @param entryTf closed M15 candles, ascending — the H1 Supertrend + structure
-     *                are resampled from this same feed, no separate broker fetch
+     * @param entryTf closed entry-TF candles, ascending — the HTF Supertrend +
+     *                structure are resampled from this same feed ({@code
+     *                Resample.toMinutes(entryTf, v.atrMinutes(), now)}), no
+     *                separate broker fetch
      * @return the entry signal, or {@code null} when any gate fails
      */
     public HtsScan evaluate(HtsVariant v, String code, String epic, List<Candle> entryTf, Instant now) {
@@ -87,7 +93,7 @@ public class StV3Engine {
             return null;
         }
 
-        List<Candle> htf = Resample.toHours(entryTf, 1, now);
+        List<Candle> htf = Resample.toMinutes(entryTf, v.atrMinutes(), now);
         if (htf.size() < ST_ATR_LEN + 2) {
             return null;
         }
@@ -105,7 +111,7 @@ public class StV3Engine {
             reg.fills = 0; // Supertrend flipped — a new regime opened
         }
 
-        // --- entry trigger: fresh M15 close beyond the M15 fast band, direction == Supertrend ---
+        // --- entry trigger: fresh entry-TF close beyond its fast band, direction == Supertrend ---
         Band.Series fast = Band.rma(entryTf, RMA_FAST);
         int i = entryTf.size() - 1;
         if (!fast.ready(i) || !fast.ready(i - 1)) {
@@ -125,8 +131,8 @@ public class StV3Engine {
             return null;
         }
 
-        // --- H1 structure gate: H1 stacked vs its own RMA, OR the M15 close already
-        // beyond the closed H1 fast band, in the Supertrend direction ---
+        // --- HTF structure gate: HTF stacked vs its own RMA, OR the entry-TF close
+        // already beyond the closed HTF fast band, in the Supertrend direction ---
         double[] htfClose = Wilder.closes(htf);
         double hFast = Wilder.last(Wilder.rma(htfClose, RMA_FAST));
         double hSlow = Wilder.last(Wilder.rma(htfClose, RMA_SLOW));
@@ -149,7 +155,7 @@ public class StV3Engine {
             return null;
         }
 
-        // --- stop = the H1 Supertrend's own band level; 1R = |entry - that line| ---
+        // --- stop = the HTF Supertrend's own band level; 1R = |entry - that line| ---
         double stop = stLast.line();
         double dist = Math.abs(close - stop);
         if (dist <= 0 || (buy && stop >= close) || (!buy && stop <= close)) {
@@ -158,7 +164,7 @@ public class StV3Engine {
         double target = buy ? close + 2 * dist : close - 2 * dist;
 
         reg.fills++;
-        log.info("ST_V3 [{}] {} {} fill {}/{} in H1-ST regime ({}), entry {} stop {}",
+        log.info("ST_V3 [{}] {} {} fill {}/{} in HTF-ST regime ({}), entry {} stop {}",
                 v.name(), code, buy ? "LONG" : "SHORT", reg.fills, MAX_FILLS_PER_REGIME,
                 stBull ? "bull" : "bear", round(close), round(stop));
         return new HtsScan(v, entryTf.getLast().time(), code, epic,

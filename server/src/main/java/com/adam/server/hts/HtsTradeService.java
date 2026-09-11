@@ -473,13 +473,14 @@ public class HtsTradeService {
     }
 
     /**
-     * {@link HtsVariant#M15_ST_V3} runner: TP1 = 2R on half (stop still the
-     * original H1-Supertrend line up to here — the broker holds it). After
-     * TP1, the remaining half's stop jumps ONCE to exact breakeven and sits
-     * there — no trail, no slow-band exit, no re-checking the Supertrend —
-     * until a confirmed M15 Heikin-Ashi colour flip against the position
-     * flattens it. A real stop order is amended at the broker throughout, so
-     * a stop touch is picked up by the normal reconcile pass, not here.
+     * {@link HtsVariant.Strategy#ST_V3} runner (all four variants — M5/M15×2/H1):
+     * TP1 = 2R on half (stop still the original HTF-Supertrend line up to
+     * here — the broker holds it). After TP1, the remaining half's stop
+     * jumps ONCE to exact breakeven and sits there — no trail, no
+     * re-checking the Supertrend — until the entry-TF's own fast RMA band
+     * crosses to the opposite side of its slow band. A real stop order is
+     * amended at the broker throughout, so a stop touch is picked up by the
+     * normal reconcile pass, not here.
      */
     private boolean stV3Exit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
                              Map<String, List<Candle>> candleCache) {
@@ -543,15 +544,20 @@ public class HtsTradeService {
             }
         }
 
-        // ---- after TP1: no trailing — full exit only on a confirmed entry-TF (M15) HA flip against the position ----
-        List<com.adam.server.sdd.HeikenAshi.Bar> ha = com.adam.server.sdd.HeikenAshi.from(ltf);
-        if (ha.size() < 2) {
+        // ---- after TP1: no trailing — full exit only when the entry-TF's own fast
+        // RMA band starts crossing to the OPPOSITE side of its slow band (the
+        // mirror of the entry gate's "beyond fast band" condition). Replaced the
+        // original HA-flip runner: backtested PF 2.10 IS / 1.65 OOS across 10
+        // tickers, zero flips, vs HA-flip's PF 1.33 IS / 1.23 OOS on 3 tickers —
+        // see StV3Engine's class javadoc and pine/M15_FINAL.pine's header. ----
+        com.adam.server.sdd.Band.Series fast = com.adam.server.sdd.Band.rma(ltf, StV3Engine.RMA_FAST);
+        com.adam.server.sdd.Band.Series slow = com.adam.server.sdd.Band.rma(ltf, StV3Engine.RMA_SLOW);
+        int i = ltf.size() - 1;
+        if (!fast.ready(i) || !slow.ready(i)) {
             return false;
         }
-        com.adam.server.sdd.HeikenAshi.Bar last = ha.get(ha.size() - 1);
-        com.adam.server.sdd.HeikenAshi.Bar prev = ha.get(ha.size() - 2);
-        boolean flipAgainst = last.bullish() != prev.bullish() && last.bullish() != buy;
-        if (!flipAgainst) {
+        boolean bandCrossAgainst = buy ? fast.upper()[i] < slow.upper()[i] : fast.lower()[i] > slow.lower()[i];
+        if (!bandCrossAgainst) {
             return false;
         }
         double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
@@ -560,13 +566,13 @@ public class HtsTradeService {
             // Stamp only once the broker call has actually succeeded — same
             // reasoning as haHuntCloudExit()'s CLOUD stamp: an un-preset close
             // that reaches applyClose() (e.g. a reconcile-vanish force-close)
-            // must never be mistaken for a real HA-flip exit.
-            t.setCloseReason("HA_FLIP");
+            // must never be mistaken for a real band-cross exit.
+            t.setCloseReason("BAND_CROSS");
             trades.save(t);
-            log.info("HTS runner [{}] {} confirmed M15 HA flip against — flattening runner", v, t.getSymbol());
+            log.info("HTS runner [{}] {} entry-TF fast band crossed against — flattening runner", v, t.getSymbol());
             return true; // reconcile marks CLOSED next cycle
         } catch (Exception e) {
-            log.warn("HTS runner [{}] {}: HA-flip close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
+            log.warn("HTS runner [{}] {}: band-cross close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
             return false;
         }
     }
