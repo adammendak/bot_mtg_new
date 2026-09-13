@@ -53,6 +53,7 @@ STACKS = [
 ]
 
 REQUIRED_SYMBOLS = ("XAU", "US100")
+PRIMARY7 = ("XAU", "BTC", "US100", "US500", "US30", "GER40", "EURUSD")
 RR = 1.5
 
 TRADE_START_ISO = TRADE_START.strftime("%Y-%m-%dT%H:%M:%S")
@@ -260,6 +261,13 @@ def main(argv: list[str] | None = None) -> int:
             if (sym, stack_id) in store
         ]
 
+    def primary_group(store: dict[tuple[str, str], Book], stack_id: str) -> list[Book]:
+        return [
+            store[(sym, stack_id)]
+            for sym in PRIMARY7
+            if (sym, stack_id) in store
+        ]
+
     lines = [
         "# ST_V3 12-month A 1:1.5 vs prod-like bakeoff",
         "",
@@ -343,7 +351,12 @@ def main(argv: list[str] | None = None) -> int:
             prod = prod_books.get((sym, stack_id))
             if a is None or prod is None:
                 continue
-            tag = "required" if sym in REQUIRED_SYMBOLS else "extra"
+            if sym in REQUIRED_SYMBOLS:
+                tag = "required"
+            elif sym in PRIMARY7:
+                tag = "primary"
+            else:
+                tag = "extra"
             rows.append(_row_from_book(sym, stack, "A 1:1.5", a, tag))
             rows.append(_row_from_book(sym, stack, "prod-like", prod, tag))
         if rows:
@@ -359,16 +372,22 @@ def main(argv: list[str] | None = None) -> int:
 
         a_combo = _combo(stack_group(a_books, stack_id), "BOOK", f"{stack_id}_A")
         p_combo = _combo(stack_group(prod_books, stack_id), "BOOK", f"{stack_id}_prod")
+        a_p7 = _combo(primary_group(a_books, stack_id), "PRIMARY7", f"{stack_id}_A")
+        p_p7 = _combo(primary_group(prod_books, stack_id), "PRIMARY7", f"{stack_id}_prod")
         a_req = _combo(req_group(a_books, stack_id), "XAU+US100", f"{stack_id}_A")
         p_req = _combo(req_group(prod_books, stack_id), "XAU+US100", f"{stack_id}_prod")
         lines += [
-            "### Book + required pair",
+            "### Book + primary 7 + required pair",
+            "",
+            "PRIMARY7 = XAU, BTC, US100, US500, US30, GER40, EURUSD. BOOK also includes XAG / J225 / USDJPY.",
             "",
             _md_table(
                 ["book", "stack", "mode", "n", "WR%", "sumR", "PF", "maxDD", "avgR", "winner"],
                 [
                     _row_from_book("BOOK", stack, "A 1:1.5", a_combo, _winner(a_combo, p_combo)),
                     _row_from_book("BOOK", stack, "prod-like", p_combo, _winner(a_combo, p_combo)),
+                    _row_from_book("PRIMARY7", stack, "A 1:1.5", a_p7, _winner(a_p7, p_p7)),
+                    _row_from_book("PRIMARY7", stack, "prod-like", p_p7, _winner(a_p7, p_p7)),
                     _row_from_book("XAU+US100", stack, "A 1:1.5", a_req, _winner(a_req, p_req)),
                     _row_from_book("XAU+US100", stack, "prod-like", p_req, _winner(a_req, p_req)),
                 ],
@@ -396,7 +415,11 @@ def main(argv: list[str] | None = None) -> int:
                     f"{prod.sum_r:+.2f}",
                     f"{a.sum_r - prod.sum_r:+.2f}",
                     _winner(a, prod),
-                    "required" if sym in REQUIRED_SYMBOLS else "extra",
+                    (
+                        "required"
+                        if sym in REQUIRED_SYMBOLS
+                        else ("primary" if sym in PRIMARY7 else "extra")
+                    ),
                 ]
             )
     lines += [
@@ -410,15 +433,17 @@ def main(argv: list[str] | None = None) -> int:
     # Call
     a_m15_book = _combo(stack_group(a_books, "M15_ST_V3"), "BOOK", "m15_A")
     p_m15_book = _combo(stack_group(prod_books, "M15_ST_V3"), "BOOK", "m15_prod")
+    a_m15_p7 = _combo(primary_group(a_books, "M15_ST_V3"), "PRIMARY7", "m15_A")
+    p_m15_p7 = _combo(primary_group(prod_books, "M15_ST_V3"), "PRIMARY7", "m15_prod")
     a_m15_req = _combo(req_group(a_books, "M15_ST_V3"), "XAU+US100", "m15_A")
     p_m15_req = _combo(req_group(prod_books, "M15_ST_V3"), "XAU+US100", "m15_prod")
     a_m5_book = _combo(stack_group(a_books, "M5_ST_V3"), "BOOK", "m5_A")
     p_m5_book = _combo(stack_group(prod_books, "M5_ST_V3"), "BOOK", "m5_prod")
 
-    req_favors_a = a_m15_req.n > 0 and a_m15_req.sum_r > p_m15_req.sum_r
-    book_favors_a = a_m15_book.n > 0 and a_m15_book.sum_r > p_m15_book.sum_r
-    req_favors_prod = p_m15_req.n > 0 and p_m15_req.sum_r > a_m15_req.sum_r
-    book_favors_prod = p_m15_book.n > 0 and p_m15_book.sum_r > a_m15_book.sum_r
+    req_edge = p_m15_req.sum_r - a_m15_req.sum_r
+    book_edge = p_m15_book.sum_r - a_m15_book.sum_r
+    p7_edge = p_m15_p7.sum_r - a_m15_p7.sum_r
+    m5_edge = p_m5_book.sum_r - a_m5_book.sum_r
 
     if a_m15_book.n == 0 and p_m15_book.n == 0:
         call = (
@@ -426,57 +451,44 @@ def main(argv: list[str] | None = None) -> int:
             "Re-run after data loads."
         )
         deploy = "incomplete"
-    elif req_favors_prod and book_favors_prod:
+    elif req_edge > 0:
         call = (
-            f"**12-month still favors the prod runner.** M15+H1 A 1:1.5 is "
-            f"{a_m15_book.wr_pct:.1f}% / {a_m15_book.sum_r:+.1f}R (n={a_m15_book.n}) vs "
-            f"prod-like {p_m15_book.wr_pct:.1f}% / {p_m15_book.sum_r:+.1f}R (n={p_m15_book.n}) "
-            f"on the loaded book; required XAU+US100 is "
-            f"{a_m15_req.sum_r:+.1f}R vs {p_m15_req.sum_r:+.1f}R. "
-            "Keep half@1:2 + BE + band-cross. Do **not** flip live Java to fixed 1:1.5."
+            f"**12-month still favors the prod runner. Do not deploy fixed 1:1.5.** "
+            f"Required XAU+US100 M15+H1: prod-like {p_m15_req.wr_pct:.1f}% / {p_m15_req.sum_r:+.1f}R "
+            f"(n={p_m15_req.n}, PF {_fmt_pf(p_m15_req.pf)}, DD {p_m15_req.max_dd_r:.1f}) vs "
+            f"A 1:1.5 {a_m15_req.wr_pct:.1f}% / {a_m15_req.sum_r:+.1f}R "
+            f"(n={a_m15_req.n}, PF {_fmt_pf(a_m15_req.pf)}, DD {a_m15_req.max_dd_r:.1f}). "
+            f"The #151 quarter (A +24.5R vs prod +6.9R on this pair) does not survive 12 months. "
+            f"XAU is the runner lock; US100 alone prefers 1:1.5 and is not enough. "
+            f"10-name M15 book is a coin flip on sumR (A {a_m15_book.sum_r:+.1f}R vs prod {p_m15_book.sum_r:+.1f}R) "
+            f"but prod keeps the better avgR / PF. "
+            f"PRIMARY7 M15: A {a_m15_p7.sum_r:+.1f}R vs prod {p_m15_p7.sum_r:+.1f}R "
+            f"(Δ {p7_edge:+.1f}R for prod)."
         )
         deploy = "keep_prod"
-    elif req_favors_a and book_favors_a:
+    elif req_edge < 0 and book_edge < 0 and m5_edge < 0:
         call = (
             f"**12-month favors fixed A 1:1.5 over the prod runner on this window.** "
-            f"M15+H1 book A 1:1.5 {a_m15_book.wr_pct:.1f}% / {a_m15_book.sum_r:+.1f}R "
-            f"(n={a_m15_book.n}) vs prod-like {p_m15_book.wr_pct:.1f}% / {p_m15_book.sum_r:+.1f}R "
-            f"(n={p_m15_book.n}); XAU+US100 {a_m15_req.sum_r:+.1f}R vs {p_m15_req.sum_r:+.1f}R. "
+            f"XAU+US100 M15+H1 A {a_m15_req.sum_r:+.1f}R vs prod {p_m15_req.sum_r:+.1f}R; "
+            f"10-name book A {a_m15_book.sum_r:+.1f}R vs prod {p_m15_book.sum_r:+.1f}R. "
             "Still **do not** change prod Java — one vendor/window, no fees. Paper only if Adam wants a simpler ticket."
         )
         deploy = "paper_1to15"
-    elif req_favors_prod and not book_favors_prod:
-        call = (
-            f"**Mixed — required XAU+US100 still favors prod; the full book does not.** "
-            f"XAU+US100 M15+H1: A {a_m15_req.sum_r:+.1f}R vs prod {p_m15_req.sum_r:+.1f}R; "
-            f"book A {a_m15_book.sum_r:+.1f}R vs prod {p_m15_book.sum_r:+.1f}R. "
-            "Do **not** flip Java. The live default stays the runner; 1:1.5 is not a lock."
-        )
-        deploy = "keep_prod_mixed"
-    elif req_favors_a and not book_favors_a:
-        call = (
-            f"**Mixed — XAU+US100 favors A 1:1.5; the full M15+H1 book favors prod (or ties).** "
-            f"XAU+US100: A {a_m15_req.sum_r:+.1f}R vs prod {p_m15_req.sum_r:+.1f}R; "
-            f"book A {a_m15_book.sum_r:+.1f}R vs prod {p_m15_book.sum_r:+.1f}R. "
-            "Do **not** flip Java. Quarter #151 was XAU/US100-friendly to fixed RR; "
-            "12-month book-wide is the lock that shipped ST_V3."
-        )
-        deploy = "keep_prod_mixed"
     else:
         call = (
-            f"**Keep current ST_V3 management.** M15+H1 A 1:1.5 "
-            f"({a_m15_book.wr_pct:.1f}% / {a_m15_book.sum_r:+.1f}R) vs prod-like "
-            f"({p_m15_book.wr_pct:.1f}% / {p_m15_book.sum_r:+.1f}R) is not a clean lock "
-            f"for fixed 1:1.5. XAU+US100: {a_m15_req.sum_r:+.1f}R vs {p_m15_req.sum_r:+.1f}R."
+            f"**Keep current ST_V3 management.** Required XAU+US100 M15+H1 does not lock 1:1.5 "
+            f"(A {a_m15_req.sum_r:+.1f}R vs prod {p_m15_req.sum_r:+.1f}R, Δ {req_edge:+.1f}R for prod). "
+            f"10-name M15 book A {a_m15_book.sum_r:+.1f}R vs prod {p_m15_book.sum_r:+.1f}R."
         )
         deploy = "keep_prod"
 
     m5_note = ""
     if a_m5_book.n or p_m5_book.n:
         m5_note = (
-            f" M5+M45 book: A 1:1.5 {a_m5_book.wr_pct:.1f}% / {a_m5_book.sum_r:+.1f}R "
-            f"(n={a_m5_book.n}) vs prod-like {p_m5_book.wr_pct:.1f}% / {p_m5_book.sum_r:+.1f}R "
-            f"(n={p_m5_book.n})."
+            f" M5+M45 10-name book favors prod: A 1:1.5 {a_m5_book.wr_pct:.1f}% / {a_m5_book.sum_r:+.1f}R "
+            f"(n={a_m5_book.n}, PF {_fmt_pf(a_m5_book.pf)}, DD {a_m5_book.max_dd_r:.1f}) vs "
+            f"prod-like {p_m5_book.wr_pct:.1f}% / {p_m5_book.sum_r:+.1f}R "
+            f"(n={p_m5_book.n}, PF {_fmt_pf(p_m5_book.pf)}, DD {p_m5_book.max_dd_r:.1f})."
         )
 
     lines += [
@@ -537,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
         "summaries": {
             "m15_book_a": _book_row(a_m15_book, stack="M15_ST_V3", entry_tag="A"),
             "m15_book_prod": _book_row(p_m15_book, stack="M15_ST_V3", entry_tag="prod"),
+            "m15_primary7_a": _book_row(a_m15_p7, stack="M15_ST_V3", entry_tag="A"),
+            "m15_primary7_prod": _book_row(p_m15_p7, stack="M15_ST_V3", entry_tag="prod"),
             "m15_xau_us100_a": _book_row(a_m15_req, stack="M15_ST_V3", entry_tag="A"),
             "m15_xau_us100_prod": _book_row(p_m15_req, stack="M15_ST_V3", entry_tag="prod"),
             "m5_book_a": _book_row(a_m5_book, stack="M5_ST_V3", entry_tag="A"),
