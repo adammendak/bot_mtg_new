@@ -1,0 +1,275 @@
+//@version=5
+// Kei Ichimoku Sniper (H1 → M5) — RESEARCH only.
+// Public YT reconstruction of Kei / @KeiForex. NOT official KTS. NOT paywalled.
+// Does not replace Java HtsEngine / MmsEngine / prod defaults.
+// Chart TF: M5. HTF Ichimoku via request.security(..., "60", lookahead_off) on the
+// last CLOSED H1 bar. Arm is sticky until M5 entry, opposite TK cross, or timeout
+// (Chikou may lead the M5 swing break on later bars — same-bar is NOT required).
+// Docs: ideas/kei-ichimoku/RULES.md
+strategy("Kei Ichimoku Sniper H1/M5 (RESEARCH)", overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.fixed,
+     default_qty_value=1,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     process_orders_on_close=false,
+     calc_on_every_tick=false,
+     pyramiding=0,
+     margin_long=100,
+     margin_short=100,
+     max_labels_count=500,
+     max_bars_back=2000)
+
+// ── Timeframe ────────────────────────────────────────────────────────────────
+tfNote = input.string("M5", "Chart TF note (intended M5; HTF = H1)", group="Timeframe")
+htfTf  = input.timeframe("60", "HTF", group="Timeframe",
+     tooltip="H1. Last closed bar, lookahead_off. Do not use forming-hour Ichimoku.")
+
+// ── Ichimoku (standard donchian midpoints) ───────────────────────────────────
+tenkanLen  = input.int(9,  "Tenkan", minval=1, group="Ichimoku")
+kijunLen   = input.int(26, "Kijun", minval=1, group="Ichimoku")
+senkouBLen = input.int(52, "Senkou B", minval=1, group="Ichimoku")
+displace   = input.int(26, "Displacement (Chikou / Kumo)", minval=1, group="Ichimoku")
+
+// ── Trigger ──────────────────────────────────────────────────────────────────
+trigVar = input.string("Chikou after TK", "HTF trigger",
+     options=["Chikou after TK", "Sanyaku"], group="Trigger",
+     tooltip="Chikou after TK: arm on H1 TK cross, fire when Chikou clears close[26], skip flat Kumo. Sanyaku: also require price beyond the H1 cloud.")
+armTimeoutH1 = input.int(26, "Arm timeout (H1 bars)", minval=1, group="Trigger",
+     tooltip="Sticky arm dies after this many H1 bars if no M5 fill. Opposite TK cross also kills / flips.")
+flatLook     = input.int(8, "Flat Kumo: Senkou B lookback (H1)", minval=1, group="Trigger")
+flatThinAtr  = input.float(0.15, "Flat Kumo: thin-cloud × ATR", minval=0.0, step=0.05, group="Trigger")
+
+// ── LTF entry ────────────────────────────────────────────────────────────────
+swingLen = input.int(5, "M5 swing pivot L/R", minval=1, maxval=20, group="Entry")
+
+// ── Risk ─────────────────────────────────────────────────────────────────────
+tpR        = input.float(2.0, "TP = R ×", minval=0.5, step=0.5, group="Risk")
+riskPct    = input.float(1.0, "Risk % of equity", minval=0.1, step=0.1, group="Risk")
+atrLen     = input.int(14, "ATR length (M5 stop + H1 thin cloud)", minval=1, group="Risk")
+slAtrFloor = input.float(1.0, "SL ATR floor ×", minval=0.1, step=0.1, group="Risk",
+     tooltip="Minimum stop distance = this × ATR(M5). Wide swings keep the swing.")
+slBufAtr   = input.float(0.10, "SL buffer beyond swing × ATR", minval=0.0, step=0.05, group="Risk")
+softExit   = input.bool(false, "Soft exit: HTF close vs Tenkan against", group="Risk")
+
+// ── Visuals ──────────────────────────────────────────────────────────────────
+showArmMarks = input.bool(true, "Show HTF arm / ready markers", group="Visuals")
+showHtfTk    = input.bool(true, "Plot H1 Tenkan / Kijun", group="Visuals")
+
+// ── Ichimoku helpers ─────────────────────────────────────────────────────────
+donchian(len) =>
+    math.avg(ta.highest(high, len), ta.lowest(low, len))
+
+// All comparisons that use [displace] MUST run inside this function so that
+// request.security evaluates them on H1 bars (26 H1, not 26 M5).
+htfBundle() =>
+    tenkan = donchian(tenkanLen)
+    kijun  = donchian(kijunLen)
+    spanA  = math.avg(tenkan, kijun)
+    spanB  = donchian(senkouBLen)
+    chiL   = close > close[displace]
+    chiS   = close < close[displace]
+    cloudOk = not na(spanA[displace]) and not na(spanB[displace])
+    cTop   = cloudOk ? math.max(spanA[displace], spanB[displace]) : float(na)
+    cBot   = cloudOk ? math.min(spanA[displace], spanB[displace]) : float(na)
+    tkUp   = ta.crossover(tenkan, kijun)
+    tkDn   = ta.crossunder(tenkan, kijun)
+    atrH   = ta.atr(atrLen)
+    flatB  = not na(spanB[flatLook]) and math.abs(spanB - spanB[flatLook]) <= syminfo.mintick
+    thin   = not na(atrH) and atrH > 0 and math.abs(spanA - spanB) < flatThinAtr * atrH
+    flat   = flatB or thin
+    above  = not na(cTop) and close > cTop
+    below  = not na(cBot) and close < cBot
+    [tenkan, kijun, close, chiL, chiS, cTop, cBot, tkUp, tkDn, flat, above, below]
+
+[hTenkan, hKijun, hClose, hChiL, hChiS, hCTop, hCBot, hTkUp, hTkDn, hFlat, hAbove, hBelow] =
+     request.security(syminfo.tickerid, htfTf, htfBundle()[1], lookahead=barmerge.lookahead_off)
+
+// ── M5 Ichimoku (plot + LTF Tenkan filter) ───────────────────────────────────
+m5tenkan = donchian(tenkanLen)
+m5kijun  = donchian(kijunLen)
+m5spanA  = math.avg(m5tenkan, m5kijun)
+m5spanB  = donchian(senkouBLen)
+
+plot(m5tenkan, "M5 Tenkan", color=color.new(#2962FF, 0), linewidth=1)
+plot(m5kijun,  "M5 Kijun",  color=color.new(#B71C1C, 0), linewidth=1)
+plot(close, "M5 Chikou", offset=-displace, color=color.new(#43A047, 0), linewidth=1)
+pA = plot(m5spanA, "M5 Senkou A", offset=displace, color=color.new(#A5D6A7, 40), linewidth=1)
+pB = plot(m5spanB, "M5 Senkou B", offset=displace, color=color.new(#EF9A9A, 40), linewidth=1)
+fill(pA, pB, color=m5spanA > m5spanB ? color.new(#4CAF50, 85) : color.new(#F44336, 85), title="M5 Kumo")
+
+plot(showHtfTk ? hTenkan : na, "H1 Tenkan", color=color.new(#00BCD4, 0), linewidth=2, style=plot.style_stepline)
+plot(showHtfTk ? hKijun  : na, "H1 Kijun",  color=color.new(#FF9800, 0), linewidth=2, style=plot.style_stepline)
+plot(showHtfTk ? hCTop   : na, "H1 Kumo top", color=color.new(#4CAF50, 60), linewidth=1, style=plot.style_stepline)
+plot(showHtfTk ? hCBot   : na, "H1 Kumo bot", color=color.new(#F44336, 60), linewidth=1, style=plot.style_stepline)
+
+htfBull = not na(hTenkan) and not na(hKijun) and hTenkan > hKijun
+htfBear = not na(hTenkan) and not na(hKijun) and hTenkan < hKijun
+bgcolor(htfBull ? color.new(#26A69A, 92) : htfBear ? color.new(#EF5350, 92) : na, title="HTF TK bias")
+
+// ── Sticky HTF arm ───────────────────────────────────────────────────────────
+htfSec = timeframe.in_seconds(htfTf)
+ltfSec = timeframe.in_seconds()
+barsPerHtf = htfSec > 0 and ltfSec > 0 ? math.max(1, int(math.round(htfSec / ltfSec))) : 12
+armTimeoutM5 = armTimeoutH1 * barsPerHtf
+
+tkArmUp = hTkUp and not nz(hTkUp[1], false)
+tkArmDn = hTkDn and not nz(hTkDn[1], false)
+
+var int  armDir   = 0
+var bool htfReady = false
+var int  armAge   = 0
+
+flatPos = strategy.position_size == 0
+
+if flatPos
+    if tkArmUp
+        armDir   := 1
+        htfReady := false
+        armAge   := 0
+    else if tkArmDn
+        armDir   := -1
+        htfReady := false
+        armAge   := 0
+
+    if armDir != 0
+        armAge += 1
+        if armAge > armTimeoutM5
+            armDir   := 0
+            htfReady := false
+            armAge   := 0
+
+    sanyaku = trigVar == "Sanyaku"
+    if armDir == 1 and not htfReady
+        if hChiL and not hFlat and (not sanyaku or hAbove)
+            htfReady := true
+    if armDir == -1 and not htfReady
+        if hChiS and not hFlat and (not sanyaku or hBelow)
+            htfReady := true
+
+justReadyL = htfReady and armDir == 1 and not htfReady[1]
+justReadyS = htfReady and armDir == -1 and not htfReady[1]
+
+plotshape(showArmMarks and tkArmUp and flatPos, title="HTF arm LONG",
+     style=shape.triangleup, location=location.belowbar, color=color.new(color.aqua, 20), size=size.tiny)
+plotshape(showArmMarks and tkArmDn and flatPos, title="HTF arm SHORT",
+     style=shape.triangledown, location=location.abovebar, color=color.new(color.orange, 20), size=size.tiny)
+plotshape(showArmMarks and justReadyL, title="HTF ready LONG",
+     style=shape.diamond, location=location.belowbar, color=color.new(color.teal, 10), size=size.tiny)
+plotshape(showArmMarks and justReadyS, title="HTF ready SHORT",
+     style=shape.diamond, location=location.abovebar, color=color.new(color.maroon, 10), size=size.tiny)
+
+// ── M5 mechanical sniper (prior swing break + close vs Tenkan) ───────────────
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+var float lastSwHigh = na
+var float lastSwLow  = na
+if not na(ph)
+    lastSwHigh := ph
+if not na(pl)
+    lastSwLow := pl
+
+confirmed = barstate.isconfirmed
+longBreak  = confirmed and htfReady and armDir == 1 and not na(lastSwHigh) and close > lastSwHigh and close[1] <= lastSwHigh and close > m5tenkan
+shortBreak = confirmed and htfReady and armDir == -1 and not na(lastSwLow)  and close < lastSwLow  and close[1] >= lastSwLow  and close < m5tenkan
+// Evaluate every bar (do not bury ta.* inside position ifs).
+tenkanAgainstLong  = ta.crossunder(hClose, hTenkan)
+tenkanAgainstShort = ta.crossover(hClose, hTenkan)
+
+atr = ta.atr(atrLen)
+atrFloor = slAtrFloor * nz(atr, 0)
+buf      = slBufAtr * nz(atr, 0)
+
+slLongSwing  = not na(lastSwLow)  ? lastSwLow  - buf : float(na)
+slShortSwing = not na(lastSwHigh) ? lastSwHigh + buf : float(na)
+distSwingL = not na(slLongSwing)  ? close - slLongSwing  : float(na)
+distSwingS = not na(slShortSwing) ? slShortSwing - close : float(na)
+distL = math.max(nz(distSwingL, 0.0), atrFloor)
+distS = math.max(nz(distSwingS, 0.0), atrFloor)
+slLong  = close - distL
+slShort = close + distS
+tpLong  = close + tpR * distL
+tpShort = close - tpR * distS
+slOkLong  = distL > syminfo.mintick
+slOkShort = distS > syminfo.mintick
+
+pv = syminfo.pointvalue == 0 ? 1.0 : syminfo.pointvalue
+riskCash = strategy.equity * riskPct * 0.01
+qtyL = slOkLong  ? riskCash / (distL * pv) : float(na)
+qtyS = slOkShort ? riskCash / (distS * pv) : float(na)
+qtyOkL = not na(qtyL) and qtyL > 0
+qtyOkS = not na(qtyS) and qtyS > 0
+
+longEntry  = longBreak  and flatPos and slOkLong  and qtyOkL
+shortEntry = shortBreak and flatPos and slOkShort and qtyOkS
+
+plotshape(longEntry,  title="LONG arrow",  style=shape.arrowup,   location=location.belowbar, color=color.lime, size=size.normal)
+plotshape(shortEntry, title="SHORT arrow", style=shape.arrowdown, location=location.abovebar, color=color.red,  size=size.normal)
+if longEntry
+    label.new(bar_index, low, "LONG", yloc=yloc.belowbar, style=label.style_label_up,
+         color=color.lime, textcolor=color.white, size=size.normal)
+if shortEntry
+    label.new(bar_index, high, "SHORT", yloc=yloc.abovebar, style=label.style_label_down,
+         color=color.red, textcolor=color.white, size=size.normal)
+
+plot(longEntry  ? slLong  : na, "Long SL",  color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(shortEntry ? slShort : na, "Short SL", color=color.maroon, style=plot.style_circles, linewidth=2)
+plot(longEntry  ? tpLong  : na, "Long TP",  color=color.teal,   style=plot.style_circles, linewidth=2)
+plot(shortEntry ? tpShort : na, "Short TP", color=color.teal,   style=plot.style_circles, linewidth=2)
+
+// ── Orders: signal on close, fill next bar open ──────────────────────────────
+var float posSl = na
+var float posTp = na
+
+if longEntry
+    posSl := slLong
+    posTp := tpLong
+    armDir   := 0
+    htfReady := false
+    armAge   := 0
+    strategy.entry("Long", strategy.long, qty=qtyL, comment="KEI LONG")
+    strategy.exit("XL", from_entry="Long", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="TP")
+
+if shortEntry
+    posSl := slShort
+    posTp := tpShort
+    armDir   := 0
+    htfReady := false
+    armAge   := 0
+    strategy.entry("Short", strategy.short, qty=qtyS, comment="KEI SHORT")
+    strategy.exit("XS", from_entry="Short", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="TP")
+
+if strategy.position_size > 0 and not na(posSl)
+    fillDist = strategy.position_avg_price - posSl
+    if fillDist > 0
+        posTp := strategy.position_avg_price + tpR * fillDist
+        strategy.exit("XL", from_entry="Long", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="TP")
+    if softExit and tenkanAgainstLong
+        strategy.close("Long", comment="HTF TENKAN")
+
+if strategy.position_size < 0 and not na(posSl)
+    fillDist = posSl - strategy.position_avg_price
+    if fillDist > 0
+        posTp := strategy.position_avg_price - tpR * fillDist
+        strategy.exit("XS", from_entry="Short", stop=posSl, limit=posTp, comment_loss="SL", comment_profit="TP")
+    if softExit and tenkanAgainstShort
+        strategy.close("Short", comment="HTF TENKAN")
+
+if strategy.position_size == 0 and not longEntry and not shortEntry
+    posSl := na
+    posTp := na
+
+alertcondition(longEntry,  title="KEI LONG",  message="Kei Ichimoku RESEARCH LONG — next M5 open")
+alertcondition(shortEntry, title="KEI SHORT", message="Kei Ichimoku RESEARCH SHORT — next M5 open")
+
+// ── HUD ──────────────────────────────────────────────────────────────────────
+var table info = table.new(position.top_right, 1, 4, bgcolor=color.new(color.black, 70))
+if barstate.islast
+    tfWarn = timeframe.period != "5" ? "  CHART NOT M5" : ""
+    table.cell(info, 0, 0, "KEI ICHIMOKU RESEARCH  " + tfNote + " / H1" + tfWarn, text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 1, trigVar + "  TK " + str.tostring(tenkanLen) + "/" + str.tostring(kijunLen) + "  RR " + str.tostring(tpR) + "  risk " + str.tostring(riskPct) + "%", text_color=color.silver, text_size=size.tiny)
+    armTxt = armDir == 1 ? "ARM LONG" : armDir == -1 ? "ARM SHORT" : "flat"
+    rdyTxt = htfReady ? " READY" : armDir != 0 ? " wait Chikou/Kumo" : ""
+    table.cell(info, 0, 2, armTxt + rdyTxt + "  age " + str.tostring(armAge) + "/" + str.tostring(armTimeoutM5), text_color=color.gray, text_size=size.tiny)
+    kumoTxt = hFlat ? "H1 KUMO FLAT" : hAbove ? "H1 above kumo" : hBelow ? "H1 below kumo" : "H1 in/unk kumo"
+    table.cell(info, 0, 3, kumoTxt + (htfBull ? "  TK bull" : htfBear ? "  TK bear" : "  TK flat"), text_color=color.gray, text_size=size.tiny)
