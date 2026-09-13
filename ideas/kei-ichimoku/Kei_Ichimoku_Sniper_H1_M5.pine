@@ -80,10 +80,11 @@ htfBundle() =>
     flat   = flatB or thin
     above  = not na(cTop) and close > cTop
     below  = not na(cBot) and close < cBot
-    [tenkan, kijun, close, chiL, chiS, cTop, cBot, tkUp, tkDn, flat, above, below]
+    // [1] = last CLOSED H1 bar (history-ref on each series, not a tuple index).
+    [tenkan[1], kijun[1], close[1], chiL[1], chiS[1], cTop[1], cBot[1], tkUp[1], tkDn[1], flat[1], above[1], below[1]]
 
 [hTenkan, hKijun, hClose, hChiL, hChiS, hCTop, hCBot, hTkUp, hTkDn, hFlat, hAbove, hBelow] =
-     request.security(syminfo.tickerid, htfTf, htfBundle()[1], lookahead=barmerge.lookahead_off)
+     request.security(syminfo.tickerid, htfTf, htfBundle(), lookahead=barmerge.lookahead_off)
 
 // ── M5 Ichimoku (plot + LTF Tenkan filter) ───────────────────────────────────
 m5tenkan = donchian(tenkanLen)
@@ -113,8 +114,8 @@ ltfSec = timeframe.in_seconds()
 barsPerHtf = htfSec > 0 and ltfSec > 0 ? math.max(1, int(math.round(htfSec / ltfSec))) : 12
 armTimeoutM5 = armTimeoutH1 * barsPerHtf
 
-tkArmUp = hTkUp and not nz(hTkUp[1], false)
-tkArmDn = hTkDn and not nz(hTkDn[1], false)
+tkArmUp = hTkUp and not hTkUp[1]
+tkArmDn = hTkDn and not hTkDn[1]
 
 var int  armDir   = 0
 var bool htfReady = false

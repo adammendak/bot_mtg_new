@@ -39,7 +39,7 @@ Everything else (flat-Kumo lookback, ATR floor, SL buffer) is in **Filter / Stop
 ## What you should see on the chart
 
 - **M5 Ichimoku** — Tenkan, Kijun, Kumo, Chikou (standard displacement).
-- **H1 Tenkan / Kijun** — stepline (closed H1).
+- **H1 Tenkan / Kijun / Kumo top-bot** — stepline (last closed H1).
 - **Background** — teal / maroon HTF Tenkan vs Kijun bias.
 - Tiny aqua / orange triangles — H1 **arm** (TK cross).
 - Tiny diamonds — H1 **ready** (Chikou, and Kumo for Sanyaku).
