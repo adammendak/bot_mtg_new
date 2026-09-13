@@ -1,0 +1,4 @@
+pandas
+numpy
+histdata-fetcher
+dukascopy-python
