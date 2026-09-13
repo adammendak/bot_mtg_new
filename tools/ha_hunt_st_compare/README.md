@@ -18,4 +18,4 @@ python3 -m tools.ha_hunt_st_compare.run_fixed_rr_12m
 
 OHLC loader order: local `cache/*_M5.csv` → Capital DEMO mids (if `CAPITAL_*` env is set) → HistData M1 resampled to M5 (XAU / US100=NSXUSD / US500=SPXUSD / GER40 / EURUSD / extras) → Dukascopy M1 resampled to M5 (US30=`USA30.IDX/USD`; HistData has no DJIA) → Coinbase Exchange 5m (BTC). Never invents prices. Cache is gitignored.
 
-The quarterly runner (`run_fixed_rr_q`) and ST-param grid (`run_st_indices`) live on PR #151 / #144. This branch does not copy those report writers.
+`run_st_indices` is kept so the PR #151 simulator tests pass; this note does not rerun the ST-param grid. The quarterly writer (`run_fixed_rr_q`) stays on PR #151.
