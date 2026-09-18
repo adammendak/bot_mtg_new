@@ -1,0 +1,1732 @@
+{
+  "window": [
+    "2025-09-13T00:00:00",
+    "2026-09-13T00:00:00"
+  ],
+  "warmup_days": 120,
+  "symbols": [
+    "XAU",
+    "BTC",
+    "US100",
+    "US500",
+    "US30",
+    "GER40",
+    "EURUSD"
+  ],
+  "errors": {},
+  "coverage": [
+    {
+      "symbol": "XAU",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-05-16T04:00:00+00:00",
+      "last": "2026-09-11T20:55:00+00:00",
+      "n_m5": 94032,
+      "n_m1": 470067,
+      "coverage_days": 483.7,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData XAUUSD M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids. HistData XAUUSD (spot gold). Same series as PR #139/#143."
+    },
+    {
+      "symbol": "BTC",
+      "source": "coinbase_exchange_m5",
+      "first": "2025-05-16T00:00:00+00:00",
+      "last": "2026-09-13T00:00:00+00:00",
+      "n_m5": 139532,
+      "n_m1": 0,
+      "coverage_days": 485.0,
+      "note": "capital_unavailable: Capital DEMO credentials not set; Coinbase Exchange BTC-USD 5m public candles. Not Capital mids. HistData has no BTC."
+    },
+    {
+      "symbol": "US100",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-05-16T04:00:00+00:00",
+      "last": "2026-09-11T20:10:00+00:00",
+      "n_m5": 90710,
+      "n_m1": 453236,
+      "coverage_days": 483.67,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData NSXUSD M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids. HistData NSXUSD = Nasdaq 100 cash (NQ / US100). Capital epic US100. Same series as PR #139/#143."
+    },
+    {
+      "symbol": "US500",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-05-16T04:00:00+00:00",
+      "last": "2026-09-11T20:10:00+00:00",
+      "n_m5": 90760,
+      "n_m1": 451935,
+      "coverage_days": 483.67,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData SPXUSD M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids. HistData SPXUSD = S&P 500 cash (ES / US500). Capital epic US500. Analogous vendor/method to US100."
+    },
+    {
+      "symbol": "US30",
+      "source": "dukascopy_m1_resampled_m5",
+      "first": "2025-05-16T00:00:00+00:00",
+      "last": "2026-09-11T20:10:00+00:00",
+      "n_m5": 90844,
+      "n_m1": 453766,
+      "coverage_days": 483.84,
+      "note": "capital_unavailable: Capital DEMO credentials not set; Dukascopy USA30.IDX/USD M1 (UTC bid), resampled to M5. Not Capital mids. HistData has no DJIA pair. Dukascopy USA30.IDX/USD = Dow Jones cash (YM / US30). Capital epic US30. M1\u2192M5, UTC native (not Eastern)."
+    },
+    {
+      "symbol": "GER40",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-05-16T04:00:00+00:00",
+      "last": "2026-09-11T19:55:00+00:00",
+      "n_m5": 91083,
+      "n_m1": 449686,
+      "coverage_days": 483.66,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData GRXEUR M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids. HistData GRXEUR = DAX cash (DE40 / GER40). Dukascopy DEU.IDX/EUR fallback."
+    },
+    {
+      "symbol": "EURUSD",
+      "source": "histdata_m1_resampled_m5",
+      "first": "2025-05-16T04:00:00+00:00",
+      "last": "2026-09-11T20:55:00+00:00",
+      "n_m5": 98947,
+      "n_m1": 492628,
+      "coverage_days": 483.7,
+      "note": "capital_unavailable: Capital DEMO credentials not set; HistData EURUSD M1 (Eastern stamps \u2192 UTC), resampled to M5. Not Capital mids. HistData EURUSD spot. Same vendor as prior FX bakeoffs."
+    }
+  ],
+  "simplifications": [
+    "No official Pine in-repo; engine reconstructed from SATS TV docs (through v1.12.0) + ProRealTime port. v1.13.1 patch notes were not independently published.",
+    "Chart TF = entry TF only (M15 or M5). No MTF request.security, no Auto-preset ATR/ER/RSI remap per TF \u2014 Default is ATR14 / baseMult 2.0 on both.",
+    "Band source is hl2 (TV SuperTrend). The PRT port uses close.",
+    "No volume series in HistData/Dukascopy/Coinbase loaders used here \u2014 TQI volatility factor always uses ATR/ATR-baseline mapped [0.6, 1.8]\u2192[0,1].",
+    "Character-flip is window-based (v1.12 note): max TQI over the prior charFlipWindow=5 bars > 0.55 AND current TQI < 0.25 AND trendAge \u2265 5. Old 1-bar collapse almost never fired.",
+    "Max SL distance defaulted to 4.0\u00d7 ATR (v1.12 added the cap; Pine default not in public notes). Pivot SL = further of (pivot \u00b1 1.5 ATR, close \u00b1 1.5 ATR), then clipped to \u2264 4 ATR from entry.",
+    "Fixed TP 1/2/3R thirds. Dynamic TP, Auto-calibration, dashboard/regime grid, and score-graded alerts are off / not used as filters.",
+    "Timeout remaining is marked to the close (v1.12 honest P&L). Flip-exit closes remaining at close then opens the new flip. Same-bar SL+TP: SL wins, new TP tags on that bar are ignored.",
+    "Pivots are symmetric 2*3+1 (confirmed 3 bars later). No Pine pivot lookahead.",
+    "One ticket at a time. No spread/commission. Stop-first. Signals only after warmup (ATR baseline 100 + 10)."
+  ],
+  "series_notes": {
+    "XAU": "HistData XAUUSD (spot gold). Same series as PR #139/#143.",
+    "BTC": "Coinbase Exchange BTC-USD 5m public candles. HistData has no BTC.",
+    "US100": "HistData NSXUSD = Nasdaq 100 cash (NQ / US100). Capital epic US100. Same series as PR #139/#143.",
+    "US500": "HistData SPXUSD = S&P 500 cash (ES / US500). Capital epic US500. Analogous vendor/method to US100.",
+    "US30": "HistData has no DJIA pair. Dukascopy USA30.IDX/USD = Dow Jones cash (YM / US30). Capital epic US30. M1\u2192M5, UTC native (not Eastern).",
+    "GER40": "HistData GRXEUR = DAX cash (DE40 / GER40). Dukascopy DEU.IDX/EUR fallback.",
+    "EURUSD": "HistData EURUSD spot. Same vendor as prior FX bakeoffs."
+  },
+  "books": {
+    "XAU|SATS_M15": {
+      "symbol": "XAU",
+      "variant": "SATS_Default_M15",
+      "n": 1900,
+      "wr_pct": 37.84,
+      "sum_r": -2.098,
+      "avg_r": -0.0011,
+      "max_dd_r": 40.737,
+      "pf": 0.997,
+      "n_tp1": 658,
+      "n_long": 950,
+      "n_short": 950,
+      "exits": {
+        "flip_exit": 1421,
+        "stop": 302,
+        "tp3": 151,
+        "char_flip_flip_exit": 25,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "XAU|SATS_M5": {
+      "symbol": "XAU",
+      "variant": "SATS_Default_M5",
+      "n": 5760,
+      "wr_pct": 39.38,
+      "sum_r": 64.056,
+      "avg_r": 0.0111,
+      "max_dd_r": 42.143,
+      "pf": 1.03,
+      "n_tp1": 2088,
+      "n_long": 2880,
+      "n_short": 2880,
+      "exits": {
+        "flip_exit": 4339,
+        "tp3": 449,
+        "stop": 909,
+        "char_flip_flip_exit": 62,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "XAU|STV3_M15H1": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m15_st60",
+      "n": 102,
+      "wr_pct": 40.2,
+      "sum_r": 44.62,
+      "avg_r": 0.4375,
+      "max_dd_r": 7.796,
+      "pf": 1.731,
+      "n_tp1": 41,
+      "n_long": 51,
+      "n_short": 51,
+      "exits": {
+        "band_cross": 19,
+        "stop": 61,
+        "be": 22
+      },
+      "cell": "STV3_M15H1"
+    },
+    "XAU|STV3_M5M45": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m5_st45",
+      "n": 203,
+      "wr_pct": 35.96,
+      "sum_r": 22.55,
+      "avg_r": 0.1111,
+      "max_dd_r": 13.0,
+      "pf": 1.173,
+      "n_tp1": 73,
+      "n_long": 107,
+      "n_short": 96,
+      "exits": {
+        "stop": 130,
+        "band_cross": 48,
+        "be": 25
+      },
+      "cell": "STV3_M5M45"
+    },
+    "XAU|STV3_M15H1_TQI": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 25,
+      "wr_pct": 32.0,
+      "sum_r": 4.336,
+      "avg_r": 0.1735,
+      "max_dd_r": 6.779,
+      "pf": 1.255,
+      "n_tp1": 8,
+      "n_long": 7,
+      "n_short": 18,
+      "exits": {
+        "stop": 17,
+        "band_cross": 5,
+        "be": 3
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "XAU|STV3_M5M45_TQI": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 105,
+      "wr_pct": 38.1,
+      "sum_r": 12.856,
+      "avg_r": 0.1224,
+      "max_dd_r": 9.085,
+      "pf": 1.198,
+      "n_tp1": 40,
+      "n_long": 60,
+      "n_short": 45,
+      "exits": {
+        "band_cross": 22,
+        "stop": 65,
+        "be": 18
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "XAU|STV3_M15H1_CFONLY": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 164,
+      "wr_pct": 42.68,
+      "sum_r": 37.722,
+      "avg_r": 0.23,
+      "max_dd_r": 10.444,
+      "pf": 1.454,
+      "n_tp1": 55,
+      "n_long": 86,
+      "n_short": 78,
+      "exits": {
+        "char_flip": 62,
+        "stop": 81,
+        "be": 21
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "XAU|STV3_M5M45_CFONLY": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 317,
+      "wr_pct": 47.95,
+      "sum_r": 37.949,
+      "avg_r": 0.1197,
+      "max_dd_r": 12.471,
+      "pf": 1.294,
+      "n_tp1": 61,
+      "n_long": 170,
+      "n_short": 147,
+      "exits": {
+        "char_flip": 182,
+        "stop": 116,
+        "be": 19
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "XAU|STV3_M15H1_CFPLUS": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 171,
+      "wr_pct": 41.52,
+      "sum_r": 32.136,
+      "avg_r": 0.1879,
+      "max_dd_r": 10.444,
+      "pf": 1.364,
+      "n_tp1": 55,
+      "n_long": 89,
+      "n_short": 82,
+      "exits": {
+        "char_flip": 62,
+        "stop": 86,
+        "be": 21,
+        "band_cross": 2
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "XAU|STV3_M5M45_CFPLUS": {
+      "symbol": "XAU",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 321,
+      "wr_pct": 47.66,
+      "sum_r": 35.222,
+      "avg_r": 0.1097,
+      "max_dd_r": 12.471,
+      "pf": 1.267,
+      "n_tp1": 61,
+      "n_long": 172,
+      "n_short": 149,
+      "exits": {
+        "char_flip": 178,
+        "stop": 119,
+        "be": 14,
+        "band_cross": 10
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    },
+    "BTC|SATS_M15": {
+      "symbol": "BTC",
+      "variant": "SATS_Default_M15",
+      "n": 2862,
+      "wr_pct": 36.55,
+      "sum_r": -42.342,
+      "avg_r": -0.0148,
+      "max_dd_r": 65.515,
+      "pf": 0.961,
+      "n_tp1": 979,
+      "n_long": 1431,
+      "n_short": 1431,
+      "exits": {
+        "flip_exit": 2094,
+        "stop": 491,
+        "tp3": 251,
+        "char_flip_flip_exit": 25,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "BTC|SATS_M5": {
+      "symbol": "BTC",
+      "variant": "SATS_Default_M5",
+      "n": 9278,
+      "wr_pct": 37.86,
+      "sum_r": -160.747,
+      "avg_r": -0.0173,
+      "max_dd_r": 177.176,
+      "pf": 0.954,
+      "n_tp1": 3226,
+      "n_long": 4639,
+      "n_short": 4639,
+      "exits": {
+        "flip_exit": 7008,
+        "stop": 1478,
+        "tp3": 709,
+        "char_flip_flip_exit": 82,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "BTC|STV3_M15H1": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m15_st60",
+      "n": 187,
+      "wr_pct": 34.22,
+      "sum_r": 4.58,
+      "avg_r": 0.0245,
+      "max_dd_r": 19.762,
+      "pf": 1.037,
+      "n_tp1": 63,
+      "n_long": 97,
+      "n_short": 90,
+      "exits": {
+        "stop": 123,
+        "be": 40,
+        "band_cross": 23,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1"
+    },
+    "BTC|STV3_M5M45": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m5_st45",
+      "n": 314,
+      "wr_pct": 33.76,
+      "sum_r": 10.775,
+      "avg_r": 0.0343,
+      "max_dd_r": 28.478,
+      "pf": 1.052,
+      "n_tp1": 105,
+      "n_long": 152,
+      "n_short": 162,
+      "exits": {
+        "stop": 208,
+        "band_cross": 68,
+        "be": 37,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45"
+    },
+    "BTC|STV3_M15H1_TQI": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 51,
+      "wr_pct": 27.45,
+      "sum_r": -3.591,
+      "avg_r": -0.0704,
+      "max_dd_r": 12.0,
+      "pf": 0.901,
+      "n_tp1": 14,
+      "n_long": 22,
+      "n_short": 29,
+      "exits": {
+        "stop": 36,
+        "be": 8,
+        "band_cross": 6,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "BTC|STV3_M5M45_TQI": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 155,
+      "wr_pct": 33.55,
+      "sum_r": 9.175,
+      "avg_r": 0.0592,
+      "max_dd_r": 18.362,
+      "pf": 1.089,
+      "n_tp1": 51,
+      "n_long": 61,
+      "n_short": 94,
+      "exits": {
+        "stop": 103,
+        "band_cross": 30,
+        "be": 21,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "BTC|STV3_M15H1_CFONLY": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 260,
+      "wr_pct": 38.85,
+      "sum_r": 15.703,
+      "avg_r": 0.0604,
+      "max_dd_r": 23.628,
+      "pf": 1.106,
+      "n_tp1": 70,
+      "n_long": 130,
+      "n_short": 130,
+      "exits": {
+        "stop": 146,
+        "char_flip": 80,
+        "be": 33,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "BTC|STV3_M5M45_CFONLY": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 509,
+      "wr_pct": 46.17,
+      "sum_r": 33.212,
+      "avg_r": 0.0652,
+      "max_dd_r": 36.913,
+      "pf": 1.158,
+      "n_tp1": 91,
+      "n_long": 254,
+      "n_short": 255,
+      "exits": {
+        "stop": 192,
+        "char_flip": 296,
+        "be": 20,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "BTC|STV3_M15H1_CFPLUS": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 262,
+      "wr_pct": 38.55,
+      "sum_r": 15.345,
+      "avg_r": 0.0586,
+      "max_dd_r": 24.543,
+      "pf": 1.103,
+      "n_tp1": 70,
+      "n_long": 131,
+      "n_short": 131,
+      "exits": {
+        "stop": 147,
+        "char_flip": 79,
+        "be": 31,
+        "band_cross": 4,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "BTC|STV3_M5M45_CFPLUS": {
+      "symbol": "BTC",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 510,
+      "wr_pct": 46.08,
+      "sum_r": 30.035,
+      "avg_r": 0.0589,
+      "max_dd_r": 36.981,
+      "pf": 1.142,
+      "n_tp1": 91,
+      "n_long": 254,
+      "n_short": 256,
+      "exits": {
+        "stop": 192,
+        "char_flip": 295,
+        "be": 19,
+        "band_cross": 3,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    },
+    "US100|SATS_M15": {
+      "symbol": "US100",
+      "variant": "SATS_Default_M15",
+      "n": 1838,
+      "wr_pct": 39.17,
+      "sum_r": 27.175,
+      "avg_r": 0.0148,
+      "max_dd_r": 38.17,
+      "pf": 1.038,
+      "n_tp1": 682,
+      "n_long": 919,
+      "n_short": 919,
+      "exits": {
+        "stop": 399,
+        "flip_exit": 1261,
+        "tp3": 161,
+        "char_flip_flip_exit": 16,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "US100|SATS_M5": {
+      "symbol": "US100",
+      "variant": "SATS_Default_M5",
+      "n": 5708,
+      "wr_pct": 39.38,
+      "sum_r": 33.671,
+      "avg_r": 0.0059,
+      "max_dd_r": 55.928,
+      "pf": 1.016,
+      "n_tp1": 2068,
+      "n_long": 2854,
+      "n_short": 2854,
+      "exits": {
+        "flip_exit": 4177,
+        "char_flip_flip_exit": 73,
+        "tp3": 439,
+        "stop": 1017,
+        "timeout": 1,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "US100|STV3_M15H1": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m15_st60",
+      "n": 128,
+      "wr_pct": 42.19,
+      "sum_r": 21.84,
+      "avg_r": 0.1706,
+      "max_dd_r": 8.0,
+      "pf": 1.295,
+      "n_tp1": 54,
+      "n_long": 71,
+      "n_short": 57,
+      "exits": {
+        "be": 37,
+        "stop": 74,
+        "band_cross": 17
+      },
+      "cell": "STV3_M15H1"
+    },
+    "US100|STV3_M5M45": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m5_st45",
+      "n": 234,
+      "wr_pct": 35.47,
+      "sum_r": 11.311,
+      "avg_r": 0.0483,
+      "max_dd_r": 21.127,
+      "pf": 1.075,
+      "n_tp1": 83,
+      "n_long": 120,
+      "n_short": 114,
+      "exits": {
+        "band_cross": 48,
+        "stop": 150,
+        "be": 35,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45"
+    },
+    "US100|STV3_M15H1_TQI": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 34,
+      "wr_pct": 32.35,
+      "sum_r": 3.96,
+      "avg_r": 0.1165,
+      "max_dd_r": 8.504,
+      "pf": 1.172,
+      "n_tp1": 11,
+      "n_long": 17,
+      "n_short": 17,
+      "exits": {
+        "band_cross": 6,
+        "stop": 23,
+        "be": 5
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "US100|STV3_M5M45_TQI": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 90,
+      "wr_pct": 35.56,
+      "sum_r": 1.778,
+      "avg_r": 0.0198,
+      "max_dd_r": 11.735,
+      "pf": 1.031,
+      "n_tp1": 32,
+      "n_long": 42,
+      "n_short": 48,
+      "exits": {
+        "stop": 58,
+        "band_cross": 14,
+        "be": 18
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "US100|STV3_M15H1_CFONLY": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 174,
+      "wr_pct": 40.23,
+      "sum_r": 26.167,
+      "avg_r": 0.1504,
+      "max_dd_r": 7.504,
+      "pf": 1.276,
+      "n_tp1": 61,
+      "n_long": 94,
+      "n_short": 80,
+      "exits": {
+        "char_flip": 50,
+        "stop": 92,
+        "be": 32
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "US100|STV3_M5M45_CFONLY": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 365,
+      "wr_pct": 46.3,
+      "sum_r": 34.63,
+      "avg_r": 0.0949,
+      "max_dd_r": 15.691,
+      "pf": 1.227,
+      "n_tp1": 69,
+      "n_long": 198,
+      "n_short": 167,
+      "exits": {
+        "char_flip": 207,
+        "stop": 139,
+        "be": 18,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "US100|STV3_M15H1_CFPLUS": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 174,
+      "wr_pct": 40.23,
+      "sum_r": 26.709,
+      "avg_r": 0.1535,
+      "max_dd_r": 7.504,
+      "pf": 1.282,
+      "n_tp1": 61,
+      "n_long": 94,
+      "n_short": 80,
+      "exits": {
+        "char_flip": 48,
+        "stop": 92,
+        "be": 31,
+        "band_cross": 3
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "US100|STV3_M5M45_CFPLUS": {
+      "symbol": "US100",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 365,
+      "wr_pct": 46.3,
+      "sum_r": 34.349,
+      "avg_r": 0.0941,
+      "max_dd_r": 15.691,
+      "pf": 1.225,
+      "n_tp1": 69,
+      "n_long": 198,
+      "n_short": 167,
+      "exits": {
+        "char_flip": 205,
+        "stop": 139,
+        "be": 18,
+        "band_cross": 2,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    },
+    "US500|SATS_M15": {
+      "symbol": "US500",
+      "variant": "SATS_Default_M15",
+      "n": 1930,
+      "wr_pct": 35.91,
+      "sum_r": -97.362,
+      "avg_r": -0.0504,
+      "max_dd_r": 119.538,
+      "pf": 0.876,
+      "n_tp1": 661,
+      "n_long": 965,
+      "n_short": 965,
+      "exits": {
+        "flip_exit": 1347,
+        "tp3": 136,
+        "stop": 427,
+        "char_flip_flip_exit": 19,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "US500|SATS_M5": {
+      "symbol": "US500",
+      "variant": "SATS_Default_M5",
+      "n": 5792,
+      "wr_pct": 39.4,
+      "sum_r": -30.687,
+      "avg_r": -0.0053,
+      "max_dd_r": 98.935,
+      "pf": 0.986,
+      "n_tp1": 2115,
+      "n_long": 2896,
+      "n_short": 2896,
+      "exits": {
+        "flip_exit": 4265,
+        "char_flip_flip_exit": 69,
+        "stop": 1026,
+        "tp3": 431,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "US500|STV3_M15H1": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m15_st60",
+      "n": 129,
+      "wr_pct": 39.53,
+      "sum_r": 8.758,
+      "avg_r": 0.0679,
+      "max_dd_r": 14.069,
+      "pf": 1.112,
+      "n_tp1": 51,
+      "n_long": 65,
+      "n_short": 64,
+      "exits": {
+        "be": 29,
+        "stop": 78,
+        "band_cross": 22
+      },
+      "cell": "STV3_M15H1"
+    },
+    "US500|STV3_M5M45": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m5_st45",
+      "n": 190,
+      "wr_pct": 42.11,
+      "sum_r": 35.689,
+      "avg_r": 0.1878,
+      "max_dd_r": 11.76,
+      "pf": 1.327,
+      "n_tp1": 80,
+      "n_long": 93,
+      "n_short": 97,
+      "exits": {
+        "be": 29,
+        "stop": 109,
+        "band_cross": 51,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45"
+    },
+    "US500|STV3_M15H1_TQI": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 39,
+      "wr_pct": 28.21,
+      "sum_r": -15.966,
+      "avg_r": -0.4094,
+      "max_dd_r": 16.273,
+      "pf": 0.43,
+      "n_tp1": 11,
+      "n_long": 18,
+      "n_short": 21,
+      "exits": {
+        "stop": 28,
+        "be": 8,
+        "band_cross": 3
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "US500|STV3_M5M45_TQI": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 84,
+      "wr_pct": 42.86,
+      "sum_r": 17.243,
+      "avg_r": 0.2053,
+      "max_dd_r": 8.364,
+      "pf": 1.359,
+      "n_tp1": 36,
+      "n_long": 37,
+      "n_short": 47,
+      "exits": {
+        "be": 14,
+        "band_cross": 22,
+        "stop": 48
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "US500|STV3_M15H1_CFONLY": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 187,
+      "wr_pct": 35.83,
+      "sum_r": -1.057,
+      "avg_r": -0.0057,
+      "max_dd_r": 22.116,
+      "pf": 0.99,
+      "n_tp1": 50,
+      "n_long": 101,
+      "n_short": 86,
+      "exits": {
+        "be": 22,
+        "char_flip": 60,
+        "stop": 105
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "US500|STV3_M5M45_CFONLY": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 346,
+      "wr_pct": 45.66,
+      "sum_r": 33.188,
+      "avg_r": 0.0959,
+      "max_dd_r": 11.854,
+      "pf": 1.236,
+      "n_tp1": 60,
+      "n_long": 191,
+      "n_short": 155,
+      "exits": {
+        "char_flip": 204,
+        "stop": 126,
+        "be": 15,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "US500|STV3_M15H1_CFPLUS": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 187,
+      "wr_pct": 36.36,
+      "sum_r": 3.609,
+      "avg_r": 0.0193,
+      "max_dd_r": 22.082,
+      "pf": 1.033,
+      "n_tp1": 51,
+      "n_long": 101,
+      "n_short": 86,
+      "exits": {
+        "be": 20,
+        "char_flip": 59,
+        "stop": 104,
+        "band_cross": 4
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "US500|STV3_M5M45_CFPLUS": {
+      "symbol": "US500",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 346,
+      "wr_pct": 45.95,
+      "sum_r": 33.245,
+      "avg_r": 0.0961,
+      "max_dd_r": 10.9,
+      "pf": 1.237,
+      "n_tp1": 60,
+      "n_long": 191,
+      "n_short": 155,
+      "exits": {
+        "char_flip": 202,
+        "stop": 126,
+        "be": 14,
+        "band_cross": 3,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    },
+    "US30|SATS_M15": {
+      "symbol": "US30",
+      "variant": "SATS_Default_M15",
+      "n": 1811,
+      "wr_pct": 38.65,
+      "sum_r": -23.83,
+      "avg_r": -0.0132,
+      "max_dd_r": 67.272,
+      "pf": 0.967,
+      "n_tp1": 638,
+      "n_long": 906,
+      "n_short": 905,
+      "exits": {
+        "flip_exit": 1183,
+        "stop": 430,
+        "tp3": 173,
+        "char_flip_flip_exit": 24,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "US30|SATS_M5": {
+      "symbol": "US30",
+      "variant": "SATS_Default_M5",
+      "n": 5710,
+      "wr_pct": 39.47,
+      "sum_r": 49.144,
+      "avg_r": 0.0086,
+      "max_dd_r": 83.047,
+      "pf": 1.023,
+      "n_tp1": 2065,
+      "n_long": 2855,
+      "n_short": 2855,
+      "exits": {
+        "flip_exit": 4186,
+        "tp3": 459,
+        "stop": 1001,
+        "char_flip_flip_exit": 63,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "US30|STV3_M15H1": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m15_st60",
+      "n": 130,
+      "wr_pct": 36.15,
+      "sum_r": 9.613,
+      "avg_r": 0.0739,
+      "max_dd_r": 19.884,
+      "pf": 1.116,
+      "n_tp1": 47,
+      "n_long": 71,
+      "n_short": 59,
+      "exits": {
+        "stop": 83,
+        "be": 28,
+        "band_cross": 18,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1"
+    },
+    "US30|STV3_M5M45": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m5_st45",
+      "n": 223,
+      "wr_pct": 38.57,
+      "sum_r": 12.455,
+      "avg_r": 0.0559,
+      "max_dd_r": 28.425,
+      "pf": 1.091,
+      "n_tp1": 85,
+      "n_long": 106,
+      "n_short": 117,
+      "exits": {
+        "stop": 137,
+        "be": 38,
+        "band_cross": 47,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45"
+    },
+    "US30|STV3_M15H1_TQI": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 36,
+      "wr_pct": 36.11,
+      "sum_r": -5.609,
+      "avg_r": -0.1558,
+      "max_dd_r": 10.642,
+      "pf": 0.756,
+      "n_tp1": 13,
+      "n_long": 16,
+      "n_short": 20,
+      "exits": {
+        "stop": 23,
+        "be": 8,
+        "band_cross": 5
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "US30|STV3_M5M45_TQI": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 107,
+      "wr_pct": 37.38,
+      "sum_r": 18.279,
+      "avg_r": 0.1708,
+      "max_dd_r": 22.621,
+      "pf": 1.273,
+      "n_tp1": 40,
+      "n_long": 52,
+      "n_short": 55,
+      "exits": {
+        "stop": 67,
+        "be": 18,
+        "band_cross": 22
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "US30|STV3_M15H1_CFONLY": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 180,
+      "wr_pct": 41.11,
+      "sum_r": 21.015,
+      "avg_r": 0.1167,
+      "max_dd_r": 17.113,
+      "pf": 1.225,
+      "n_tp1": 47,
+      "n_long": 107,
+      "n_short": 73,
+      "exits": {
+        "stop": 91,
+        "char_flip": 66,
+        "be": 23
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "US30|STV3_M5M45_CFONLY": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 364,
+      "wr_pct": 44.23,
+      "sum_r": 13.162,
+      "avg_r": 0.0362,
+      "max_dd_r": 18.769,
+      "pf": 1.087,
+      "n_tp1": 58,
+      "n_long": 187,
+      "n_short": 177,
+      "exits": {
+        "stop": 137,
+        "be": 16,
+        "char_flip": 210,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "US30|STV3_M15H1_CFPLUS": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 183,
+      "wr_pct": 41.53,
+      "sum_r": 19.099,
+      "avg_r": 0.1044,
+      "max_dd_r": 20.731,
+      "pf": 1.202,
+      "n_tp1": 48,
+      "n_long": 107,
+      "n_short": 76,
+      "exits": {
+        "stop": 92,
+        "char_flip": 65,
+        "be": 23,
+        "band_cross": 3
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "US30|STV3_M5M45_CFPLUS": {
+      "symbol": "US30",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 364,
+      "wr_pct": 44.23,
+      "sum_r": 12.223,
+      "avg_r": 0.0336,
+      "max_dd_r": 18.769,
+      "pf": 1.08,
+      "n_tp1": 58,
+      "n_long": 187,
+      "n_short": 177,
+      "exits": {
+        "stop": 137,
+        "be": 14,
+        "char_flip": 209,
+        "band_cross": 3,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    },
+    "GER40|SATS_M15": {
+      "symbol": "GER40",
+      "variant": "SATS_Default_M15",
+      "n": 1911,
+      "wr_pct": 39.04,
+      "sum_r": 8.584,
+      "avg_r": 0.0045,
+      "max_dd_r": 39.363,
+      "pf": 1.012,
+      "n_tp1": 706,
+      "n_long": 956,
+      "n_short": 955,
+      "exits": {
+        "tp3": 161,
+        "flip_exit": 1380,
+        "stop": 349,
+        "char_flip_flip_exit": 20,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "GER40|SATS_M5": {
+      "symbol": "GER40",
+      "variant": "SATS_Default_M5",
+      "n": 5874,
+      "wr_pct": 39.1,
+      "sum_r": 14.874,
+      "avg_r": 0.0025,
+      "max_dd_r": 82.901,
+      "pf": 1.007,
+      "n_tp1": 2156,
+      "n_long": 2937,
+      "n_short": 2937,
+      "exits": {
+        "flip_exit": 4327,
+        "tp3": 443,
+        "stop": 1056,
+        "char_flip_flip_exit": 47,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "GER40|STV3_M15H1": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m15_st60",
+      "n": 140,
+      "wr_pct": 34.29,
+      "sum_r": -13.732,
+      "avg_r": -0.0981,
+      "max_dd_r": 19.299,
+      "pf": 0.851,
+      "n_tp1": 48,
+      "n_long": 73,
+      "n_short": 67,
+      "exits": {
+        "stop": 92,
+        "band_cross": 14,
+        "be": 33,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1"
+    },
+    "GER40|STV3_M5M45": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m5_st45",
+      "n": 208,
+      "wr_pct": 37.98,
+      "sum_r": 26.022,
+      "avg_r": 0.1251,
+      "max_dd_r": 16.772,
+      "pf": 1.203,
+      "n_tp1": 79,
+      "n_long": 109,
+      "n_short": 99,
+      "exits": {
+        "stop": 128,
+        "band_cross": 52,
+        "be": 27,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45"
+    },
+    "GER40|STV3_M15H1_TQI": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 30,
+      "wr_pct": 33.33,
+      "sum_r": -2.572,
+      "avg_r": -0.0857,
+      "max_dd_r": 13.444,
+      "pf": 0.871,
+      "n_tp1": 10,
+      "n_long": 16,
+      "n_short": 14,
+      "exits": {
+        "be": 6,
+        "stop": 20,
+        "band_cross": 4
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "GER40|STV3_M5M45_TQI": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 99,
+      "wr_pct": 36.36,
+      "sum_r": 2.253,
+      "avg_r": 0.0228,
+      "max_dd_r": 17.0,
+      "pf": 1.036,
+      "n_tp1": 36,
+      "n_long": 46,
+      "n_short": 53,
+      "exits": {
+        "stop": 63,
+        "be": 16,
+        "band_cross": 20
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "GER40|STV3_M15H1_CFONLY": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 193,
+      "wr_pct": 37.31,
+      "sum_r": -2.821,
+      "avg_r": -0.0146,
+      "max_dd_r": 14.367,
+      "pf": 0.975,
+      "n_tp1": 54,
+      "n_long": 105,
+      "n_short": 88,
+      "exits": {
+        "stop": 110,
+        "be": 27,
+        "char_flip": 55,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "GER40|STV3_M5M45_CFONLY": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 352,
+      "wr_pct": 42.05,
+      "sum_r": -2.854,
+      "avg_r": -0.0081,
+      "max_dd_r": 20.113,
+      "pf": 0.981,
+      "n_tp1": 55,
+      "n_long": 194,
+      "n_short": 158,
+      "exits": {
+        "stop": 139,
+        "char_flip": 201,
+        "be": 11,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "GER40|STV3_M15H1_CFPLUS": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 193,
+      "wr_pct": 37.31,
+      "sum_r": -1.145,
+      "avg_r": -0.0059,
+      "max_dd_r": 14.367,
+      "pf": 0.99,
+      "n_tp1": 54,
+      "n_long": 105,
+      "n_short": 88,
+      "exits": {
+        "stop": 110,
+        "band_cross": 3,
+        "be": 25,
+        "char_flip": 54,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "GER40|STV3_M5M45_CFPLUS": {
+      "symbol": "GER40",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 352,
+      "wr_pct": 42.05,
+      "sum_r": -2.854,
+      "avg_r": -0.0081,
+      "max_dd_r": 20.113,
+      "pf": 0.981,
+      "n_tp1": 55,
+      "n_long": 194,
+      "n_short": 158,
+      "exits": {
+        "stop": 139,
+        "char_flip": 201,
+        "be": 11,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    },
+    "EURUSD|SATS_M15": {
+      "symbol": "EURUSD",
+      "variant": "SATS_Default_M15",
+      "n": 2019,
+      "wr_pct": 38.63,
+      "sum_r": -25.462,
+      "avg_r": -0.0126,
+      "max_dd_r": 61.55,
+      "pf": 0.967,
+      "n_tp1": 709,
+      "n_long": 1010,
+      "n_short": 1009,
+      "exits": {
+        "flip_exit": 1467,
+        "tp3": 155,
+        "stop": 374,
+        "char_flip_flip_exit": 22,
+        "open_eod": 1
+      },
+      "cell": "SATS_M15"
+    },
+    "EURUSD|SATS_M5": {
+      "symbol": "EURUSD",
+      "variant": "SATS_Default_M5",
+      "n": 6643,
+      "wr_pct": 36.34,
+      "sum_r": -389.372,
+      "avg_r": -0.0586,
+      "max_dd_r": 399.908,
+      "pf": 0.851,
+      "n_tp1": 2215,
+      "n_long": 3322,
+      "n_short": 3321,
+      "exits": {
+        "flip_exit": 5078,
+        "tp3": 374,
+        "stop": 1112,
+        "char_flip_flip_exit": 78,
+        "open_eod": 1
+      },
+      "cell": "SATS_M5"
+    },
+    "EURUSD|STV3_M15H1": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m15_st60",
+      "n": 136,
+      "wr_pct": 33.82,
+      "sum_r": 20.718,
+      "avg_r": 0.1523,
+      "max_dd_r": 20.477,
+      "pf": 1.23,
+      "n_tp1": 46,
+      "n_long": 69,
+      "n_short": 67,
+      "exits": {
+        "band_cross": 24,
+        "be": 21,
+        "stop": 90,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1"
+    },
+    "EURUSD|STV3_M5M45": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m5_st45",
+      "n": 228,
+      "wr_pct": 32.89,
+      "sum_r": -10.443,
+      "avg_r": -0.0458,
+      "max_dd_r": 30.394,
+      "pf": 0.932,
+      "n_tp1": 75,
+      "n_long": 112,
+      "n_short": 116,
+      "exits": {
+        "stop": 153,
+        "band_cross": 48,
+        "be": 27
+      },
+      "cell": "STV3_M5M45"
+    },
+    "EURUSD|STV3_M15H1_TQI": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m15_st60_tqi0.5",
+      "n": 28,
+      "wr_pct": 35.71,
+      "sum_r": -2.525,
+      "avg_r": -0.0902,
+      "max_dd_r": 5.742,
+      "pf": 0.86,
+      "n_tp1": 10,
+      "n_long": 12,
+      "n_short": 16,
+      "exits": {
+        "stop": 18,
+        "band_cross": 5,
+        "be": 5
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "EURUSD|STV3_M5M45_TQI": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m5_st45_tqi0.5",
+      "n": 101,
+      "wr_pct": 31.68,
+      "sum_r": -1.625,
+      "avg_r": -0.0161,
+      "max_dd_r": 13.882,
+      "pf": 0.976,
+      "n_tp1": 32,
+      "n_long": 34,
+      "n_short": 67,
+      "exits": {
+        "stop": 69,
+        "be": 11,
+        "band_cross": 21
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "EURUSD|STV3_M15H1_CFONLY": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m15_st60_cfonly",
+      "n": 194,
+      "wr_pct": 40.21,
+      "sum_r": 14.35,
+      "avg_r": 0.074,
+      "max_dd_r": 25.428,
+      "pf": 1.137,
+      "n_tp1": 48,
+      "n_long": 86,
+      "n_short": 108,
+      "exits": {
+        "char_flip": 79,
+        "stop": 101,
+        "be": 14
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "EURUSD|STV3_M5M45_CFONLY": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m5_st45_cfonly",
+      "n": 404,
+      "wr_pct": 41.34,
+      "sum_r": -16.434,
+      "avg_r": -0.0407,
+      "max_dd_r": 32.749,
+      "pf": 0.908,
+      "n_tp1": 58,
+      "n_long": 201,
+      "n_short": 203,
+      "exits": {
+        "char_flip": 234,
+        "stop": 157,
+        "be": 13
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "EURUSD|STV3_M15H1_CFPLUS": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m15_st60_cfplus",
+      "n": 194,
+      "wr_pct": 40.21,
+      "sum_r": 14.539,
+      "avg_r": 0.0749,
+      "max_dd_r": 25.239,
+      "pf": 1.139,
+      "n_tp1": 48,
+      "n_long": 86,
+      "n_short": 108,
+      "exits": {
+        "char_flip": 79,
+        "stop": 101,
+        "be": 13,
+        "band_cross": 1
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "EURUSD|STV3_M5M45_CFPLUS": {
+      "symbol": "EURUSD",
+      "variant": "STV3_prod_m5_st45_cfplus",
+      "n": 404,
+      "wr_pct": 41.34,
+      "sum_r": -15.893,
+      "avg_r": -0.0393,
+      "max_dd_r": 32.095,
+      "pf": 0.911,
+      "n_tp1": 58,
+      "n_long": 201,
+      "n_short": 203,
+      "exits": {
+        "char_flip": 232,
+        "stop": 157,
+        "be": 12,
+        "band_cross": 3
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    }
+  },
+  "combos": {
+    "SATS_M15": {
+      "symbol": "PRIMARY7",
+      "variant": "SATS_M15",
+      "n": 14271,
+      "wr_pct": 37.87,
+      "sum_r": -155.336,
+      "avg_r": -0.0109,
+      "max_dd_r": 286.41,
+      "pf": 0.972,
+      "n_tp1": 5033,
+      "n_long": 7137,
+      "n_short": 7134,
+      "exits": {
+        "flip_exit": 10153,
+        "stop": 2772,
+        "tp3": 1188,
+        "char_flip_flip_exit": 151,
+        "open_eod": 7
+      },
+      "cell": "SATS_M15"
+    },
+    "SATS_M5": {
+      "symbol": "PRIMARY7",
+      "variant": "SATS_M5",
+      "n": 44765,
+      "wr_pct": 38.59,
+      "sum_r": -419.062,
+      "avg_r": -0.0094,
+      "max_dd_r": 483.114,
+      "pf": 0.975,
+      "n_tp1": 15933,
+      "n_long": 22383,
+      "n_short": 22382,
+      "exits": {
+        "flip_exit": 33380,
+        "stop": 7599,
+        "tp3": 3304,
+        "char_flip_flip_exit": 474,
+        "timeout": 1,
+        "open_eod": 7
+      },
+      "cell": "SATS_M5"
+    },
+    "STV3_M15H1": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M15H1",
+      "n": 952,
+      "wr_pct": 36.87,
+      "sum_r": 96.399,
+      "avg_r": 0.1013,
+      "max_dd_r": 39.111,
+      "pf": 1.16,
+      "n_tp1": 350,
+      "n_long": 497,
+      "n_short": 455,
+      "exits": {
+        "stop": 601,
+        "band_cross": 137,
+        "be": 210,
+        "open_eod": 4
+      },
+      "cell": "STV3_M15H1"
+    },
+    "STV3_M5M45": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M5M45",
+      "n": 1600,
+      "wr_pct": 36.38,
+      "sum_r": 108.361,
+      "avg_r": 0.0677,
+      "max_dd_r": 51.311,
+      "pf": 1.107,
+      "n_tp1": 580,
+      "n_long": 799,
+      "n_short": 801,
+      "exits": {
+        "stop": 1015,
+        "band_cross": 362,
+        "be": 218,
+        "open_eod": 5
+      },
+      "cell": "STV3_M5M45"
+    },
+    "STV3_M15H1_TQI": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M15H1_TQI",
+      "n": 243,
+      "wr_pct": 31.69,
+      "sum_r": -21.966,
+      "avg_r": -0.0904,
+      "max_dd_r": 37.064,
+      "pf": 0.867,
+      "n_tp1": 77,
+      "n_long": 108,
+      "n_short": 135,
+      "exits": {
+        "stop": 165,
+        "be": 43,
+        "band_cross": 34,
+        "open_eod": 1
+      },
+      "cell": "STV3_M15H1_TQI"
+    },
+    "STV3_M5M45_TQI": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M5M45_TQI",
+      "n": 741,
+      "wr_pct": 36.17,
+      "sum_r": 59.958,
+      "avg_r": 0.0809,
+      "max_dd_r": 43.121,
+      "pf": 1.127,
+      "n_tp1": 267,
+      "n_long": 332,
+      "n_short": 409,
+      "exits": {
+        "stop": 473,
+        "be": 116,
+        "band_cross": 151,
+        "open_eod": 1
+      },
+      "cell": "STV3_M5M45_TQI"
+    },
+    "STV3_M15H1_CFONLY": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M15H1_CFONLY",
+      "n": 1352,
+      "wr_pct": 39.35,
+      "sum_r": 111.079,
+      "avg_r": 0.0822,
+      "max_dd_r": 45.294,
+      "pf": 1.149,
+      "n_tp1": 385,
+      "n_long": 709,
+      "n_short": 643,
+      "exits": {
+        "stop": 726,
+        "char_flip": 452,
+        "be": 172,
+        "open_eod": 2
+      },
+      "cell": "STV3_M15H1_CFONLY"
+    },
+    "STV3_M5M45_CFONLY": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M5M45_CFONLY",
+      "n": 2657,
+      "wr_pct": 44.79,
+      "sum_r": 132.852,
+      "avg_r": 0.05,
+      "max_dd_r": 56.684,
+      "pf": 1.119,
+      "n_tp1": 452,
+      "n_long": 1395,
+      "n_short": 1262,
+      "exits": {
+        "stop": 1006,
+        "char_flip": 1534,
+        "be": 112,
+        "open_eod": 5
+      },
+      "cell": "STV3_M5M45_CFONLY"
+    },
+    "STV3_M15H1_CFPLUS": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M15H1_CFPLUS",
+      "n": 1364,
+      "wr_pct": 39.3,
+      "sum_r": 110.292,
+      "avg_r": 0.0809,
+      "max_dd_r": 45.294,
+      "pf": 1.147,
+      "n_tp1": 387,
+      "n_long": 713,
+      "n_short": 651,
+      "exits": {
+        "stop": 732,
+        "char_flip": 446,
+        "be": 164,
+        "band_cross": 20,
+        "open_eod": 2
+      },
+      "cell": "STV3_M15H1_CFPLUS"
+    },
+    "STV3_M5M45_CFPLUS": {
+      "symbol": "PRIMARY7",
+      "variant": "STV3_M5M45_CFPLUS",
+      "n": 2662,
+      "wr_pct": 44.78,
+      "sum_r": 126.327,
+      "avg_r": 0.0475,
+      "max_dd_r": 56.787,
+      "pf": 1.113,
+      "n_tp1": 452,
+      "n_long": 1397,
+      "n_short": 1265,
+      "exits": {
+        "stop": 1009,
+        "char_flip": 1522,
+        "be": 102,
+        "band_cross": 24,
+        "open_eod": 5
+      },
+      "cell": "STV3_M5M45_CFPLUS"
+    }
+  },
+  "call": "**Adopt nothing. Do not replace ST_V3 with SATS. Do not change prod Java.** SATS Default is a flip mill (M15 -155R PF 0.97 n=14271; M5 -419R PF 0.98 n=44765) vs ST_V3 prod-like (M15+H1 +96.4R PF 1.16 n=952; M5+M45 +108.4R PF 1.11 n=1600). TQI\u22650.5 gate rejected (\u0394sumR M15 -118 / M5 -48). Char-flip instead \u0394sumR M15 +14.7 / M5 +24.5 from extra tickets \u2014 do not merge. Paper nothing this round.",
+  "recommendation": {
+    "adopt": "adopt nothing",
+    "paper": [],
+    "merge_into_st_v3": [],
+    "sats_m15_sum_r": -155.33581821676762,
+    "stv3_m15_sum_r": 96.39852352610558,
+    "sats_m5_sum_r": -419.0615084026342,
+    "stv3_m5_sum_r": 108.36058906973203,
+    "tqi_m15_delta": -118.36469691526318,
+    "tqi_m5_delta": -48.40265476158485,
+    "cfonly_m15_delta": 14.680060860784053,
+    "cfplus_m15_delta": 13.893267608786573,
+    "cfonly_m5_delta": 24.49178465824626,
+    "cfplus_m5_delta": 17.96652785764853
+  }
+}
