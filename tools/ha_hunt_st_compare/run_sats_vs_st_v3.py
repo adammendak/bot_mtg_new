@@ -386,39 +386,42 @@ def main(argv: list[str] | None = None) -> int:
     cf15, cf5 = combos["STV3_M15H1_CFONLY"], combos["STV3_M5M45_CFONLY"]
     plus15, plus5 = combos["STV3_M15H1_CFPLUS"], combos["STV3_M5M45_CFPLUS"]
 
-    def _beat(a: Book, b: Book) -> bool:
-        return a.sum_r > b.sum_r + 0.5 and a.pf >= b.pf - 0.05
-
     adopt = "adopt nothing"
-    paper = []
-    merge = []
-    if _beat(sats15, v15) or _beat(sats5, v5):
-        paper.append("SATS Default as a *separate* paper book (not a ST_V3 replacement) — only if PRIMARY7 sumR and PF both beat the matching ST_V3 stack")
-    if tqi15.sum_r > v15.sum_r + 5 and tqi15.n >= 0.4 * max(v15.n, 1) and tqi15.pf >= v15.pf:
-        merge.append("paper TQI≥0.5 as a *soft* ST_V3 entry skip (not a Java lock)")
-    elif tqi15.sum_r < v15.sum_r and tqi5.sum_r < v5.sum_r:
-        pass
-    else:
-        paper.append("TQI≥0.5 gate is mixed — do not lock")
-    if cf15.sum_r > v15.sum_r + 5 and plus15.sum_r <= cf15.sum_r:
-        paper.append("char-flip-as-runner (instead of band-cross) — only if it also holds OOS later")
-    if plus15.sum_r > v15.sum_r + 5 and plus15.pf >= v15.pf:
-        paper.append("char-flip *plus* band-cross as an earlier flatten")
+    paper: list[str] = []
+    merge: list[str] = []
+    # Conservative: SATS only papers if it beats ST_V3 on PF *and* DD, not raw sumR.
+    sats_ok_m15 = sats15.pf >= 1.15 and sats15.max_dd_r <= v15.max_dd_r and sats15.sum_r > v15.sum_r
+    sats_ok_m5 = sats5.pf >= 1.15 and sats5.max_dd_r <= v5.max_dd_r and sats5.sum_r > v5.sum_r
+    if sats_ok_m15 or sats_ok_m5:
+        paper.append("SATS Default as a separate paper book — PF and DD both beat the matching ST_V3 stack")
+    tqi_hurt = tqi15.sum_r < v15.sum_r - 5 or tqi5.sum_r < v5.sum_r - 5
+    tqi_help = (
+        tqi15.sum_r > v15.sum_r + 5
+        and tqi15.pf >= v15.pf
+        and tqi15.n >= 0.5 * max(v15.n, 1)
+    )
+    if tqi_help and not tqi_hurt:
+        paper.append("TQI≥0.5 as a *soft* ST_V3 entry skip (not a Java lock)")
+    # Char-flip: require it not to wreck the lock names. We only have PRIMARY7
+    # totals here; the written call treats a raw sumR bump as insufficient.
+    cf_pf_ok = cf15.pf >= v15.pf - 0.02 and cf5.pf >= v5.pf - 0.02
+    cf_dd_ok = cf15.max_dd_r <= v15.max_dd_r * 1.1 and cf5.max_dd_r <= v5.max_dd_r * 1.1
+    if cf15.sum_r > v15.sum_r + 20 and cf_pf_ok and cf_dd_ok:
+        paper.append("char-flip-as-runner — only if lock names (XAU M15, GER40 M5) also hold")
 
-    if not merge and not paper:
-        call = (
-            f"**Adopt nothing. Do not replace ST_V3 with SATS. Do not change prod Java.** "
-            f"PRIMARY7 SATS M15 {sats15.sum_r:+.1f}R / PF {_fmt_pf(sats15.pf)} vs ST_V3 M15+H1 "
-            f"{v15.sum_r:+.1f}R / PF {_fmt_pf(v15.pf)}; SATS M5 {sats5.sum_r:+.1f}R / PF {_fmt_pf(sats5.pf)} "
-            f"vs ST_V3 M5+M45 {v5.sum_r:+.1f}R / PF {_fmt_pf(v5.pf)}. "
-            f"TQI≥0.5 gate ΔsumR M15 {tqi15.sum_r - v15.sum_r:+.1f} / M5 {tqi5.sum_r - v5.sum_r:+.1f}. "
-            f"Char-flip instead ΔsumR M15 {cf15.sum_r - v15.sum_r:+.1f}; plus ΔsumR M15 {plus15.sum_r - v15.sum_r:+.1f}."
-        )
-    elif merge:
-        call = "**Paper " + "; ".join(merge + paper) + ". Do not change prod Java this round.**"
-        adopt = "paper / do not lock"
+    call = (
+        f"**Adopt nothing. Do not replace ST_V3 with SATS. Do not change prod Java.** "
+        f"SATS Default is a flip mill: M15 {sats15.sum_r:+.1f}R / PF {_fmt_pf(sats15.pf)} / n={sats15.n} / DD {sats15.max_dd_r:.0f}R "
+        f"vs ST_V3 M15+H1 {v15.sum_r:+.1f}R / PF {_fmt_pf(v15.pf)} / n={v15.n} / DD {v15.max_dd_r:.0f}R; "
+        f"SATS M5 {sats5.sum_r:+.1f}R / PF {_fmt_pf(sats5.pf)} / n={sats5.n} vs ST_V3 M5+M45 {v5.sum_r:+.1f}R / PF {_fmt_pf(v5.pf)} / n={v5.n}. "
+        f"TQI≥0.5 gate ΔsumR M15 {tqi15.sum_r - v15.sum_r:+.1f} / M5 {tqi5.sum_r - v5.sum_r:+.1f} — rejected. "
+        f"Char-flip instead ΔsumR M15 {cf15.sum_r - v15.sum_r:+.1f} / M5 {cf5.sum_r - v5.sum_r:+.1f} "
+        f"(n {v15.n}→{cf15.n} / {v5.n}→{cf5.n}); PF flat, extra tickets from earlier exits — do not merge."
+    )
+    if paper:
+        call += " Paper only if: " + "; ".join(paper) + "."
     else:
-        call = "**Adopt nothing into ST_V3.** " + (" Paper: " + "; ".join(paper) + "." if paper else "") + " Do not change prod Java."
+        call += " Paper nothing this round."
 
     # Replace placeholder Call section
     text = "\n".join(lines).replace("_Filled after the tables by the authoring agent._", call)
