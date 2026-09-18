@@ -14,6 +14,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,50 +26,75 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Aggregate open-risk watchdog for the <b>Główne</b> ({@code "main"}) account —
+ * Aggregate open-risk report for the <b>Główne</b> ({@code "main"}) account —
  * the view-only account the bot never trades. Every cycle it reads the open
  * positions on XAU / XAG / US100 / US500 / US30 / GER40 / J225 / EURUSD /
- * USDJPY, sums the stop-distance risk ({@code |entry − stop| × size ×
- * point-value}, in the account currency), and e-mails once (30-min throttle,
- * see {@link com.adam.server.scan.Mailer}) when the total exceeds
- * {@code app.glowne.risk-alert-pct} (default 3 %) of the account balance.
+ * USDJPY and sums the stop-distance risk ({@code |entry − stop| × size ×
+ * point-value}, in the account currency) as a percentage of balance.
+ *
+ * <p>Mails on two triggers, not a fixed alert-only threshold:
+ * <ol>
+ *   <li><b>Scheduled check-in</b>, 3×/day at {@link #SCHEDULED_TIMES} (08:30,
+ *       12:30, 18:00 by default, {@code app.scan.zone}) — a status snapshot
+ *       regardless of the level, so the account gets a regular pulse even on
+ *       a quiet day;</li>
+ *   <li><b>Big move</b> — the moment risk has drifted {@link #CHANGE_TRIGGER_PCT}
+ *       percentage points (default 2) away from whatever was last actually
+ *       mailed, so a sudden spike between check-ins is not missed.</li>
+ * </ol>
+ * The comparison baseline for (2) only updates when a mail actually goes out
+ * — not every cycle — otherwise a slow drift would never accumulate past the
+ * threshold (each individual 10-min step staying under 2 points forever).
+ * {@code app.glowne.risk-alert-pct} (default 3 %) no longer gates sending; it
+ * only marks the mail ⚠ vs ℹ and appears in the body for context.
  *
  * <p>Positions with no stop-loss set are left out of the sum but listed in the
  * mail as "risk undefined". No-ops when the Główne book is not configured.
+ * The very first run after a restart only establishes the baseline — it never
+ * mails on its own, so a redeploy does not itself trigger a "risk changed" mail.
  *
- * <p>Frequency control, two layers: the cron only checks every 30 min (matches
- * the mail throttle — checking more often than the throttle can ever mail was
- * pure overhead), and the throttle is only re-armed once risk drops to
- * {@link #CLEAR_HYSTERESIS} of the limit (2.4 % at the 3 % default), not the
- * instant it dips under the limit — otherwise risk oscillating right at the
- * boundary would re-trigger an alert almost every cycle.
- *
- * <p>Cron: {@code app.glowne.risk-alert-cron} (default every 30 min).
- * Toggle: {@code app.glowne.risk-alert-enabled} (default true — fail toward ON).
+ * <p>Cron: {@code app.glowne.risk-alert-cron} (default every 10 min — needs to
+ * land on :00/:10/…/:50 past the hour for the schedule check above to line up
+ * exactly with 08:30/12:30/18:00). Toggle: {@code app.glowne.risk-alert-enabled}
+ * (default true — fail toward ON).
  */
 @Component
 public class GlowneRiskWatcher {
 
     private static final Logger log = LoggerFactory.getLogger(GlowneRiskWatcher.class);
-    private static final String MAIL_KEY = "glowne-risk";
-    /** Only re-arm the throttle once risk drops to this fraction of the limit — avoids
-     *  flapping a new alert right after clearing when risk sits near the boundary. */
-    private static final double CLEAR_HYSTERESIS = 0.8;
+    /** Daily check-in times — always mails a snapshot, regardless of level. */
+    private static final LocalTime[] SCHEDULED_TIMES = {
+            LocalTime.of(8, 30), LocalTime.of(12, 30), LocalTime.of(18, 0)
+    };
+    /** Mail immediately once risk has moved this many percentage points since the last mail. */
+    private static final double CHANGE_TRIGGER_PCT = 2.0;
 
     private final BrokerBooks books;
     private final AppProperties properties;
     private final Mailer mailer;
     private final ErrorLog errorLog;
+    private final Clock clock;
     private final boolean enabled;
     private final double alertPct;
 
+    /** {@code null} = never mailed yet this run (fresh boot) — next run only baselines. */
+    private volatile Double lastMailedPct;
+    /** The scheduled slot (date + time) last mailed for, so each slot fires at most once/day. */
+    private volatile String lastScheduledSlot;
+    /** Whether the last mail (or the baseline run) saw a stopless position — a stopless
+     *  position only re-triggers a mail on the transition into that state, not every
+     *  cycle it persists (it's still listed in any mail sent for another reason). */
+    private volatile Boolean lastMailedHadStopless;
+
     public GlowneRiskWatcher(BrokerBooks books, AppProperties properties, Mailer mailer, ErrorLog errorLog,
+                             Clock clock,
                              @Value("${app.glowne.risk-alert-enabled:true}") boolean enabled,
                              @Value("${app.glowne.risk-alert-pct:3.0}") double alertPct) {
         this.books = books;
         this.properties = properties;
         this.mailer = mailer;
         this.errorLog = errorLog;
+        this.clock = clock;
         this.enabled = enabled;
         this.alertPct = alertPct;
     }
@@ -132,19 +162,40 @@ public class GlowneRiskWatcher {
             }
 
             double pct = totalRisk / acct.balance() * 100.0;
-            if (pct <= alertPct && stopless.isEmpty()) {
-                if (pct <= alertPct * CLEAR_HYSTERESIS) {
-                    // well back under the limit, not just brushing it — re-arm the alert
-                    mailer.clearThrottle(MAIL_KEY);
+            String scheduledSlot = matchingScheduledSlot();
+            boolean hasStopless = !stopless.isEmpty();
+            Double previousPct = lastMailedPct;
+
+            if (previousPct == null) {
+                // fresh boot — establish the baseline silently, never mail on its own
+                // (a redeploy would otherwise itself look like a "risk changed" event).
+                lastMailedPct = pct;
+                lastMailedHadStopless = hasStopless;
+                if (scheduledSlot != null) {
+                    lastScheduledSlot = scheduledSlot;
                 }
-                log.debug("Główne risk watch: {}% of {} {} — under the {}% limit",
-                        String.format(Locale.ROOT, "%.2f", pct), trim(acct.balance()), acct.currency(), alertPct);
+                log.debug("Główne risk watch: baseline {}% of {} {} (no mail — first run since boot)",
+                        String.format(Locale.ROOT, "%.2f", pct), trim(acct.balance()), acct.currency());
                 return;
             }
 
+            boolean isScheduled = scheduledSlot != null && !scheduledSlot.equals(lastScheduledSlot);
+            boolean changedEnough = Math.abs(pct - previousPct) >= CHANGE_TRIGGER_PCT;
+            boolean stoplessJustAppeared = hasStopless && !Boolean.TRUE.equals(lastMailedHadStopless);
+            if (!isScheduled && !changedEnough && !stoplessJustAppeared) {
+                log.debug("Główne risk watch: {}% of {} {} — not due (last mailed {}%)",
+                        String.format(Locale.ROOT, "%.2f", pct), trim(acct.balance()), acct.currency(),
+                        String.format(Locale.ROOT, "%.2f", previousPct));
+                return;
+            }
+
+            String reason = isScheduled ? "raport okresowy"
+                    : changedEnough ? String.format(Locale.ROOT, "zmiana %.2f%%→%.2f%%", previousPct, pct)
+                    : "pozycja bez stopu";
+
             StringBuilder body = new StringBuilder();
-            body.append("Konto Główne — łączne ryzyko otwartych pozycji przekroczyło ")
-                    .append(trim(alertPct)).append("%.\n\n");
+            body.append("Konto Główne — łączne ryzyko otwartych pozycji.\n\n");
+            body.append("Powód mejla: ").append(reason).append(".\n\n");
             body.append(String.format(Locale.ROOT, "Saldo:        %s %s%n", trim(acct.balance()), acct.currency()));
             body.append(String.format(Locale.ROOT, "Ryzyko razem: %s %s  (%.2f%% salda; limit %s%%)%n%n",
                     trim(totalRisk), acct.currency(), pct, trim(alertPct)));
@@ -152,24 +203,49 @@ public class GlowneRiskWatcher {
                 body.append("Pozycje ze stopem (XAU/XAG/US100/US500/US30/GER40/J225/EURUSD/USDJPY):\n");
                 lines.forEach(l -> body.append(l).append('\n'));
             }
-            if (!stopless.isEmpty()) {
+            if (hasStopless) {
                 body.append("\nPozycje BEZ stop-lossa — nie wliczone do sumy, sprawdź ręcznie:\n");
                 stopless.forEach(l -> body.append(l).append('\n'));
             }
             body.append(String.format(Locale.ROOT,
-                    "%n(kolejny alert dopiero po ~30 min lub gdy ryzyko spadnie wyraźnie pod limit, poniżej %.1f%%)%n",
-                    alertPct * CLEAR_HYSTERESIS));
+                    "%n(mejle: 3x dziennie o 8:30/12:30/18:00, plus natychmiast przy zmianie o %s%% lub więcej)%n",
+                    trim(CHANGE_TRIGGER_PCT)));
 
+            String icon = pct > alertPct ? "⚠" : "ℹ";
             String subject = String.format(Locale.ROOT,
-                    "⚠ Główne — ryzyko %.2f%% (limit %s%%), %s %s",
-                    pct, trim(alertPct), trim(totalRisk), acct.currency());
-            mailer.sendThrottled(MAIL_KEY, subject, body.toString());
-            log.info("Główne risk watch: ALERT {}% (risk {} {}, balance {})",
-                    String.format(Locale.ROOT, "%.2f", pct), trim(totalRisk), acct.currency(), trim(acct.balance()));
+                    "%s Główne — ryzyko %.2f%% (limit %s%%), %s %s [%s]",
+                    icon, pct, trim(alertPct), trim(totalRisk), acct.currency(), reason);
+            mailer.send(subject, body.toString());
+            lastMailedPct = pct;
+            lastMailedHadStopless = hasStopless;
+            if (isScheduled) {
+                lastScheduledSlot = scheduledSlot;
+            }
+            log.info("Główne risk watch: mailed {}% (risk {} {}, balance {}, reason {})",
+                    String.format(Locale.ROOT, "%.2f", pct), trim(totalRisk), acct.currency(), trim(acct.balance()),
+                    reason);
         } catch (Exception e) {
             log.warn("Główne risk watch failed: {}", e.getClass().getSimpleName());
             errorLog.record("glowne-risk", Books.GLOWNE, null, e);
         }
+    }
+
+    /**
+     * {@code "yyyy-MM-dd'T'HH:mm"} for the {@link #SCHEDULED_TIMES} entry matching the
+     * current local time exactly (minute precision — the cron always lands on :00/:10/
+     * …/:50 past the hour, so an exact match is reliable), or {@code null} outside one.
+     */
+    private String matchingScheduledSlot() {
+        ZoneId zone = ZoneId.of(properties.getScan().getZone());
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(zone);
+        LocalTime nowTime = now.toLocalTime().withSecond(0).withNano(0);
+        for (LocalTime t : SCHEDULED_TIMES) {
+            if (nowTime.equals(t)) {
+                LocalDate date = now.toLocalDate();
+                return date + "T" + t;
+            }
+        }
+        return null;
     }
 
     /** The account carrying the balance — largest by balance on the Główne login. */
