@@ -8,6 +8,7 @@ import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketRules;
 import com.adam.server.broker.model.OrderAck;
 import com.adam.server.broker.model.OrderRequest;
+import com.adam.server.broker.model.Position;
 import com.adam.server.config.AppProperties;
 import com.adam.server.ops.ErrorLog;
 import com.adam.server.ops.FeatureFlags;
@@ -98,6 +99,20 @@ class HtsExecutionGateTest {
     private void acceptConfirms() {
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
                 "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+        openPositionsReturns("D1", "BTCUSD", Direction.BUY, 78988.6, 0.05);
+    }
+
+    /**
+     * Stub {@code openPositions()} with a position matching a confirm() dealId
+     * — {@link HtsExecutionGate#resolvePosition} now verifies the confirmed
+     * dealId against the live list before trusting it (see its javadoc: every
+     * ST_V3 trade during the 2026-09-11..18 rollout got a confirm() dealId
+     * that never matched a real position, and the gate has to catch that
+     * itself now rather than assume confirm() is always right).
+     */
+    private void openPositionsReturns(String dealId, String epic, Direction dir, double level, double size) {
+        when(broker.openPositions()).thenReturn(List.of(
+                new Position(dealId, "p_" + dealId, epic, dir, size, level, null, null, 0, null, Instant.now())));
     }
 
     @Test
@@ -149,8 +164,7 @@ class HtsExecutionGateTest {
 
     @Test
     void confirmsPlacesResolvesDealIdAndPersists() {
-        when(broker.confirm("ref1")).thenReturn(new Confirmation(
-                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+        acceptConfirms();
 
         gate.executeSignal(signal(78988.65, 78823.036));
 
@@ -159,9 +173,44 @@ class HtsExecutionGateTest {
         verify(trades).recordOpen(scan.capture(), eq(HtsVariant.FAST), eq(book), eq("Account m5"),
                 eq(0.05), ack.capture());
         assertThat(ack.getValue().dealId()).isEqualTo("D1");
+        // the persisted dealReference is the POSITION's own ("p_..."), not the
+        // order's ("ref1") — that's what reconcile's live.refs() can actually match
+        assertThat(ack.getValue().dealReference()).isEqualTo("p_D1");
         // stop rounded to the instrument's 1 decimal place before the order went out
         assertThat(scan.getValue().stopLevel()).isEqualTo(78823.0);
         verify(broker).placeMarketOrder(any(OrderRequest.class));
+    }
+
+    @Test
+    void fallsBackToTheFreshestMatchingPositionWhenConfirmsDealIdIsNotLive() {
+        // The exact 2026-09-11..18 ST_V3 incident: confirm() reports dealId "D1",
+        // but that id never shows up in openPositions() — only a different,
+        // same-epic/direction position does ("D7"). The gate must use D7, not
+        // blindly trust D1 (which is how every trade got orphaned that week).
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+        openPositionsReturns("D7", "BTCUSD", Direction.BUY, 78988.6, 0.05);
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        ArgumentCaptor<OrderAck> ack = ArgumentCaptor.forClass(OrderAck.class);
+        verify(trades).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), ack.capture());
+        assertThat(ack.getValue().dealId()).isEqualTo("D7");
+    }
+
+    @Test
+    void doesNotPersistWhenConfirmsDealIdMatchesNoLivePositionOfAnyKind() {
+        // Neither the confirmed dealId nor any same-epic/direction position
+        // shows up at all (e.g. GER40 confirmed, but openPositions() only has
+        // unrelated symbols) — must not record a phantom OPEN trade.
+        when(broker.confirm("ref1")).thenReturn(new Confirmation(
+                "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.05));
+        openPositionsReturns("D9", "GER40", Direction.SELL, 25500.0, 0.01);
+
+        gate.executeSignal(signal(78988.65, 78823.036));
+
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+        verify(mailer).sendThrottled(eq("exec-hts-reject"), anyString(), anyString());
     }
 
     @Test
@@ -198,6 +247,7 @@ class HtsExecutionGateTest {
         realSizeFor();
         when(broker.confirm("ref1")).thenReturn(new Confirmation(
                 "ref1", "D1", "OPEN", "ACCEPTED", null, "BTCUSD", Direction.BUY, 78988.6, 0.02));
+        openPositionsReturns("D1", "BTCUSD", Direction.BUY, 78988.6, 0.02);
 
         gate.executeSignal(signal(78988.65, 78823.036)); // ~166 pts stop, min is 500
 

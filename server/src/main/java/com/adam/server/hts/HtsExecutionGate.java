@@ -388,8 +388,8 @@ public class HtsExecutionGate {
             // dealId (and whether the deal was actually accepted) comes from the
             // confirm. Without this the position monitor can never reconcile the
             // trade — same pattern the SDD gate uses.
-            String dealId = resolveDealId(broker, ack.dealReference(), s);
-            if (dealId == null) {
+            Position position = resolvePosition(broker, ack.dealReference(), s);
+            if (position == null) {
                 log.warn("HTS [{}] entry {} {} submitted (ref {}) but NOT confirmed open — not recording",
                         s.variant().name(), s.symbol(), s.direction(), ack.dealReference());
                 placed.remove(key);
@@ -401,8 +401,13 @@ public class HtsExecutionGate {
                                 + "(further failures within 30 min are suppressed)");
                 return;
             }
-
-            OrderAck confirmed = new OrderAck(ack.dealReference(), dealId, "ACCEPTED");
+            String dealId = position.dealId();
+            // Persist the POSITION's own dealReference (Capital prefixes it "p_...",
+            // vs the ORDER's "o_..." we got from placeMarketOrder) — not ack's, which
+            // reconcile's live.refs() (also position dealReferences) can never match
+            // since the two namespaces never intersect. See resolvePosition's javadoc.
+            String dealReference = position.dealReference() != null ? position.dealReference() : ack.dealReference();
+            OrderAck confirmed = new OrderAck(dealReference, dealId, "ACCEPTED");
             log.info("HTS [{}] entry placed on {} {} {} size {} @ {} stop {} dealId {} (TP1 target {} managed)",
                     s.variant().name(), book, s.symbol(), s.direction(), size,
                     s.entry(), s.stopLevel(), dealId, s.targetLevel());
@@ -461,24 +466,59 @@ public class HtsExecutionGate {
     }
 
     /**
-     * Resolve the broker dealId for a fresh entry from the deal confirmation, with
-     * a fallback to matching the newest open position on the same epic + direction
-     * (same approach as {@code ExecutionGate.resolveFreshDealIds}). Returns
-     * {@code null} when the deal was rejected or cannot be confirmed as open — the
-     * caller then does NOT record a phantom OPEN trade.
+     * Resolve the live {@link Position} for a fresh entry, <b>verified against
+     * {@link BrokerClient#openPositions()}</b> before {@code confirm()}'s dealId
+     * is trusted — the confirm alone is not enough.
+     *
+     * <p>Found live during the 2026-09-11..18 ST_V3 rollout: every single one of
+     * 94 trades across 4 books got a {@code confirm()} dealId that never showed
+     * up in a subsequent {@code openPositions()} call — so the reconcile loop
+     * force-closed every trade as {@code MANUAL} ~10 minutes later (two
+     * 5-minute "not found" misses), while the real position kept running on
+     * the broker, unmanaged (no TP1/band-cross/stop logic watching it any
+     * more). Confirmed by cross-checking: at the same moment a trade's stored
+     * dealId was reported absent, {@code openPositions()} for that same book
+     * still listed 4-8 positions, none matching any {@code deal_id} ever
+     * recorded in {@code hts_trades}.
+     *
+     * <p>One dead end ruled out along the way: matching by {@code dealReference}
+     * between the order and the position does NOT work — Capital prefixes an
+     * order's reference {@code "o_..."} and the resulting position's own
+     * reference {@code "p_..."}, two namespaces that never intersect (this is
+     * also why {@code HtsTradeService}'s {@code live.refs()} reconcile
+     * fallback was silently dead: it stored the order's {@code "o_..."} ref
+     * and compared it against positions' {@code "p_..."} refs). Fixed here by
+     * persisting the resolved position's own {@code dealReference} instead
+     * (see the caller) — that fallback now actually works.
+     *
+     * <p>Preference order once a position list is fetched:
+     * <ol>
+     *   <li>{@code confirm()}'s dealId, but only once verified present in
+     *       {@code openPositions()};</li>
+     *   <li>the freshest live position on the same epic + direction (by
+     *       {@code openedAt}), same heuristic {@code ExecutionGate} uses, now
+     *       tie-broken by recency instead of REST response order — needed
+     *       because satellite books can hold more than one position on the
+     *       same epic/direction at once.</li>
+     * </ol>
+     * Returns {@code null} only when the deal was rejected, or nothing above
+     * finds a match — the caller then does NOT record a phantom OPEN trade.
      */
-    private String resolveDealId(BrokerClient broker, String dealReference, HtsScan s) {
+    private Position resolvePosition(BrokerClient broker, String dealReference, HtsScan s) {
+        Confirmation confirmation = null;
+        String confirmedDealId = null;
         try {
-            Confirmation c = broker.confirm(dealReference);
-            if (c != null) {
-                if (c.dealId() != null && c.accepted()) {
-                    return c.dealId();
-                }
-                log.warn("HTS [{}] {} {} confirm: status={} dealStatus={} reason={}",
-                        s.variant().name(), s.symbol(), s.direction(),
-                        c.status(), c.dealStatus(), c.reason());
-                if ("REJECTED".equalsIgnoreCase(c.dealStatus())) {
-                    return null; // definitively rejected — no point matching positions
+            confirmation = broker.confirm(dealReference);
+            if (confirmation != null) {
+                if (confirmation.dealId() != null && confirmation.accepted()) {
+                    confirmedDealId = confirmation.dealId();
+                } else {
+                    log.warn("HTS [{}] {} {} confirm: status={} dealStatus={} reason={}",
+                            s.variant().name(), s.symbol(), s.direction(),
+                            confirmation.status(), confirmation.dealStatus(), confirmation.reason());
+                    if ("REJECTED".equalsIgnoreCase(confirmation.dealStatus())) {
+                        return null; // definitively rejected — no point matching positions
+                    }
                 }
             }
         } catch (Exception e) {
@@ -486,14 +526,45 @@ public class HtsExecutionGate {
                     s.variant().name(), s.symbol(), e.getClass().getSimpleName());
         }
         try {
-            for (Position p : broker.openPositions()) {
-                if (p.direction() == s.direction()
-                        && p.epic() != null && p.epic().equalsIgnoreCase(s.epic())) {
-                    return p.dealId();
+            List<Position> positions = broker.openPositions();
+            if (confirmedDealId != null) {
+                for (Position p : positions) {
+                    if (confirmedDealId.equals(p.dealId())) {
+                        return p; // verified against the live list
+                    }
+                }
+                log.warn("HTS [{}] {} {}: confirm() dealId {} not found in openPositions() "
+                                + "(dealReference {}) — falling back to freshest {} position match",
+                        s.variant().name(), s.symbol(), s.direction(), confirmedDealId, dealReference, s.epic());
+            }
+            Position freshest = null;
+            for (Position p : positions) {
+                if (p.direction() != s.direction()
+                        || p.epic() == null || !p.epic().equalsIgnoreCase(s.epic())) {
+                    continue;
+                }
+                if (freshest == null
+                        || (p.openedAt() != null && (freshest.openedAt() == null || p.openedAt().isAfter(freshest.openedAt())))) {
+                    freshest = p;
                 }
             }
-        } catch (Exception ignored) {
-            // no position match available
+            if (freshest != null) {
+                return freshest;
+            }
+        } catch (Exception e) {
+            // openPositions() itself unavailable (transient broker/network glitch) —
+            // don't drop an otherwise-accepted deal over it; fall back to a synthetic
+            // Position built from the confirm (dealReference null, so the caller
+            // keeps the order's "o_..." ref — same as this method not existing at
+            // all, i.e. no worse than before this fix).
+            if (confirmedDealId != null) {
+                log.warn("HTS [{}] {} openPositions() unavailable ({}) — trusting unverified confirm dealId {}",
+                        s.variant().name(), s.symbol(), e.getClass().getSimpleName(), confirmedDealId);
+                return new Position(confirmedDealId, null, confirmation.epic(), confirmation.direction(),
+                        confirmation.size() == null ? 0 : confirmation.size(),
+                        confirmation.level() == null ? 0 : confirmation.level(),
+                        null, null, 0, null, null);
+            }
         }
         return null;
     }
