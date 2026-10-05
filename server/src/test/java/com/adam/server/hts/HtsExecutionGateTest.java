@@ -443,4 +443,52 @@ class HtsExecutionGateTest {
         verify(broker, never()).placeMarketOrder(any());
         verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
     }
+
+    // ---- ST_V3 triage: observe-only symbols, cluster cap, session window ----
+
+    private HtsScan stV3(String code, Direction dir, String isoTs) {
+        return new HtsScan(HtsVariant.M5_ST_V3, Instant.parse(isoTs), code, code, dir, 100.0, 99.0, 102.0, true);
+    }
+
+    @Test
+    void stV3ObserveOnlySymbolIsRecordedButNeverExecuted() {
+        props.setHtsObserveOnlySymbols("GER40, xau");
+
+        gate.executeSignal(stV3("GER40", Direction.BUY, "2026-10-05T09:00:00Z"));
+        gate.executeSignal(stV3("XAU", Direction.SELL, "2026-10-05T09:05:00Z"));
+
+        verify(broker, never()).placeMarketOrder(any());
+        verify(trades, never()).recordOpen(any(), any(), anyString(), anyString(), anyDouble(), any());
+    }
+
+    @Test
+    void stV3ClusterCapBlocksAThirdSameDirectionEntryInTheCluster() {
+        when(trades.openInCluster(book, "EQUITY|BUY")).thenReturn(2); // US100 + GER40 already long on this book
+
+        gate.executeSignal(stV3("US500", Direction.BUY, "2026-10-05T09:00:00Z"));
+
+        verify(broker, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void stV3ClusterCapZeroDisablesTheCap() {
+        props.setHtsClusterCap(0);
+        when(trades.openInCluster(anyString(), anyString())).thenReturn(99);
+        when(broker.confirm(anyString())).thenReturn(null);
+
+        gate.executeSignal(stV3("US500", Direction.BUY, "2026-10-05T09:00:00Z"));
+
+        // not blocked by the cap: it reaches the broker (order placement is attempted)
+        verify(broker, times(1)).placeMarketOrder(any());
+    }
+
+    @Test
+    void stV3SessionWindowBlocksEntriesOutsideTheConfiguredUtcHours() {
+        props.setHtsSessionFilters("M5_ST_V3:7-14");
+
+        gate.executeSignal(stV3("EURUSD", Direction.BUY, "2026-10-05T19:00:00Z")); // 19 UTC — outside
+        gate.executeSignal(stV3("EURUSD", Direction.BUY, "2026-10-05T03:00:00Z")); // 03 UTC — outside
+
+        verify(broker, never()).placeMarketOrder(any());
+    }
 }

@@ -228,7 +228,13 @@ public enum HtsVariant {
     private static final class StV3 {
         /** {@link HtsVariant#M15_ST_V3} — every ticker backtested, all ten. */
         static final java.util.List<String> FULL_UNIVERSE = java.util.List.of(
-                "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY");
+                "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY",
+                "USDCAD", "NZDUSD", "USDCHF", "AUDUSD");
+        // FX pairs on the broad book only (the three satellites keep the same five tickers for the
+        // cross-timeframe RR comparison). 12mo IS / OOS PF on M15 + H1-ST, no fees: USDCAD 1.35 / 1.43,
+        // NZDUSD 1.07 / 1.18, USDCHF 1.13 / 1.07, AUDUSD 1.02 / 1.13 — USDCHF/AUDUSD are thin and only
+        // earn their place if forward data survives spread. GBPUSD / USDJPY / EURJPY / GBPJPY failed one
+        // or both windows and are not added. M5 / H1 pairings were not screened on FX.
         /**
          * The SAME five tickers on every satellite book ({@link HtsVariant#M5_ST_V3},
          * {@link HtsVariant#M15_ST_V3B}, {@link HtsVariant#H1_ST_V3}) — deliberate,

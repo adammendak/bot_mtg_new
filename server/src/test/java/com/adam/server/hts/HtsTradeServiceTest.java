@@ -290,6 +290,42 @@ class HtsTradeServiceTest {
     }
 
     @Test
+    void manageClampsAVanishedStopOutToTheStopWhenTheLateMarkRanPastIt() {
+        // The vanish is noticed up to ~10 min after the broker stopped the deal out; the mark taken then can sit
+        // well beyond the stop. The exit was AT the stop: R = -1.0, reason STOP (was -1.5R / MANUAL).
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0); // leg = 2.0
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of());
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 97.0, 97.0, bar)); // 1.5 legs against
+
+        service.manage();
+        service.manage();
+
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getExitPrice()).isEqualTo(98.0);
+        assertThat(t.getRMultiple()).isEqualTo(-1.0);
+        assertThat(t.getCloseReason()).isEqualTo("STOP");
+    }
+
+    @Test
+    void manageDoesNotClampAnEstimateWhenTp1AlreadyFilled() {
+        // After TP1 the working stop is breakeven, so the original stop level is not the exit — keep the mark estimate.
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0);
+        t.setTp1At(bar);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of());
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 97.0, 97.0, bar));
+
+        service.manage();
+        service.manage();
+
+        assertThat(t.getExitPrice()).isEqualTo(97.0);
+        assertThat(t.getRMultiple()).isEqualTo(-1.5);
+    }
+
+    @Test
     void manageDoesNotCloseWhenTheDealReappearsAfterOneMiss() {
         HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 99.0, 1.0);
         when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));

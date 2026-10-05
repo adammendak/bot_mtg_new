@@ -36,6 +36,12 @@ public class AppProperties {
     private double htsMarginBuffer = 0.8;
     /** HTS: cash at risk per new ticket, as a percent of account equity (1.0 = 1%). */
     private double htsRiskPercent = 1.0;
+    /** ST_V3 symbols that still scan/signal/mail but are NOT executed (comma list, upper-case codes). */
+    private String htsObserveOnlySymbols = "";
+    /** Max concurrently open same-direction trades per correlated cluster on one book (0 = off). */
+    private int htsClusterCap = 2;
+    /** Per-variant UTC entry window, "VARIANT:startHour-endHour;..." (end exclusive; wraps midnight if start &gt; end). */
+    private String htsSessionFilters = "";
     private int maxOpenNames = 4;
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
@@ -249,6 +255,69 @@ public class AppProperties {
 
     public void setHtsMarginBuffer(double htsMarginBuffer) {
         this.htsMarginBuffer = htsMarginBuffer;
+    }
+
+    public String getHtsObserveOnlySymbols() {
+        return htsObserveOnlySymbols;
+    }
+
+    public void setHtsObserveOnlySymbols(String htsObserveOnlySymbols) {
+        this.htsObserveOnlySymbols = htsObserveOnlySymbols == null ? "" : htsObserveOnlySymbols;
+    }
+
+    /** Parsed {@link #getHtsObserveOnlySymbols()} as an upper-case set. */
+    public java.util.Set<String> htsObserveOnlySet() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String c : htsObserveOnlySymbols.split(",")) {
+            if (!c.isBlank()) {
+                out.add(c.trim().toUpperCase(java.util.Locale.ROOT));
+            }
+        }
+        return out;
+    }
+
+    public String getHtsSessionFilters() {
+        return htsSessionFilters;
+    }
+
+    public void setHtsSessionFilters(String htsSessionFilters) {
+        this.htsSessionFilters = htsSessionFilters == null ? "" : htsSessionFilters;
+    }
+
+    /** {@code [startHour, endHour)} UTC for {@code variant}, or {@code null} when unrestricted / malformed. */
+    public int[] htsSessionWindow(String variant) {
+        if (variant == null) {
+            return null;
+        }
+        for (String part : htsSessionFilters.split(";")) {
+            String[] kv = part.trim().split(":");
+            if (kv.length != 2 || !kv[0].trim().equalsIgnoreCase(variant)) {
+                continue;
+            }
+            String[] hh = kv[1].trim().split("-");
+            if (hh.length != 2) {
+                return null;
+            }
+            try {
+                int a = Integer.parseInt(hh[0].trim());
+                int b = Integer.parseInt(hh[1].trim());
+                if (a < 0 || a > 24 || b < 0 || b > 24 || a == b) {
+                    return null;
+                }
+                return new int[]{a, b};
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    public int getHtsClusterCap() {
+        return htsClusterCap;
+    }
+
+    public void setHtsClusterCap(int htsClusterCap) {
+        this.htsClusterCap = htsClusterCap;
     }
 
     public double getHtsRiskPercent() {
@@ -584,6 +653,10 @@ public class AppProperties {
         private String xag = "SILVER";
         private String j225 = "J225";
         private String us30 = "US30";
+        private String usdcad = "USDCAD";
+        private String usdchf = "USDCHF";
+        private String audusd = "AUDUSD";
+        private String nzdusd = "NZDUSD";
 
         public String getGer40() {
             return ger40;
@@ -663,6 +736,38 @@ public class AppProperties {
 
         public void setUs30(String us30) {
             this.us30 = us30;
+        }
+
+        public String getUsdcad() {
+            return usdcad;
+        }
+
+        public void setUsdcad(String usdcad) {
+            this.usdcad = usdcad;
+        }
+
+        public String getUsdchf() {
+            return usdchf;
+        }
+
+        public void setUsdchf(String usdchf) {
+            this.usdchf = usdchf;
+        }
+
+        public String getAudusd() {
+            return audusd;
+        }
+
+        public void setAudusd(String audusd) {
+            this.audusd = audusd;
+        }
+
+        public String getNzdusd() {
+            return nzdusd;
+        }
+
+        public void setNzdusd(String nzdusd) {
+            this.nzdusd = nzdusd;
         }
     }
 
