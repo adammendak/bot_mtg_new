@@ -94,6 +94,17 @@ public class HtsExecutionGate {
         this.errorLog = errorLog;
     }
 
+    /** True when the variant has a UTC session window (HTS_SESSION_FILTERS) and the signal bar is outside it. */
+    private boolean outsideSession(HtsScan s) {
+        int[] w = properties.htsSessionWindow(s.variant().name());
+        if (w == null) {
+            return false;
+        }
+        int hour = (s.timestamp() == null ? Instant.now() : s.timestamp())
+                .atZone(java.time.ZoneOffset.UTC).getHour();
+        return w[0] <= w[1] ? (hour < w[0] || hour >= w[1]) : (hour < w[0] && hour >= w[1]);
+    }
+
     /** Best-effort: never throws to the scan. */
     public void executeSignal(HtsScan s) {
         if (s == null || s.direction() == null || s.variant() == null) {
@@ -119,6 +130,18 @@ public class HtsExecutionGate {
                     s.variant().name(), s.symbol(), s.direction());
             return;
         }
+        if (s.variant().strategy() == HtsVariant.Strategy.ST_V3
+                && properties.htsObserveOnlySet().contains(s.symbol().toUpperCase(java.util.Locale.ROOT))) {
+            // Forward-test triage: the scan already persisted/mailed the signal; just don't trade it.
+            log.info("HTS [{}] OBSERVE ONLY {} {} — symbol is on HTS_OBSERVE_ONLY_SYMBOLS (recorded, not executed)",
+                    s.variant().name(), s.symbol(), s.direction());
+            return;
+        }
+        if (s.variant().strategy() == HtsVariant.Strategy.ST_V3 && outsideSession(s)) {
+            log.info("HTS [{}] execution skipped {} {} — outside the variant's session window",
+                    s.variant().name(), s.symbol(), s.direction());
+            return;
+        }
         String key = s.variant().name() + "|" + s.symbol() + "|" + s.direction().name() + "|"
                 + (s.timestamp() == null ? 0 : s.timestamp().toEpochMilli());
         if (!placed.add(key)) {
@@ -135,6 +158,17 @@ public class HtsExecutionGate {
                     s.variant().name(), s.symbol(), s.direction());
             placed.remove(key);
             return;
+        }
+        int clusterCap = properties.getHtsClusterCap();
+        if (clusterCap > 0 && s.variant().strategy() == HtsVariant.Strategy.ST_V3) {
+            String ck = HtsCluster.key(s.symbol(), s.direction());
+            int openInCluster = ck == null ? 0 : trades.openInCluster(book, ck);
+            if (ck != null && openInCluster >= clusterCap) {
+                log.info("HTS [{}] execution skipped {} {} — cluster {} already has {} open on book {} (cap {})",
+                        s.variant().name(), s.symbol(), s.direction(), ck, openInCluster, book, clusterCap);
+                placed.remove(key);
+                return;
+            }
         }
         if (s.variant() == HtsVariant.FAST && fastReentryBlocked(s)) {
             log.info("HTS [FAST] execution skipped {} {} — one entry per HTF swing; same-direction "

@@ -149,7 +149,8 @@ class HtsVariantTest {
         assertThat(HtsVariant.M15_ST_V3.ltfMinutes()).isEqualTo(15);
         assertThat(HtsVariant.M15_ST_V3.atrMinutes()).isEqualTo(60); // HTF span for StV3Engine's resample: H1
         assertThat(HtsVariant.M15_ST_V3.universe()).containsExactlyInAnyOrder(
-                "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY");
+                "XAU", "BTC", "US100", "GER40", "EURUSD", "US500", "US30", "XAG", "J225", "USDJPY",
+                "USDCAD", "NZDUSD", "USDCHF", "AUDUSD");
         for (String code : HtsVariant.M15_ST_V3.universe()) {
             assertThat(HtsVariant.M15_ST_V3.tradesSymbol(code)).as(code).isTrue();
         }

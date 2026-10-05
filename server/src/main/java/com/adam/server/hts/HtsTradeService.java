@@ -125,6 +125,21 @@ public class HtsTradeService {
                 && trades.existsByVariantAndSymbolAndStatus(variant.name(), symbol, "OPEN");
     }
 
+    /** Open trades on {@code book} whose symbol+direction fall in correlation cluster {@code clusterKey} ({@link HtsCluster}). */
+    public int openInCluster(String book, String clusterKey) {
+        if (book == null || clusterKey == null) {
+            return 0;
+        }
+        int n = 0;
+        for (HtsTradeEntity t : trades.findByStatusOrderByIdDesc("OPEN")) {
+            if (book.equalsIgnoreCase(t.getBook())
+                    && clusterKey.equals(HtsCluster.key(t.getSymbol(), t.getDirection()))) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /**
      * Oldest OPEN row — the MMS base. A later add-on (higher id) is ignored so
      * {@link MmsEngine#evaluateAdd} always measures the confirming bar from the
@@ -677,8 +692,16 @@ public class HtsTradeService {
             Double estExit = estimateExitPrice(t);
             if (estExit != null && estExit > 0) {
                 double move = (estExit - t.getEntry()) * (buy ? 1.0 : -1.0);
-                t.setExitPrice(round(estExit));
                 double rr = move / leg;
+                if (t.getTp1At() == null && rr < -1.0 && t.getStopLevel() != null) {
+                    // The estimate is a mark taken up to two reconcile passes (~10 min) AFTER the broker closed
+                    // the deal. A mark beyond the untouched original stop means the stop was crossed and the
+                    // position exited at it - price running on afterwards is not P/L. Without this clamp the
+                    // forward-test scorecard booked stop-outs at -1.2R..-1.6R.
+                    estExit = t.getStopLevel();
+                    rr = -1.0;
+                }
+                t.setExitPrice(round(estExit));
                 t.setRMultiple(round(rr));
                 stampReason(t, rr, leg, preset);
                 notifyMmsClose(t);
@@ -710,7 +733,8 @@ public class HtsTradeService {
         }
         double targetR = t.getTargetLevel() != null && t.getEntry() != null && leg > 0
                 ? Math.abs(t.getTargetLevel() - t.getEntry()) / leg : Double.NaN;
-        if (Math.abs(rr + 1.0) <= REASON_TOLERANCE) {
+        if (rr <= -1.0 + REASON_TOLERANCE) {
+            // at or beyond the stop: gap/slippage through it is still a stop-out, never "MANUAL"
             t.setCloseReason(t.getTp1At() != null ? "TRAIL" : "STOP");
         } else if (!Double.isNaN(targetR) && Math.abs(rr - targetR) <= REASON_TOLERANCE) {
             t.setCloseReason("TARGET");
