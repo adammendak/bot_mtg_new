@@ -17,6 +17,9 @@ public class BrokerBooks {
     private final BrokerClient hts;
     private final BrokerClient okx;
     private final BrokerClient mms;
+    // TradingView AlgoPro books — setter-injected so the constructor above stays stable.
+    private BrokerClient tvH1 = new UnavailableBrokerClient(Books.TV_H1, "TV H1 book is not wired");
+    private BrokerClient tvH4 = new UnavailableBrokerClient(Books.TV_H4, "TV H4 book is not wired");
 
     public BrokerBooks(
             @Qualifier("demoBroker") BrokerClient demo,
@@ -34,6 +37,20 @@ public class BrokerBooks {
         this.hts = hts;
         this.okx = okx;
         this.mms = mms;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setTvBrokers(@Qualifier("tvH1Broker") BrokerClient tvH1, @Qualifier("tvH4Broker") BrokerClient tvH4) {
+        this.tvH1 = tvH1;
+        this.tvH4 = tvH4;
+    }
+
+    public BrokerClient tvH1() {
+        return tvH1;
+    }
+
+    public BrokerClient tvH4() {
+        return tvH4;
     }
 
     public BrokerClient demo() {
@@ -79,6 +96,12 @@ public class BrokerBooks {
         }
         if (id != null && id.equalsIgnoreCase(Books.MMS)) {
             return mms;
+        }
+        if (id != null && id.equalsIgnoreCase(Books.TV_H1)) {
+            return tvH1;
+        }
+        if (id != null && id.equalsIgnoreCase(Books.TV_H4)) {
+            return tvH4;
         }
         if (Books.isGlowne(id)) {
             return glowne;

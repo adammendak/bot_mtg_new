@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      Retro-analysis columns for tv_signals: the full alert payload (secret masked), the alert
+      bar's OHLCV + exchange + TradingView fire time, and what the bot did with each event
+      (exec_status / trade link / ATR + stop + target used). tv_signal_pairs joins every
+      entry to the first later tp / invalid of the same strat+symbol+side.
+    -->
+    <changeSet id="021-tv-signals-analysis-columns" author="amendak">
+        <addColumn tableName="tv_signals">
+            <column name="raw_body" type="VARCHAR(4000)"/>
+            <column name="exchange" type="VARCHAR(32)"/>
+            <column name="bar_open" type="DOUBLE PRECISION"/>
+            <column name="bar_high" type="DOUBLE PRECISION"/>
+            <column name="bar_low" type="DOUBLE PRECISION"/>
+            <column name="volume" type="DOUBLE PRECISION"/>
+            <column name="fired_at" type="VARCHAR(40)"/>
+            <column name="exec_status" type="VARCHAR(32)"/>
+            <column name="exec_detail" type="VARCHAR(255)"/>
+            <column name="trade_id" type="BIGINT"/>
+            <column name="atr" type="DOUBLE PRECISION"/>
+            <column name="stop_used" type="DOUBLE PRECISION"/>
+            <column name="target_used" type="DOUBLE PRECISION"/>
+            <column name="executed_at" type="TIMESTAMP"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="021-tv-signal-pairs-view" author="amendak">
+        <createView viewName="tv_signal_pairs" replaceIfExists="true">
+            SELECT e.id AS entry_id, e.strat, e.symbol, e.side, e.tf,
+                   e.received_at AS entry_at, e.price AS entry_price, e.exec_status AS entry_exec,
+                   e.trade_id AS entry_trade_id,
+                   x.id AS exit_id, x.event AS exit_event, x.received_at AS exit_at, x.price AS exit_price,
+                   CASE WHEN x.id IS NULL THEN NULL
+                        WHEN e.side = 'BUY' THEN (x.price - e.price) / e.price * 100.0
+                        ELSE (e.price - x.price) / e.price * 100.0 END AS move_pct
+            FROM tv_signals e
+            LEFT JOIN tv_signals x ON x.id = (
+                SELECT MIN(y.id) FROM tv_signals y
+                WHERE y.strat = e.strat AND y.symbol = e.symbol AND y.side = e.side
+                  AND y.event IN ('tp', 'invalid') AND y.id &gt; e.id
+                  AND y.id &lt; COALESCE((SELECT MIN(n.id) FROM tv_signals n
+                                        WHERE n.strat = e.strat AND n.symbol = e.symbol AND n.side = e.side
+                                          AND n.event = 'entry' AND n.id &gt; e.id), 9223372036854775807))
+            WHERE e.event = 'entry'
+        </createView>
+    </changeSet>
+</databaseChangeLog>

@@ -26,6 +26,9 @@ public class AppProperties {
     private String htsAccountName = "Account m5";
     /** Capital.com demo sub-account reserved for the isolated MMS book. */
     private String mmsAccountName = "Account MMS";
+    /** Capital.com demo sub-account names for the TradingView AlgoPro books (TV_H1_ALGO_ACCOUNT_NAME / TV_H4_ALGO_ACCOUNT_NAME). */
+    private String tvH1AccountName = "Account TV H1";
+    private String tvH4AccountName = "Account TV H4";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -349,6 +352,22 @@ public class AppProperties {
         return sdd;
     }
 
+    public String getTvH1AccountName() {
+        return tvH1AccountName;
+    }
+
+    public void setTvH1AccountName(String tvH1AccountName) {
+        this.tvH1AccountName = tvH1AccountName;
+    }
+
+    public String getTvH4AccountName() {
+        return tvH4AccountName;
+    }
+
+    public void setTvH4AccountName(String tvH4AccountName) {
+        this.tvH4AccountName = tvH4AccountName;
+    }
+
     public Tv getTv() {
         return tv;
     }
@@ -357,6 +376,36 @@ public class AppProperties {
     public static class Tv {
         private String webhookSecret = "";
         private boolean mailEnabled = true;
+        /** Wilder ATR period on the alert timeframe, used for the broker-side safety stop. */
+        private int atrPeriod = 14;
+        /** Safety stop = entry -/+ stopAtrMult x ATR (the alerts, not this stop, normally close the trade). */
+        private double stopAtrMult = 2.5;
+        /** Informational target = entry +/- tpAtrMult x ATR (the indicator's own "TP sensitivity 2 ATR"). */
+        private double tpAtrMult = 2.0;
+
+        public int getAtrPeriod() {
+            return atrPeriod;
+        }
+
+        public void setAtrPeriod(int atrPeriod) {
+            this.atrPeriod = atrPeriod;
+        }
+
+        public double getStopAtrMult() {
+            return stopAtrMult;
+        }
+
+        public void setStopAtrMult(double stopAtrMult) {
+            this.stopAtrMult = stopAtrMult;
+        }
+
+        public double getTpAtrMult() {
+            return tpAtrMult;
+        }
+
+        public void setTpAtrMult(double tpAtrMult) {
+            this.tpAtrMult = tpAtrMult;
+        }
 
         public String getWebhookSecret() {
             return webhookSecret;
@@ -579,6 +628,8 @@ public class AppProperties {
         private final Endpoint swing = new Endpoint();
         private final Endpoint hts = new Endpoint();
         private final Endpoint mms = new Endpoint();
+        private final Endpoint tvH1 = new Endpoint();
+        private final Endpoint tvH4 = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
@@ -587,6 +638,16 @@ public class AppProperties {
             swing.setHost("https://demo-api-capital.backend-capital.com");
             hts.setHost("https://demo-api-capital.backend-capital.com");
             mms.setHost("https://demo-api-capital.backend-capital.com");
+            tvH1.setHost("https://demo-api-capital.backend-capital.com");
+            tvH4.setHost("https://demo-api-capital.backend-capital.com");
+        }
+
+        public Endpoint getTvH1() {
+            return tvH1;
+        }
+
+        public Endpoint getTvH4() {
+            return tvH4;
         }
 
         public Endpoint getDemo() {

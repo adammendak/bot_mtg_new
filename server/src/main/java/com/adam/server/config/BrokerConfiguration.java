@@ -122,6 +122,48 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("tvH1Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalTvH1Broker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getTvH1();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "tvh1",
+                ep,
+                "Capital.com TV H1 credentials are not set (TV_H1_ALGO_API_KEY / TV_H1_ALGO_API_EMAIL / TV_H1_ALGO_PASSWORD)"
+        );
+    }
+
+    @Bean("tvH4Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalTvH4Broker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getTvH4();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "tvh4",
+                ep,
+                "Capital.com TV H4 credentials are not set (TV_H4_ALGO_API_KEY / TV_H4_ALGO_API_EMAIL / TV_H4_ALGO_PASSWORD)"
+        );
+    }
+
+    @Bean("tvH1Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperTvH1Placeholder() {
+        return new UnavailableBrokerClient("tvh1", "TV H1 book is not wired in paper mode");
+    }
+
+    @Bean("tvH4Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperTvH4Placeholder() {
+        return new UnavailableBrokerClient("tvh4", "TV H4 book is not wired in paper mode");
+    }
+
     @Bean("demoBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
     BrokerClient paperDemoBroker(Clock clock) {

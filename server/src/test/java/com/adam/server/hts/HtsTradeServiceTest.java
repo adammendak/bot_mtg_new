@@ -594,4 +594,62 @@ class HtsTradeServiceTest {
     private static Position pos(String dealId, Direction dir) {
         return new Position(dealId, "r", "DE40", dir, 1.0, 100, 99.0, null, 0, "PLN", Instant.now());
     }
+
+    // ---- alert-driven close (TradingView) ----
+
+    @Test
+    void closeForAlertClosesAtBrokerStampsTheReasonAndFinalisesTheRow() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0); // leg = 2.0
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+
+        boolean ok = service.closeForAlert(t, "ALGO_TP");
+
+        assertThat(ok).isTrue();
+        verify(broker).closePosition("d1", 1.0);
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getCloseReason()).isEqualTo("ALGO_TP");
+        assertThat(t.getRMultiple()).isEqualTo(1.5);       // (103 - 100) / 2, estimated from the mark
+        verify(sink).onClose(t);
+    }
+
+    @Test
+    void closeForAlertLeavesTheTradeOpenWhenTheBrokerCloseFails() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0);
+        org.mockito.Mockito.doThrow(new BrokerException("down")).when(broker).closePosition(anyString(), anyDouble());
+
+        boolean ok = service.closeForAlert(t, "ALGO_INVALID");
+
+        assertThat(ok).isFalse();
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+        assertThat(t.getCloseReason()).isNull();
+        verify(sink, never()).onClose(any());
+    }
+
+    @Test
+    void openPositionOfFindsTheOpenRowOfTheVariantAndSymbol() {
+        HtsTradeEntity a = open("dA", Direction.BUY, 100.0, 98.0, 1.0);
+        a.setVariant("TV_ALGO_H1");
+        HtsTradeEntity b = open("dB", Direction.SELL, 100.0, 102.0, 1.0);
+        b.setVariant("TV_ALGO_H4");
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(a, b));
+
+        assertThat(service.openPositionOf(HtsVariant.TV_ALGO_H1, "ger40")).isSameAs(a);
+        assertThat(service.openPositionOf(HtsVariant.TV_ALGO_H4, "GER40")).isSameAs(b);
+        assertThat(service.openPositionOf(HtsVariant.TV_ALGO_H1, "XAU")).isNull();
+    }
+
+    @Test
+    void tvVariantsHaveNoStrategyExitInManage() {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, 1.0);
+        t.setVariant("TV_ALGO_H1");
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(t));
+        when(broker.openPositions()).thenReturn(List.of(pos("d1", Direction.BUY)));
+
+        service.manage();
+
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+        verify(broker, never()).closePosition(anyString(), anyDouble());
+        verify(broker, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
+    }
 }

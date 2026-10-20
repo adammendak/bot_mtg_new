@@ -27,6 +27,7 @@ class TvSignalServiceTest {
     Mailer mailer;
     AppProperties props;
     TvSignalService service;
+    TvExecutionService execution;
 
     @BeforeEach
     void setUp() {
@@ -39,8 +40,9 @@ class TvSignalServiceTest {
             e.setId(7L);
             return e;
         });
+        execution = mock(TvExecutionService.class);
         service = new TvSignalService(props, repo, mailer, JsonMapper.builder().build(),
-                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC), execution);
     }
 
     private static String body(String secret, String event, String side, String sym, String price) {
@@ -77,6 +79,42 @@ class TvSignalServiceTest {
         assertThat(e.getEvent()).isEqualTo("entry");
         assertThat(e.getPrice()).isEqualTo(7684.8);
         verify(mailer).send(anyString(), anyString());
+        verify(execution).submit(any(TvSignalEntity.class));
+    }
+
+    @Test
+    void storesTheAlertBarContextAndTheRawPayloadWithTheSecretMasked() {
+        String raw = "{\"secret\":\"s3cret\",\"strat\":\"algopro-h1\",\"event\":\"entry\",\"side\":\"BUY\","
+                + "\"sym\":\"XAUUSD\",\"ex\":\"CAPITALCOM\",\"tf\":\"60\",\"o\":\"4400.5\",\"h\":\"4412\","
+                + "\"l\":\"4398.25\",\"price\":\"4410.1\",\"v\":\"1234\",\"t\":\"2026-10-20T09:00:00Z\","
+                + "\"tn\":\"2026-10-20T10:00:01Z\"}";
+
+        assertThat(service.ingest(raw).status()).isEqualTo(TvSignalService.Status.ACCEPTED);
+
+        ArgumentCaptor<TvSignalEntity> c = ArgumentCaptor.forClass(TvSignalEntity.class);
+        verify(repo).save(c.capture());
+        TvSignalEntity e = c.getValue();
+        assertThat(e.getSymbol()).isEqualTo("XAU");
+        assertThat(e.getPrice()).isEqualTo(4410.1);          // numbers may arrive quoted
+        assertThat(e.getBarOpen()).isEqualTo(4400.5);
+        assertThat(e.getBarHigh()).isEqualTo(4412.0);
+        assertThat(e.getBarLow()).isEqualTo(4398.25);
+        assertThat(e.getVolume()).isEqualTo(1234.0);
+        assertThat(e.getExchange()).isEqualTo("CAPITALCOM");
+        assertThat(e.getFiredAt()).isEqualTo("2026-10-20T10:00:01Z");
+        assertThat(e.getRawBody()).contains("\"strat\":\"algopro-h1\"").contains("\"secret\":\"***\"")
+                .doesNotContain("s3cret");
+    }
+
+    @Test
+    void anUnusableVolumeDoesNotRejectTheSignal() {
+        String raw = "{\"secret\":\"s3cret\",\"strat\":\"algopro-h1\",\"event\":\"entry\",\"side\":\"BUY\","
+                + "\"sym\":\"EURUSD\",\"tf\":\"60\",\"price\":\"1.1\",\"v\":\"NaN\",\"t\":\"2026-10-20T09:00:00Z\"}";
+
+        assertThat(service.ingest(raw).status()).isEqualTo(TvSignalService.Status.ACCEPTED);
+        ArgumentCaptor<TvSignalEntity> c = ArgumentCaptor.forClass(TvSignalEntity.class);
+        verify(repo).save(c.capture());
+        assertThat(c.getValue().getVolume()).isNull();
     }
 
     @Test

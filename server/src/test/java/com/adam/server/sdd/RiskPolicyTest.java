@@ -115,4 +115,21 @@ class RiskPolicyTest {
         assertThat(risk.neverFlatten("SHOP")).isTrue();
         assertThat(risk.neverFlatten("DE40")).isFalse();
     }
+
+    @Test
+    void tvPickerUsesTheConfiguredNameElseTheOnlyAccountAndNeverGuesses() {
+        AppProperties props = new AppProperties();
+        props.setTvH1AccountName("Account TV H1");
+        RiskPolicy r = new RiskPolicy(props);
+        Account m15 = new Account("1", "Account m15", "PLN", 1000, 1000, 0, true);
+        Account tv = new Account("2", "Account TV H1", "PLN", 1000, 1000, 0, false);
+        Account only = new Account("3", "Account", "PLN", 1000, 1000, 0, true);
+
+        assertThat(r.pickForBook(com.adam.server.broker.Books.TV_H1, List.of(m15, tv))).isEqualTo(tv);
+        // renamed account on a dedicated single-account login -> still picked
+        assertThat(r.pickForBook(com.adam.server.broker.Books.TV_H1, List.of(only))).isEqualTo(only);
+        // several accounts and none named -> refuse rather than trade someone else's account
+        assertThat(r.pickForBook(com.adam.server.broker.Books.TV_H1, List.of(m15, only))).isNull();
+        assertThat(r.pickForBook(com.adam.server.broker.Books.TV_H4, List.of(m15, tv))).isNull();
+    }
 }
