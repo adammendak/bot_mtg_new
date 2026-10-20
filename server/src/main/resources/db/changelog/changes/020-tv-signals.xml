@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      TradingView webhook signals (observe-only forward test of the AlgoPro
+      indicator). One row per alert event: entry / tp / invalid. dedupe_key makes
+      TradingView's retries idempotent.
+    -->
+    <changeSet id="020-tv-signals" author="amendak">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="tv_signals"/></not>
+        </preConditions>
+        <createTable tableName="tv_signals">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="received_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="strat" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="event" type="VARCHAR(16)"><constraints nullable="false"/></column>
+            <column name="side" type="VARCHAR(8)"><constraints nullable="false"/></column>
+            <column name="raw_symbol" type="VARCHAR(48)"/>
+            <column name="symbol" type="VARCHAR(24)"><constraints nullable="false"/></column>
+            <column name="tf" type="VARCHAR(16)"/>
+            <column name="price" type="DOUBLE PRECISION"><constraints nullable="false"/></column>
+            <column name="sl" type="DOUBLE PRECISION"/>
+            <column name="tp" type="DOUBLE PRECISION"/>
+            <column name="bar_time" type="VARCHAR(40)"/>
+            <column name="dedupe_key" type="VARCHAR(200)"><constraints nullable="false" unique="true"/></column>
+            <column name="created_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="tv_signals" indexName="idx_tv_signals_symbol">
+            <column name="strat"/>
+            <column name="symbol"/>
+            <column name="received_at"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

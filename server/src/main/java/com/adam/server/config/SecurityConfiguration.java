@@ -3,6 +3,7 @@ package com.adam.server.config;
 import com.adam.server.auth.TokenAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -55,6 +56,8 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health", "/h2-console/**", "/error", "/").permitAll()
                         .requestMatchers("/api/auth/login", "/api/auth/login/totp").permitAll()
+                        // TradingView webhook: no bearer token possible; the body carries a shared secret.
+                        .requestMatchers(HttpMethod.POST, "/api/tv/signal").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
