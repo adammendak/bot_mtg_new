@@ -46,6 +46,7 @@ public class AppProperties {
     private String newsCalendarUrl = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
     private final SddEpics sdd = new SddEpics();
     private final Mms mms = new Mms();
+    private final Tv tv = new Tv();
 
     public String getBroker() {
         return broker;
@@ -346,6 +347,32 @@ public class AppProperties {
 
     public SddEpics getSdd() {
         return sdd;
+    }
+
+    public Tv getTv() {
+        return tv;
+    }
+
+    /** TradingView webhook (AlgoPro forward test): disabled until a secret is configured. */
+    public static class Tv {
+        private String webhookSecret = "";
+        private boolean mailEnabled = true;
+
+        public String getWebhookSecret() {
+            return webhookSecret;
+        }
+
+        public void setWebhookSecret(String webhookSecret) {
+            this.webhookSecret = webhookSecret == null ? "" : webhookSecret;
+        }
+
+        public boolean isMailEnabled() {
+            return mailEnabled;
+        }
+
+        public void setMailEnabled(boolean mailEnabled) {
+            this.mailEnabled = mailEnabled;
+        }
     }
 
     public Mms getMms() {
