@@ -12,6 +12,7 @@ import com.adam.server.hts.HtsVariant;
 import com.adam.server.ops.FeatureFlags;
 import com.adam.server.persistence.HtsTradeEntity;
 import com.adam.server.persistence.TvSignalEntity;
+import com.adam.server.persistence.TvSignalRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -38,6 +39,7 @@ class TvExecutionServiceTest {
     BrokerClient market;
     AppProperties props;
     FeatureFlags flags;
+    TvSignalRepository repo;
     TvExecutionService service;
 
     @BeforeEach
@@ -56,7 +58,8 @@ class TvExecutionServiceTest {
             candles.add(new Candle(t0.plusSeconds(3600L * i), 100, 101, 99, 100, 0));
         }
         when(market.candles(anyString(), any(), any(), any(), anyInt())).thenReturn(candles);
-        service = new TvExecutionService(gate, trades, books, props, flags);
+        repo = mock(TvSignalRepository.class);
+        service = new TvExecutionService(gate, trades, books, props, flags, repo);
     }
 
     private TvSignalEntity ev(String strat, String event, String side, String sym, double price) {
@@ -77,6 +80,68 @@ class TvExecutionServiceTest {
         t.setDirection(dir);
         t.setStatus("OPEN");
         return t;
+    }
+
+    @Test
+    void entryRecordsOpenedTradeLinkAndTheLevelsUsedOnTheSignalRow() {
+        HtsTradeEntity filled = open(HtsVariant.TV_ALGO_H1, "XAU", "BUY");
+        filled.setId(77L);
+        when(trades.openPositionOf(HtsVariant.TV_ALGO_H1, "XAU")).thenReturn(null, filled); // none before, filled after
+        TvSignalEntity e = ev("algopro-h1", "entry", "BUY", "XAU", 100.0);
+
+        service.handle(e);
+
+        assertThat(e.getExecStatus()).isEqualTo("OPENED");
+        assertThat(e.getTradeId()).isEqualTo(77L);
+        assertThat(e.getStopUsed()).isEqualTo(95.0);
+        assertThat(e.getTargetUsed()).isEqualTo(104.0);
+        assertThat(e.getAtr()).isEqualTo(2.0);
+        verify(repo).save(e);
+    }
+
+    @Test
+    void entryThatTheGateDidNotOpenIsRecordedAsNotOpened() {
+        TvSignalEntity e = ev("algopro-h1", "entry", "BUY", "XAU", 100.0);
+
+        service.handle(e);   // trades.openPositionOf stays null: gate skipped / broker rejected
+
+        assertThat(e.getExecStatus()).isEqualTo("NOT_OPENED");
+        assertThat(e.getTradeId()).isNull();
+    }
+
+    @Test
+    void skipsAreRecordedWithTheirReason() {
+        TvSignalEntity off = ev("algopro-h1", "entry", "BUY", "XAU", 100.0);
+        flags.set("tv.execution", false, "test");
+        service.handle(off);
+        flags.reset("tv.execution");
+        TvSignalEntity universe = ev("algopro-h1", "entry", "BUY", "GER40", 100.0);
+        service.handle(universe);
+        TvSignalEntity unknown = ev("other", "entry", "BUY", "XAU", 100.0);
+        service.handle(unknown);
+        TvSignalEntity noPos = ev("algopro-h1", "tp", "BUY", "XAU", 100.0);
+        service.handle(noPos);
+
+        assertThat(off.getExecStatus()).isEqualTo("FLAG_OFF");
+        assertThat(universe.getExecStatus()).isEqualTo("NOT_IN_UNIVERSE");
+        assertThat(unknown.getExecStatus()).isEqualTo("RECORDED_ONLY");
+        assertThat(noPos.getExecStatus()).isEqualTo("NO_POSITION");
+    }
+
+    @Test
+    void closeEventRecordsTheLinkedTradeAndItsR() {
+        HtsTradeEntity pos = open(HtsVariant.TV_ALGO_H1, "XAU", "BUY");
+        pos.setId(5L);
+        pos.setRMultiple(1.4);
+        when(trades.openPositionOf(HtsVariant.TV_ALGO_H1, "XAU")).thenReturn(pos);
+        when(trades.closeForAlert(pos, "ALGO_TP")).thenReturn(true);
+        TvSignalEntity e = ev("algopro-h1", "tp", "BUY", "XAU", 100.0);
+
+        service.handle(e);
+
+        assertThat(e.getExecStatus()).isEqualTo("CLOSED");
+        assertThat(e.getTradeId()).isEqualTo(5L);
+        assertThat(e.getExecDetail()).isEqualTo("R=1.4");
     }
 
     @Test

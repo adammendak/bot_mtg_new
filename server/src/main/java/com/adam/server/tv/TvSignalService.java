@@ -115,6 +115,14 @@ public class TvSignalService {
         e.setTp(tp);
         e.setBarTime(barTime == null ? null : barTime.substring(0, Math.min(40, barTime.length())));
         e.setDedupeKey(key);
+        e.setRawBody(maskedRaw(body));
+        e.setExchange(cut(text(j, "ex"), 32));
+        e.setBarOpen(number(j, "o"));
+        e.setBarHigh(number(j, "h"));
+        e.setBarLow(number(j, "l"));
+        Double vol = number(j, "v");
+        e.setVolume(vol != null && vol >= 0 && !Double.isInfinite(vol) ? vol : null);
+        e.setFiredAt(cut(text(j, "tn"), 40));
         TvSignalEntity saved = repo.save(e);
         log.info("TV [{}] {} {} {} @ {} tf={} sl={} tp={}", strat, event.toUpperCase(Locale.ROOT), side, symbol,
                 price, tf, sl, tp);
@@ -129,6 +137,22 @@ public class TvSignalService {
         }
         execution.submit(saved);
         return new Result(Status.ACCEPTED, "ok", saved.getId());
+    }
+
+    private static final java.util.regex.Pattern SECRET =
+            java.util.regex.Pattern.compile("(\"secret\"\\s*:\\s*\")[^\"]*(\")");
+
+    /** Raw payload for later analysis, secret masked, capped to the column size. */
+    static String maskedRaw(String body) {
+        if (body == null) {
+            return null;
+        }
+        String masked = SECRET.matcher(body).replaceAll("$1***$2");
+        return masked.length() > 4000 ? masked.substring(0, 4000) : masked;
+    }
+
+    private static String cut(String s, int max) {
+        return s == null ? null : s.substring(0, Math.min(max, s.length()));
     }
 
     private static boolean constantTimeEquals(String a, String b) {
