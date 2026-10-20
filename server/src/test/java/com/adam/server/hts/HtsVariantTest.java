@@ -236,4 +236,22 @@ class HtsVariantTest {
         assertThat(HtsVariant.HA4X.label()).contains("band-cross");
         assertThat(HtsVariant.HA4.label()).doesNotContain("band-cross");
     }
+
+    @Test
+    void tvAlgoVariantsAreWebhookDrivenOnTheirOwnBooks() {
+        assertThat(HtsVariant.TV_ALGO_H1.strategy()).isEqualTo(HtsVariant.Strategy.TV);
+        assertThat(HtsVariant.TV_ALGO_H1.book()).isEqualTo(com.adam.server.broker.Books.TV_H1);
+        assertThat(HtsVariant.TV_ALGO_H4.book()).isEqualTo(com.adam.server.broker.Books.TV_H4);
+        assertThat(HtsVariant.TV_ALGO_H1.ltf()).isEqualTo(com.adam.server.broker.Resolution.H1);
+        assertThat(HtsVariant.TV_ALGO_H4.ltf()).isEqualTo(com.adam.server.broker.Resolution.H4);
+        assertThat(HtsVariant.TV_ALGO_H1.parked()).isTrue();   // never scanned
+        assertThat(HtsVariant.TV_ALGO_H4.parked()).isTrue();
+        assertThat(HtsVariant.TV_ALGO_H1.live()).isFalse();
+        assertThat(HtsVariant.TV_ALGO_H1.universe()).containsExactlyInAnyOrder("XAU", "EURUSD", "US100", "BTC");
+        assertThat(HtsVariant.TV_ALGO_H1.tradesSymbol("GER40")).isFalse();
+        assertThat(HtsVariant.TV_ALGO_H4.tradesSymbol("btc")).isTrue();
+        assertThat(HtsVariant.TV_ALGO_H1.htfLabel()).isEqualTo("H1");
+        assertThat(HtsVariant.TV_ALGO_H4.label()).contains("H4");
+        assertThat(HtsVariant.TV_ALGO_H1.mailsSignals()).isFalse();
+    }
 }

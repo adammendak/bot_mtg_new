@@ -194,10 +194,23 @@ public enum HtsVariant {
      * comparison. Took {@link #HA12}'s {@code swing} book
      * ("Account H1") — HA12 is parked.
      */
-    H1_ST_V3(Resolution.H1, Books.SWING, Duration.ofDays(35), 60, 240, StV3.SATELLITE_UNIVERSE);
+    H1_ST_V3(Resolution.H1, Books.SWING, Duration.ofDays(35), 60, 240, StV3.SATELLITE_UNIVERSE),
+
+    /**
+     * TradingView AlgoPro V1.7 alerts on H1 charts → {@code tvh1} book ("Account TV H1").
+     * Not scanned ({@link #parked()}): entries/exits arrive via the webhook
+     * ({@code TvExecutionService}) — entry at market, broker-side safety stop of
+     * 2.5 x ATR14, closed by the indicator's own Take Profit / Invalidation Zone alerts.
+     */
+    TV_ALGO_H1(Strategy.TV, null, Resolution.H1, Books.TV_H1, Duration.ofDays(60), Duration.ofDays(10), 60, false,
+            0, 0, 0, 0, TvAlgo.UNIVERSE, false, EntryTrigger.HA_FLIP),
+
+    /** Same as {@link #TV_ALGO_H1} for H4 charts → {@code tvh4} book ("Account TV H4"). */
+    TV_ALGO_H4(Strategy.TV, null, Resolution.H4, Books.TV_H4, Duration.ofDays(120), Duration.ofDays(45), 240, false,
+            0, 0, 0, 0, TvAlgo.UNIVERSE, false, EntryTrigger.HA_FLIP);
 
     /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, or {@link StV3Engine}. */
-    public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3 }
+    public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3, TV }
 
     /**
      * How an HA-hunt variant decides entry-TF direction (the hunt gate, RMA
@@ -217,6 +230,11 @@ public enum HtsVariant {
         static final java.util.List<String> UNIVERSE = java.util.List.of("XAU", "XAG", "J225", "USDJPY", "US100");
         /** OKX perps — codes match {@link com.adam.server.broker.okx.OkxSymbol}. */
         static final java.util.List<String> OKX_UNIVERSE = java.util.List.of("ETH", "XRP");
+    }
+
+    /** TradingView AlgoPro forward-test tickers (XAU, EUR/USD, NAS100 = US100, BTC). */
+    private static final class TvAlgo {
+        static final java.util.List<String> UNIVERSE = java.util.List.of("XAU", "EURUSD", "US100", "BTC");
     }
 
     /** MastermindZX MMS: BTC + gold + Nasdaq (Capital epics BTCUSD / GOLD / US100). */
@@ -387,7 +405,8 @@ public enum HtsVariant {
     public boolean parked() {
         return this == CORE || this == SWING || this == HA4X || this == FAST
                 || this == CORE_OKX || this == FAST_OKX || this == CORE_LIVE || this == MMS
-                || this == HA1 || this == HA4 || this == HA12;
+                || this == HA1 || this == HA4 || this == HA12
+                || strategy == Strategy.TV; // webhook-driven, never scanned
     }
 
     /** Real-money account (the {@code live} book) — extra guards + separate enable flag. */
@@ -416,6 +435,9 @@ public enum HtsVariant {
     public String htfLabel() {
         if (strategy == Strategy.MMS) {
             return ltf != null ? ltf.name() : "M15";
+        }
+        if (strategy == Strategy.TV) {
+            return ltf.name();
         }
         if (strategy == Strategy.ST_V3) {
             return switch (atrMinutes) {
@@ -450,6 +472,9 @@ public enum HtsVariant {
         }
         if (strategy == Strategy.ST_V3) {
             return name() + " " + htfLabel() + "-ST/" + ltf;
+        }
+        if (strategy == Strategy.TV) {
+            return name() + " " + ltf;
         }
         if (strategy != Strategy.HA_HUNT) {
             return name() + " " + htf + "/" + ltf;
@@ -509,7 +534,7 @@ public enum HtsVariant {
         if (this == CORE_LIVE) {
             return !"GER40".equalsIgnoreCase(symbolCode);
         }
-        if (strategy == Strategy.MMS || strategy == Strategy.ST_V3) {
+        if (strategy == Strategy.MMS || strategy == Strategy.ST_V3 || strategy == Strategy.TV) {
             if (symbolCode == null) {
                 return false;
             }

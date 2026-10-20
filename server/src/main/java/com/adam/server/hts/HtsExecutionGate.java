@@ -111,7 +111,8 @@ public class HtsExecutionGate {
             return;
         }
         boolean live = s.variant().live();
-        String flag = live ? "hts.live-execution" : "hts.execution";
+        String flag = live ? "hts.live-execution"
+                : s.variant().strategy() == HtsVariant.Strategy.TV ? "tv.execution" : "hts.execution";
         if (!flags.enabled(flag)) {
             // A signal that is NOT executed must be loud — this is how one slips by.
             log.warn("HTS [{}] execution SKIPPED for {} {} — feature flag {} is OFF",

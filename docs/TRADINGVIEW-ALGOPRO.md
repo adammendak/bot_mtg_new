@@ -88,3 +88,21 @@ Ostatnie zdarzenia: `GET /api/tv/signals?limit=100` (token bearer).
 ## 8. Symbole
 
 `{{ticker}}` jest mapowany na kody bota (SPX500→US500, NAS100→US100, XAUUSD→XAU, BTCUSD→BTC, ETHUSD→ETH, GER40/DE40/DAX→GER40…). Nieznane tickery zapisują się jak przyszły.
+
+## 9. Egzekucja na kontach demo (forward test na żywo)
+
+Alerty `algopro-h1` / `algopro-h4` składają zlecenia na **osobnych kontach demo Capital** (izolowane booki `tvh1`, `tvh4`):
+
+| Zdarzenie | Co robi bot |
+|---|---|
+| `entry` BUY/SELL | zlecenie rynkowe, sizing 1% ryzyka (jak reszta HTS), **awaryjny SL = 2.5 × ATR14** na interwale alertu (alert nie niesie SL); przeciwny kierunek na tym samym symbolu najpierw zamyka starą pozycję (`ALGO_REVERSE`) |
+| `tp` | zamyka otwartą pozycję tej strony (`ALGO_TP`) |
+| `invalid` | zamyka otwartą pozycję tej strony (`ALGO_INVALID`) |
+
+- Uniwersum: **XAU, EURUSD, US100 (NAS100), BTC**. Inne symbole są tylko zapisywane.
+- Jedna pozycja na symbol na koncie; powtórzony `entry` w tym samym kierunku jest ignorowany.
+- Konta: `Account TV H1` / `Account TV H4` (zmień przez `TV_H1_ALGO_ACCOUNT_NAME` / `TV_H4_ALGO_ACCOUNT_NAME`; jeśli login ma dokładnie jedno konto, bot weźmie je niezależnie od nazwy).
+- Poświadczenia: `TV_H1_ALGO_API_KEY`, `TV_H1_ALGO_API_EMAIL`, `TV_H1_ALGO_PASSWORD` (analogicznie `TV_H4_ALGO_*`). Bez nich book jest nieaktywny (zlecenie pominięte, sygnał i tak zapisany).
+- Wyłącznik: flaga **`tv.execution`** w panelu admina (domyślnie włączona; env `TV_EXECUTION_ENABLED=false` ustawia domyślnie wyłączoną). Wyłączona = sygnały tylko się zapisują.
+- Parametry: `TV_ATR_PERIOD` (14), `TV_STOP_ATR_MULT` (2.5), `TV_TP_ATR_MULT` (2.0, informacyjnie).
+- Pozycje widać w `hts_trades` (warianty `TV_ALGO_H1` / `TV_ALGO_H4`) i w scorecardzie HTS.

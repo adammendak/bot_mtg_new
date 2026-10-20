@@ -27,6 +27,7 @@ class TvSignalServiceTest {
     Mailer mailer;
     AppProperties props;
     TvSignalService service;
+    TvExecutionService execution;
 
     @BeforeEach
     void setUp() {
@@ -39,8 +40,9 @@ class TvSignalServiceTest {
             e.setId(7L);
             return e;
         });
+        execution = mock(TvExecutionService.class);
         service = new TvSignalService(props, repo, mailer, JsonMapper.builder().build(),
-                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC), execution);
     }
 
     private static String body(String secret, String event, String side, String sym, String price) {
@@ -77,6 +79,7 @@ class TvSignalServiceTest {
         assertThat(e.getEvent()).isEqualTo("entry");
         assertThat(e.getPrice()).isEqualTo(7684.8);
         verify(mailer).send(anyString(), anyString());
+        verify(execution).submit(any(TvSignalEntity.class));
     }
 
     @Test

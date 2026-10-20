@@ -42,14 +42,16 @@ public class TvSignalService {
     private final Mailer mailer;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final TvExecutionService execution;
 
     public TvSignalService(AppProperties properties, TvSignalRepository repo, Mailer mailer,
-                           ObjectMapper mapper, Clock clock) {
+                           ObjectMapper mapper, Clock clock, TvExecutionService execution) {
         this.properties = properties;
         this.repo = repo;
         this.mailer = mailer;
         this.mapper = mapper;
         this.clock = clock;
+        this.execution = execution;
     }
 
     public Result ingest(String body) {
@@ -119,12 +121,13 @@ public class TvSignalService {
         if ("entry".equals(event) && properties.getTv().isMailEnabled()) {
             try {
                 mailer.send("TV [" + strat + "] " + side + " " + symbol + " @ " + price + (tf == null ? "" : " " + tf),
-                        "AlgoPro entry (observe-only, not executed)\n" + side + " " + symbol + " @ " + price
+                        "AlgoPro entry\n" + side + " " + symbol + " @ " + price
                                 + (sl != null ? "\nSL " + sl : "") + (tp != null ? "\nTP " + tp : ""));
             } catch (RuntimeException ex) {
                 log.warn("TV mail failed: {}", ex.getClass().getSimpleName());
             }
         }
+        execution.submit(saved);
         return new Result(Status.ACCEPTED, "ok", saved.getId());
     }
 

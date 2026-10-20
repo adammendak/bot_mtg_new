@@ -140,6 +140,46 @@ public class HtsTradeService {
         return n;
     }
 
+    /** The OPEN trade of {@code v} on {@code symbol}, or {@code null}. */
+    public HtsTradeEntity openPositionOf(HtsVariant v, String symbol) {
+        if (v == null || symbol == null) {
+            return null;
+        }
+        for (HtsTradeEntity t : trades.findByStatusOrderByIdDesc("OPEN")) {
+            if (v.name().equals(t.getVariant()) && symbol.equalsIgnoreCase(t.getSymbol())) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Alert-driven exit (TradingView Take Profit / Invalidation Zone / reversal): close the
+     * position at market on the trade's own sub-account, stamp {@code reason} and finalise
+     * the row right away (so a reversal can open the opposite side immediately instead of
+     * waiting two reconcile passes). Returns whether the broker close succeeded.
+     */
+    public boolean closeForAlert(HtsTradeEntity t, String reason) {
+        if (t == null || t.getDealId() == null || t.getSize() == null) {
+            return false;
+        }
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        try {
+            selectBookAccount(t.getBook());
+            books.forBook(t.getBook()).closePosition(t.getDealId(), remaining);
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: alert close ({}) failed: {}", t.getVariant(), t.getSymbol(), reason,
+                    e.getClass().getSimpleName());
+            return false;
+        }
+        t.setCloseReason(reason);
+        applyClose(t, recentTx(t.getBook()));
+        trades.save(t);
+        fan(sink -> sink.onClose(t));
+        log.info("HTS [{}] {} closed by alert ({}) R={}", t.getVariant(), t.getSymbol(), reason, t.getRMultiple());
+        return true;
+    }
+
     /**
      * Oldest OPEN row — the MMS base. A later add-on (higher id) is ignored so
      * {@link MmsEngine#evaluateAdd} always measures the confirming bar from the
@@ -331,6 +371,9 @@ public class HtsTradeService {
             return false;
         }
         boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+        if (v.strategy() == HtsVariant.Strategy.TV) {
+            return false; // TradingView-driven: no strategy exit here — alerts close it (see closeForAlert)
+        }
         if (v.strategy() == HtsVariant.Strategy.HA_HUNT) {
             return haHuntCloudExit(t, v, buy, market, candleCache);
         }

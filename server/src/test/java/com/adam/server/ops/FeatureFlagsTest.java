@@ -21,7 +21,7 @@ class FeatureFlagsTest {
     /** htsScan, htsExecution, htsLiveExecution, htsMonitor, htsWeekendFlatten. */
     private FeatureFlags flags(boolean htsScan, boolean htsExecution) {
         when(repo.findAll()).thenReturn(List.of());
-        return new FeatureFlags(repo, htsScan, htsExecution, true, true, true);
+        return new FeatureFlags(repo, htsScan, htsExecution, true, true, true, true);
     }
 
     @Test
@@ -117,7 +117,7 @@ class FeatureFlagsTest {
 
         List<FeatureFlags.FlagView> list = f.list();
         assertThat(list).extracting(FeatureFlags.FlagView::name)
-                .containsExactly("hts.scan", "hts.execution", "hts.live-execution",
+                .containsExactly("hts.scan", "hts.execution", "hts.live-execution", "tv.execution",
                         "hts.monitor", "hts.weekend-flatten");
         FeatureFlags.FlagView hx = list.stream().filter(v -> v.name().equals("hts.execution"))
                 .findFirst().orElseThrow();

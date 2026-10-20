@@ -218,6 +218,30 @@ public class RiskPolicy {
     }
 
     /**
+     * TradingView AlgoPro books ({@code tvh1} / {@code tvh4}) — each has its OWN Capital
+     * credentials. Picks the sub-account named {@code name}; when that name is not found
+     * but the dedicated login exposes exactly one (non-Fintokei) account, that one is used
+     * so a renamed account cannot silently disable the book. Never falls back onto another
+     * strategy's account.
+     */
+    public Account pickTvAccount(List<Account> accounts, String name) {
+        if (accounts == null || accounts.isEmpty()) {
+            return null;
+        }
+        java.util.List<Account> eligible = new java.util.ArrayList<>();
+        for (Account a : accounts) {
+            if (isFintokei(a.name())) {
+                continue;
+            }
+            if (name != null && !name.isBlank() && name.equals(a.name())) {
+                return a;
+            }
+            eligible.add(a);
+        }
+        return eligible.size() == 1 ? eligible.get(0) : null;
+    }
+
+    /**
      * "OKX" book pick — OKX exposes a single unified trading account, so this
      * returns the first account OKX reports (its only one).
      */
@@ -247,6 +271,12 @@ public class RiskPolicy {
         }
         if (com.adam.server.broker.Books.MMS.equalsIgnoreCase(book)) {
             return pickMmsAccount(accounts);
+        }
+        if (com.adam.server.broker.Books.TV_H1.equalsIgnoreCase(book)) {
+            return pickTvAccount(accounts, properties.getTvH1AccountName());
+        }
+        if (com.adam.server.broker.Books.TV_H4.equalsIgnoreCase(book)) {
+            return pickTvAccount(accounts, properties.getTvH4AccountName());
         }
         return pickDemoAccount(accounts);
     }

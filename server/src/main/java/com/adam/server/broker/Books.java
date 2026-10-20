@@ -24,11 +24,15 @@ public final class Books {
     /** Separate Capital.com demo account reserved for the MMS mean-reversion variant — fully isolated from HA4's demo book. */
     public static final String MMS = "mms";
 
+    /** Isolated Capital.com demo account for TradingView AlgoPro H1 alerts (forward test). */
+    public static final String TV_H1 = "tvh1";
+    /** Isolated Capital.com demo account for TradingView AlgoPro H4 alerts (forward test). */
+    public static final String TV_H4 = "tvh4";
     /** Wire / config alias accepted for {@link #GLOWNE}. */
     public static final String GLOWNE_ALIAS = "main";
 
     /** All books, dashboard order (Demo | Live | Główne | Swing | HTS | OKX | MMS). */
-    public static final List<String> ALL = List.of(DEMO, LIVE, GLOWNE, SWING, HTS, OKX, MMS);
+    public static final List<String> ALL = List.of(DEMO, LIVE, GLOWNE, SWING, HTS, OKX, MMS, TV_H1, TV_H4);
 
     /**
      * Books the SDD-M15 execution gate may trade. Główne and Swing are never

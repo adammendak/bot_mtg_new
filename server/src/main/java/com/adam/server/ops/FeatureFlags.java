@@ -44,6 +44,7 @@ public class FeatureFlags {
         def("hts.scan", "app.hts.scan-enabled", "Skan HTS (wszystkie warianty)");
         def("hts.execution", "app.hts.execution-enabled", "Egzekucja HTS na kontach demo");
         def("hts.live-execution", "app.hts.live-execution-enabled", "Egzekucja HTS CORE_LIVE (realne)");
+        def("tv.execution", "app.tv.execution-enabled", "Egzekucja alertów TradingView (AlgoPro) na kontach demo TV H1/H4");
         def("hts.monitor", "app.hts.monitor-enabled", "Monitor pozycji HTS (runner exit)");
         def("hts.weekend-flatten", "app.hts.weekend-flatten-enabled",
                 "Zamknij pozycje FAST (konto m5) w piątek wieczorem — bez BTC");
@@ -75,7 +76,8 @@ public class FeatureFlags {
             @Value("${app.hts.execution-enabled:true}") boolean htsExecution,
             @Value("${app.hts.live-execution-enabled:true}") boolean htsLiveExecution,
             @Value("${app.hts.monitor-enabled:true}") boolean htsMonitor,
-            @Value("${app.hts.weekend-flatten-enabled:true}") boolean htsWeekendFlatten
+            @Value("${app.hts.weekend-flatten-enabled:true}") boolean htsWeekendFlatten,
+            @Value("${app.tv.execution-enabled:true}") boolean tvExecution
     ) {
         this.repo = repo;
         defaults.put("hts.scan", htsScan);
@@ -83,13 +85,14 @@ public class FeatureFlags {
         defaults.put("hts.live-execution", htsLiveExecution);
         defaults.put("hts.monitor", htsMonitor);
         defaults.put("hts.weekend-flatten", htsWeekendFlatten);
+        defaults.put("tv.execution", tvExecution);
         log.info("Feature flag env defaults: {}", defaults);
         refresh();
     }
 
     /** Test instance — no DB. {@link #set}/{@link #reset} only move the in-memory cache. */
     public static FeatureFlags forTest() {
-        return new FeatureFlags(null, true, true, true, true, true);
+        return new FeatureFlags(null, true, true, true, true, true, true);
     }
 
     /** Effective value: DB override if set, otherwise the env default, otherwise true. */

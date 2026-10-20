@@ -33,7 +33,7 @@ class EquityHistoryServiceSyncAllTest {
     void syncAllReturnsOneResultPerBookWithoutThrowing() {
         List<EquityHistoryService.SyncResult> results = service.syncAll(true);
 
-        assertThat(results).hasSize(7);
+        assertThat(results).hasSize(9);
         assertThat(results).allSatisfy(r -> assertThat(r.status()).isEqualTo("error"));
         assertThat(results)
                 .extracting(EquityHistoryService.SyncResult::message)
@@ -44,7 +44,9 @@ class EquityHistoryServiceSyncAllTest {
                         "broker not configured for book swing",
                         "broker not configured for book hts",
                         "broker not configured for book okx",
-                        "broker not configured for book mms"
+                        "broker not configured for book mms",
+                        "broker not configured for book tvh1",
+                        "broker not configured for book tvh4"
                 );
     }
 }
