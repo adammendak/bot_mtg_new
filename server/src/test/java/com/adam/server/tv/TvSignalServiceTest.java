@@ -42,7 +42,7 @@ class TvSignalServiceTest {
         });
         execution = mock(TvExecutionService.class);
         service = new TvSignalService(props, repo, mailer, JsonMapper.builder().build(),
-                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC), execution);
+                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC), execution, Runnable::run);
     }
 
     private static String body(String secret, String event, String side, String sym, String price) {
@@ -151,5 +151,20 @@ class TvSignalServiceTest {
         assertThat(TvSymbols.normalize("xauusd")).isEqualTo("XAU");
         assertThat(TvSymbols.normalize("EURUSD")).isEqualTo("EURUSD");
         assertThat(TvSymbols.normalize(null)).isNull();
+    }
+
+    @Test
+    void theWebhookAnswersWithoutWaitingForTheMailToBeSent() {
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        TvSignalService async = new TvSignalService(props, repo, mailer, JsonMapper.builder().build(),
+                Clock.fixed(Instant.parse("2026-10-20T10:00:00Z"), ZoneOffset.UTC), execution, queued::add);
+
+        TvSignalService.Result r = async.ingest(body("s3cret", "entry", "BUY", "US100", "29743.8"));
+
+        assertThat(r.status()).isEqualTo(TvSignalService.Status.ACCEPTED);
+        verify(mailer, never()).send(anyString(), anyString());   // not sent on the request thread
+        assertThat(queued).hasSize(1);
+        queued.get(0).run();
+        verify(mailer).send(anyString(), anyString());            // sent by the mail worker
     }
 }
