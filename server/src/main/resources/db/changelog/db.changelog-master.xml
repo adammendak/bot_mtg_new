@@ -25,4 +25,5 @@
     <include file="changes/019-purge-phantom-hts-trades.xml" relativeToChangelogFile="true"/>
     <include file="changes/020-tv-signals.xml" relativeToChangelogFile="true"/>
     <include file="changes/021-tv-signals-analysis.xml" relativeToChangelogFile="true"/>
+    <include file="changes/022-hts-trades-realised-r.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

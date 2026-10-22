@@ -128,9 +128,16 @@ public class TvExecutionService {
                     mark(e, "NO_POSITION", null, null);
                     return;
                 }
-                boolean ok = trades.closeForAlert(open, "tp".equals(e.getEvent()) ? "ALGO_TP" : "ALGO_INVALID");
-                mark(e, ok ? "CLOSED" : "CLOSE_FAILED",
-                        ok && open.getRMultiple() != null ? "R=" + open.getRMultiple() : null, open.getId());
+                if ("tp".equals(e.getEvent())) {
+                    // several TP alerts can arrive for one position: each takes a slice, the rest stays open
+                    HtsTradeService.AlertOutcome o = trades.partialTakeProfit(open,
+                            properties.getTv().getTpCloseFraction());
+                    mark(e, o.status(), o.detail(), open.getId());
+                } else {
+                    boolean ok = trades.closeForAlert(open, "ALGO_INVALID");
+                    mark(e, ok ? "CLOSED" : "CLOSE_FAILED",
+                            ok && open.getRMultiple() != null ? "R=" + open.getRMultiple() : null, open.getId());
+                }
             }
             default -> mark(e, "RECORDED_ONLY", "unhandled event", null);
         }
@@ -192,11 +199,24 @@ public class TvExecutionService {
                     ex.getClass().getSimpleName());
             return null;
         }
-        return scanFrom(v, e, dir, epic, candles);
+        // The alert's close comes from TradingView's feed, which differs from Capital's (BTC up to ~0.6%,
+        // XAU ~0.2%). Size and stop must be relative to the price the order will actually fill at.
+        double ref = e.getPrice();
+        try {
+            com.adam.server.broker.model.MarketPrice mp = market.marketPrice(epic);
+            if (mp != null && mp.mid() > 0) {
+                ref = mp.mid();
+            }
+        } catch (RuntimeException ex) {
+            log.warn("TV exec [{}] {} Capital price unavailable ({}) — using the alert price", v.name(),
+                    e.getSymbol(), ex.getClass().getSimpleName());
+        }
+        return scanFrom(v, e, dir, epic, candles, ref);
     }
 
     /** Pure: price levels from the alert price and the ATR of {@code candles}. */
-    HtsScan scanFrom(HtsVariant v, TvSignalEntity e, Direction dir, String epic, List<Candle> candles) {
+    HtsScan scanFrom(HtsVariant v, TvSignalEntity e, Direction dir, String epic, List<Candle> candles,
+                     double entryRef) {
         int period = Math.max(2, properties.getTv().getAtrPeriod());
         if (candles == null || candles.size() < period + 2) {
             log.warn("TV exec [{}] {} not enough candles for ATR{} ({}) — entry skipped", v.name(), e.getSymbol(),
@@ -208,7 +228,7 @@ public class TvExecutionService {
             log.warn("TV exec [{}] {} ATR invalid ({}) — entry skipped", v.name(), e.getSymbol(), atr);
             return null;
         }
-        double entry = e.getPrice();
+        double entry = entryRef;
         boolean buy = dir == Direction.BUY;
         double stop = buy ? entry - properties.getTv().getStopAtrMult() * atr
                 : entry + properties.getTv().getStopAtrMult() * atr;
