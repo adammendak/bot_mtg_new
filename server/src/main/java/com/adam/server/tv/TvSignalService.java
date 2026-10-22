@@ -43,9 +43,24 @@ public class TvSignalService {
     private final ObjectMapper mapper;
     private final Clock clock;
     private final TvExecutionService execution;
+    /** SMTP can take seconds; TradingView gives up after ~3 s, so mail must never run on the request thread. */
+    private final java.util.concurrent.Executor mailExecutor;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TvSignalService(AppProperties properties, TvSignalRepository repo, Mailer mailer,
                            ObjectMapper mapper, Clock clock, TvExecutionService execution) {
+        this(properties, repo, mailer, mapper, clock, execution,
+                java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                    Thread t = new Thread(r, "tv-mail");
+                    t.setDaemon(true);
+                    return t;
+                }));
+    }
+
+    TvSignalService(AppProperties properties, TvSignalRepository repo, Mailer mailer,
+                    ObjectMapper mapper, Clock clock, TvExecutionService execution,
+                    java.util.concurrent.Executor mailExecutor) {
+        this.mailExecutor = mailExecutor;
         this.properties = properties;
         this.repo = repo;
         this.mailer = mailer;
@@ -126,16 +141,23 @@ public class TvSignalService {
         TvSignalEntity saved = repo.save(e);
         log.info("TV [{}] {} {} {} @ {} tf={} sl={} tp={}", strat, event.toUpperCase(Locale.ROOT), side, symbol,
                 price, tf, sl, tp);
+        execution.submit(saved);
         if ("entry".equals(event) && properties.getTv().isMailEnabled()) {
+            final String subject = "TV [" + strat + "] " + side + " " + symbol + " @ " + price + (tf == null ? "" : " " + tf);
+            final String text = "AlgoPro entry\n" + side + " " + symbol + " @ " + price
+                    + (sl != null ? "\nSL " + sl : "") + (tp != null ? "\nTP " + tp : "");
             try {
-                mailer.send("TV [" + strat + "] " + side + " " + symbol + " @ " + price + (tf == null ? "" : " " + tf),
-                        "AlgoPro entry\n" + side + " " + symbol + " @ " + price
-                                + (sl != null ? "\nSL " + sl : "") + (tp != null ? "\nTP " + tp : ""));
+                mailExecutor.execute(() -> {
+                    try {
+                        mailer.send(subject, text);
+                    } catch (RuntimeException ex) {
+                        log.warn("TV mail failed: {}", ex.getClass().getSimpleName());
+                    }
+                });
             } catch (RuntimeException ex) {
-                log.warn("TV mail failed: {}", ex.getClass().getSimpleName());
+                log.warn("TV mail could not be queued: {}", ex.getClass().getSimpleName());
             }
         }
-        execution.submit(saved);
         return new Result(Status.ACCEPTED, "ok", saved.getId());
     }
 
