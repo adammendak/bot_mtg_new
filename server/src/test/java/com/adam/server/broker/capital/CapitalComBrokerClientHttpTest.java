@@ -141,4 +141,23 @@ class CapitalComBrokerClientHttpTest {
         assertThat(accountsReq.getHeader("CST")).isEqualTo("cst-2");
         assertThat(accountsReq.getHeader("X-SECURITY-TOKEN")).isEqualTo("tok-2");
     }
+
+    @Test
+    void reducePositionIsAnOppositeMarketOrderNotADeleteBecauseCapitalsDeleteClosesTheWholePosition() throws Exception {
+        server.enqueue(session("cst-1", "tok-1"));
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .addHeader("Content-Type", "application/json").setBody("{\"dealReference\":\"o_slice\"}"));
+        client.login();
+        server.takeRequest();                       // the session handshake
+
+        client.reducePosition("deal-1", "US100", com.adam.server.broker.Direction.SELL, 0.002);
+
+        RecordedRequest req = server.takeRequest();
+        assertThat(req.getMethod()).isEqualTo("POST");
+        assertThat(req.getPath()).isEqualTo("/api/v1/positions");
+        String body = req.getBody().readUtf8();
+        assertThat(body).contains("\"direction\":\"BUY\"");     // opposite of the SELL position
+        assertThat(body).contains("\"size\":0.002").contains("\"epic\":\"US100\"");
+        assertThat(body).doesNotContain("stopLevel");
+    }
 }

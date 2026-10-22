@@ -75,6 +75,16 @@ public interface BrokerClient {
 
     OrderAck closePosition(String dealId, double size);
 
+    /**
+     * Reduce an open position by {@code size} (a take-profit slice). Default: {@link #closePosition} for
+     * brokers whose close honours a size. Capital.com's {@code DELETE /positions/{dealId}} IGNORES a size
+     * and closes the whole position, so its client overrides this with an opposite market order that nets
+     * against the position.
+     */
+    default OrderAck reducePosition(String dealId, String epic, Direction direction, double size) {
+        return closePosition(dealId, size);
+    }
+
     OrderAck amendPosition(String dealId, Double stopLevel, boolean trailingStop);
 
     List<Position> openPositions();

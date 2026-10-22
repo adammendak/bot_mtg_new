@@ -223,18 +223,81 @@ public class HtsTradeService {
         }
         double leg = Math.abs(t.getEntry() - t.getStopLevel());
         Double mark = estimateExitPrice(t);
+        boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+        com.adam.server.broker.Direction dir = buy ? com.adam.server.broker.Direction.BUY
+                : com.adam.server.broker.Direction.SELL;
         try {
-            broker.closePosition(t.getDealId(), slice);
+            broker.reducePosition(t.getDealId(), t.getEpic(), dir, slice);
         } catch (Exception e) {
             log.warn("HTS [{}] {}: partial TP close failed: {}", t.getVariant(), t.getSymbol(),
                     e.getClass().getSimpleName());
             return new AlertOutcome(false, "CLOSE_FAILED", e.getClass().getSimpleName());
         }
-        boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+        // The broker's own view is the truth: Capital's DELETE once closed whole positions when a size was
+        // passed, so verify what is actually left (same deal, a re-keyed deal, nothing, or a hedge leg).
+        java.util.List<com.adam.server.broker.model.Position> live = null;
+        try {
+            live = broker.openPositions();
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: could not verify the partial close ({})", t.getVariant(), t.getSymbol(),
+                    e.getClass().getSimpleName());
+        }
+        com.adam.server.broker.model.Position same = null;
+        com.adam.server.broker.model.Position counter = null;
+        if (live != null) {
+            for (com.adam.server.broker.model.Position p : live) {
+                if (t.getDealId().equals(p.dealId())) {
+                    same = p;
+                }
+            }
+            for (com.adam.server.broker.model.Position p : live) {
+                if (t.getEpic() != null && t.getEpic().equalsIgnoreCase(p.epic())) {
+                    if (p.direction() == dir && same == null) {
+                        same = p; // the deal was re-keyed by the broker
+                    } else if (p.direction() != dir) {
+                        counter = p;
+                    }
+                }
+            }
+        }
+        if (counter != null) {
+            try {
+                broker.closePosition(counter.dealId(), 0);
+            } catch (Exception e) {
+                log.warn("HTS [{}] {}: could not revert the counter position {} ({})", t.getVariant(),
+                        t.getSymbol(), counter.dealId(), e.getClass().getSimpleName());
+            }
+            log.warn("HTS [{}] {}: account is in hedging mode — the reducing order opened a counter position; reverted",
+                    t.getVariant(), t.getSymbol());
+            return new AlertOutcome(false, "PARTIAL_UNSUPPORTED",
+                    "hedging account: counter position reverted, position unchanged");
+        }
+        if (live != null && same == null) {
+            log.warn("HTS [{}] {}: the partial close left NO position — booked as a full ALGO_TP close",
+                    t.getVariant(), t.getSymbol());
+            t.setCloseReason("ALGO_TP");
+            applyClose(t, recentTx(t.getBook()));
+            trades.save(t);
+            fan(sink -> sink.onClose(t));
+            return new AlertOutcome(true, "CLOSED", "broker closed the whole position on a partial request"
+                    + (t.getRMultiple() != null ? ", R=" + t.getRMultiple() : ""));
+        }
         double legR = leg > 0 && mark != null ? (mark - t.getEntry()) * (buy ? 1.0 : -1.0) / leg : 0.0;
         double banked = (t.getRealisedR() == null ? 0.0 : t.getRealisedR()) + legR * (slice / size);
         t.setRealisedR(round(banked));
-        t.setRemainingSize(remaining - slice);
+        if (same != null) {
+            if (!t.getDealId().equals(same.dealId())) {
+                log.info("HTS [{}] {}: deal re-keyed by the broker {} -> {}", t.getVariant(), t.getSymbol(),
+                        t.getDealId(), same.dealId());
+                t.setDealId(same.dealId());
+                if (same.dealReference() != null) {
+                    t.setDealReference(same.dealReference());
+                }
+            }
+            t.setRemainingSize(same.size());
+        } else {
+            t.setRemainingSize(remaining - slice);
+        }
         if (t.getTp1At() == null) {
             t.setTp1At(Instant.now());
         }
@@ -242,7 +305,7 @@ public class HtsTradeService {
         log.info("HTS [{}] {} partial TP: closed {} of {} (remaining {}), slice R={} banked R={}", t.getVariant(),
                 t.getSymbol(), slice, size, t.getRemainingSize(), round(legR), t.getRealisedR());
         return new AlertOutcome(true, "PARTIAL_TP", "closed " + slice + " of " + size + ", remaining "
-                + round(remaining - slice) + ", banked R=" + t.getRealisedR());
+                + round(t.getRemainingSize()) + ", banked R=" + t.getRealisedR());
     }
 
     /**
