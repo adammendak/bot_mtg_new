@@ -526,6 +526,19 @@ public class CapitalComBrokerClient implements BrokerClient {
         return ack(body);
     }
 
+    /**
+     * Partial close on Capital.com: the REST DELETE has no size (it closes the WHOLE position), so the slice
+     * is an opposite-direction market order of {@code size}, which nets against the open position on a
+     * non-hedging account. The caller must verify the outcome against {@code openPositions()}.
+     */
+    @Override
+    public OrderAck reducePosition(String dealId, String epic, com.adam.server.broker.Direction direction,
+                                   double size) {
+        com.adam.server.broker.Direction opposite = direction == com.adam.server.broker.Direction.BUY
+                ? com.adam.server.broker.Direction.SELL : com.adam.server.broker.Direction.BUY;
+        return placeMarketOrder(new OrderRequest(epic, opposite, size, null, "MARKET", null, null, null, false));
+    }
+
     @Override
     public OrderAck amendPosition(String dealId, Double stopLevel, boolean trailingStop) {
         Map<String, Object> payload = new LinkedHashMap<>();

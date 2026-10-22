@@ -666,12 +666,14 @@ class HtsTradeServiceTest {
         HtsTradeEntity t = tvOpen(1.0);
         when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
         when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        when(broker.openPositions()).thenReturn(List.of(position("d1", Direction.BUY, 0.8)));
 
         HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
 
         assertThat(o.ok()).isTrue();
         assertThat(o.status()).isEqualTo("PARTIAL_TP");
-        verify(broker).closePosition("d1", 0.2);
+        verify(broker).reducePosition("d1", "DE40", Direction.BUY, 0.2);
+        verify(broker, never()).closePosition(anyString(), anyDouble());   // the DELETE would close EVERYTHING
         assertThat(t.getStatus()).isEqualTo("OPEN");
         assertThat(t.getRemainingSize()).isEqualTo(0.8, org.assertj.core.data.Offset.offset(1e-9));
         assertThat(t.getRealisedR()).isEqualTo(0.3);        // (103-100)/2 = 1.5R on 20% of the size
@@ -686,6 +688,7 @@ class HtsTradeServiceTest {
                 new MarketPrice("DE40", 103.0, 103.0, bar),    // the TP slice
                 new MarketPrice("DE40", 99.0, 99.0, bar));     // the invalidation close
         when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.openPositions()).thenReturn(List.of(position("d1", Direction.BUY, 0.8)));
         service.partialTakeProfit(t, 0.2);
 
         boolean ok = service.closeForAlert(t, "ALGO_INVALID");
@@ -721,10 +724,12 @@ class HtsTradeServiceTest {
         when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.02, 2, 0, 0));
         when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 101.0, 101.0, bar));
 
+        when(broker.openPositions()).thenReturn(List.of(position("d1", Direction.BUY, 0.03)));
+
         HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);   // 20% = 0.01 < min 0.02
 
         assertThat(o.status()).isEqualTo("PARTIAL_TP");
-        verify(broker).closePosition("d1", 0.02);
+        verify(broker).reducePosition("d1", "DE40", Direction.BUY, 0.02);
     }
 
     @Test
@@ -732,11 +737,64 @@ class HtsTradeServiceTest {
         HtsTradeEntity t = tvOpen(1.0);
         when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
         when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
-        org.mockito.Mockito.doThrow(new BrokerException("down")).when(broker).closePosition(anyString(), anyDouble());
+        org.mockito.Mockito.doThrow(new BrokerException("down")).when(broker)
+                .reducePosition(anyString(), anyString(), any(), anyDouble());
 
         HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
 
         assertThat(o.ok()).isFalse();
+        assertThat(t.getRemainingSize()).isNull();
+        assertThat(t.getRealisedR()).isNull();
+    }
+
+    private static Position position(String dealId, Direction dir, double size) {
+        return new Position(dealId, "r-" + dealId, "DE40", dir, size, 100, 98.0, null, 0, "PLN", Instant.now());
+    }
+
+    @Test
+    void ifTheBrokerRekeyedTheDealAfterThePartialTheTradeAdoptsTheNewDealId() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        when(broker.openPositions()).thenReturn(List.of(position("d2", Direction.BUY, 0.8)));
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.status()).isEqualTo("PARTIAL_TP");
+        assertThat(t.getDealId()).isEqualTo("d2");
+        assertThat(t.getRemainingSize()).isEqualTo(0.8);
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+    }
+
+    @Test
+    void ifThePartialLeftNoPositionTheTradeIsBookedAsAFullTpCloseNotLeftOpen() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.openPositions()).thenReturn(List.of());          // the broker closed everything
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.status()).isEqualTo("CLOSED");
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getCloseReason()).isEqualTo("ALGO_TP");
+        verify(sink).onClose(t);
+    }
+
+    @Test
+    void aHedgingAccountsCounterPositionIsRevertedAndTheTradeLeftUntouched() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        when(broker.openPositions()).thenReturn(List.of(position("d1", Direction.BUY, 1.0),
+                position("hedge", Direction.SELL, 0.2)));
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.ok()).isFalse();
+        assertThat(o.status()).isEqualTo("PARTIAL_UNSUPPORTED");
+        verify(broker).closePosition("hedge", 0);                    // the counter leg is closed, not the position
         assertThat(t.getRemainingSize()).isNull();
         assertThat(t.getRealisedR()).isNull();
     }
