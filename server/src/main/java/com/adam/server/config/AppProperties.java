@@ -382,6 +382,16 @@ public class AppProperties {
         private double stopAtrMult = 2.5;
         /** Informational target = entry +/- tpAtrMult x ATR (the indicator's own "TP sensitivity 2 ATR"). */
         private double tpAtrMult = 2.0;
+        /** Share of the ORIGINAL position closed by each AlgoPro Take Profit alert (0.2 = 20%). */
+        private double tpCloseFraction = 0.2;
+
+        public double getTpCloseFraction() {
+            return tpCloseFraction;
+        }
+
+        public void setTpCloseFraction(double tpCloseFraction) {
+            this.tpCloseFraction = tpCloseFraction;
+        }
 
         public int getAtrPeriod() {
             return atrPeriod;

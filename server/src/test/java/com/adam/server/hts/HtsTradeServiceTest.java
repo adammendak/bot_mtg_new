@@ -652,4 +652,92 @@ class HtsTradeServiceTest {
         verify(broker, never()).closePosition(anyString(), anyDouble());
         verify(broker, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
     }
+
+    // ---- TradingView partial take-profit ----
+
+    private HtsTradeEntity tvOpen(double size) {
+        HtsTradeEntity t = open("d1", Direction.BUY, 100.0, 98.0, size); // leg = 2.0
+        t.setVariant("TV_ALGO_H1");
+        return t;
+    }
+
+    @Test
+    void partialTakeProfitClosesTwentyPercentOfTheOriginalSizeAndBanksItsR() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.ok()).isTrue();
+        assertThat(o.status()).isEqualTo("PARTIAL_TP");
+        verify(broker).closePosition("d1", 0.2);
+        assertThat(t.getStatus()).isEqualTo("OPEN");
+        assertThat(t.getRemainingSize()).isEqualTo(0.8, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(t.getRealisedR()).isEqualTo(0.3);        // (103-100)/2 = 1.5R on 20% of the size
+        assertThat(t.getTp1At()).isNotNull();
+    }
+
+    @Test
+    void invalidationAfterPartialsAddsTheLastLegToTheBankedR() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(
+                new MarketPrice("DE40", 103.0, 103.0, bar),    // the TP slice
+                new MarketPrice("DE40", 99.0, 99.0, bar));     // the invalidation close
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        service.partialTakeProfit(t, 0.2);
+
+        boolean ok = service.closeForAlert(t, "ALGO_INVALID");
+
+        assertThat(ok).isTrue();
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        // 0.3 banked + (-0.5R on the remaining 80%) = -0.1
+        assertThat(t.getRMultiple()).isEqualTo(-0.1, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(t.getCloseReason()).isEqualTo("ALGO_INVALID");
+    }
+
+    @Test
+    void theFinalTakeProfitSliceFlattensWhenTheRemainderWouldBeBelowTheMinimumDeal() {
+        HtsTradeEntity t = tvOpen(0.02);
+        t.setRemainingSize(0.01);
+        t.setRealisedR(0.2);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 104.0, 104.0, bar));
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.status()).isEqualTo("CLOSED");
+        verify(broker).closePosition("d1", 0.01);
+        assertThat(t.getStatus()).isEqualTo("CLOSED");
+        assertThat(t.getCloseReason()).isEqualTo("ALGO_TP");
+        assertThat(t.getRMultiple()).isEqualTo(1.2, org.assertj.core.data.Offset.offset(1e-9)); // 0.2 + 2R*0.5
+    }
+
+    @Test
+    void aSliceBelowTheMinimumDealIsRaisedToTheMinimum() {
+        HtsTradeEntity t = tvOpen(0.05);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.02, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 101.0, 101.0, bar));
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);   // 20% = 0.01 < min 0.02
+
+        assertThat(o.status()).isEqualTo("PARTIAL_TP");
+        verify(broker).closePosition("d1", 0.02);
+    }
+
+    @Test
+    void aFailedPartialCloseChangesNothing() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        org.mockito.Mockito.doThrow(new BrokerException("down")).when(broker).closePosition(anyString(), anyDouble());
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.ok()).isFalse();
+        assertThat(t.getRemainingSize()).isNull();
+        assertThat(t.getRealisedR()).isNull();
+    }
 }

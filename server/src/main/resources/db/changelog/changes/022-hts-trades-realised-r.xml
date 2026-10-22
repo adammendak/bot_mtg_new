@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+      R already banked by partial exits (TradingView AlgoPro take-profit slices), as a
+      fraction-weighted sum of the original position. The final r_multiple of such a trade is
+      realised_r + (R of the last leg x remaining/size).
+    -->
+    <changeSet id="022-hts-trades-realised-r" author="amendak">
+        <addColumn tableName="hts_trades">
+            <column name="realised_r" type="DOUBLE PRECISION"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

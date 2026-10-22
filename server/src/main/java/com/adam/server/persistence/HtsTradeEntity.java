@@ -106,6 +106,10 @@ public class HtsTradeEntity {
     @Column(name = "r_multiple")
     private Double rMultiple;
 
+    /** R banked by partial exits (fraction-weighted); see Liquibase 022. Null when no partial exit happened. */
+    @Column(name = "realised_r")
+    private Double realisedR;
+
     /** Realised P/L in the account currency. */
     private Double pnl;
 

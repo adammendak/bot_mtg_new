@@ -180,6 +180,71 @@ public class HtsTradeService {
         return true;
     }
 
+    /** Result of an alert-driven exit: {@code status} is PARTIAL_TP / CLOSED / CLOSE_FAILED. */
+    public record AlertOutcome(boolean ok, String status, String detail) {
+    }
+
+    /**
+     * TradingView Take Profit: close {@code fraction} of the ORIGINAL size (several TP alerts can
+     * arrive for one position), keep the rest open and bank the slice's R in {@code realisedR}.
+     * The slice is snapped to the instrument step and is at least the broker minimum deal; when
+     * what would remain after the slice is below the minimum deal, the whole position is closed
+     * instead (reason {@code ALGO_TP}) so no untradeable residue is left.
+     */
+    public AlertOutcome partialTakeProfit(HtsTradeEntity t, double fraction) {
+        if (t == null || t.getDealId() == null || t.getSize() == null || t.getEntry() == null
+                || t.getStopLevel() == null) {
+            return new AlertOutcome(false, "CLOSE_FAILED", "trade row incomplete");
+        }
+        double size = t.getSize();
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : size;
+        double slice = size * Math.max(0.0, Math.min(1.0, fraction));
+        double minDeal = 0;
+        BrokerClient broker;
+        try {
+            selectBookAccount(t.getBook());
+            broker = books.forBook(t.getBook());
+            com.adam.server.broker.model.MarketRules rules = broker.marketRules(t.getEpic());
+            minDeal = rules.minDealSize();
+            slice = rules.roundSize(slice);
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: partial TP rules unavailable ({}) — using raw slice", t.getVariant(),
+                    t.getSymbol(), e.getClass().getSimpleName());
+            broker = books.forBook(t.getBook());
+        }
+        if (minDeal > 0 && slice < minDeal) {
+            slice = minDeal;
+        }
+        if (slice <= 0 || remaining - slice < Math.max(minDeal, 1e-9)) {
+            boolean ok = closeForAlert(t, "ALGO_TP");
+            return new AlertOutcome(ok, ok ? "CLOSED" : "CLOSE_FAILED",
+                    ok ? "final TP slice flattened the position" + (t.getRMultiple() != null ? " R=" + t.getRMultiple() : "")
+                            : null);
+        }
+        double leg = Math.abs(t.getEntry() - t.getStopLevel());
+        Double mark = estimateExitPrice(t);
+        try {
+            broker.closePosition(t.getDealId(), slice);
+        } catch (Exception e) {
+            log.warn("HTS [{}] {}: partial TP close failed: {}", t.getVariant(), t.getSymbol(),
+                    e.getClass().getSimpleName());
+            return new AlertOutcome(false, "CLOSE_FAILED", e.getClass().getSimpleName());
+        }
+        boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
+        double legR = leg > 0 && mark != null ? (mark - t.getEntry()) * (buy ? 1.0 : -1.0) / leg : 0.0;
+        double banked = (t.getRealisedR() == null ? 0.0 : t.getRealisedR()) + legR * (slice / size);
+        t.setRealisedR(round(banked));
+        t.setRemainingSize(remaining - slice);
+        if (t.getTp1At() == null) {
+            t.setTp1At(Instant.now());
+        }
+        trades.save(t);
+        log.info("HTS [{}] {} partial TP: closed {} of {} (remaining {}), slice R={} banked R={}", t.getVariant(),
+                t.getSymbol(), slice, size, t.getRemainingSize(), round(legR), t.getRealisedR());
+        return new AlertOutcome(true, "PARTIAL_TP", "closed " + slice + " of " + size + ", remaining "
+                + round(remaining - slice) + ", banked R=" + t.getRealisedR());
+    }
+
     /**
      * Oldest OPEN row — the MMS base. A later add-on (higher id) is ignored so
      * {@link MmsEngine#evaluateAdd} always measures the confirming bar from the
@@ -718,7 +783,7 @@ public class HtsTradeService {
             double closedSize = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
             double move = closedSize > 0 ? settle / closedSize : 0.0;
             t.setExitPrice(buy ? t.getEntry() + move : t.getEntry() - move);
-            t.setRMultiple(round(move / leg));
+            t.setRMultiple(round(withPartials(t, move / leg)));
             stampReason(t, move / leg, leg, preset);
             notifyMmsClose(t);
             return;
@@ -736,7 +801,7 @@ public class HtsTradeService {
             if (estExit != null && estExit > 0) {
                 double move = (estExit - t.getEntry()) * (buy ? 1.0 : -1.0);
                 double rr = move / leg;
-                if (t.getTp1At() == null && rr < -1.0 && t.getStopLevel() != null) {
+                if ((t.getTp1At() == null || isTv(t)) && rr < -1.0 && t.getStopLevel() != null) {
                     // The estimate is a mark taken up to two reconcile passes (~10 min) AFTER the broker closed
                     // the deal. A mark beyond the untouched original stop means the stop was crossed and the
                     // position exited at it - price running on afterwards is not P/L. Without this clamp the
@@ -745,7 +810,7 @@ public class HtsTradeService {
                     rr = -1.0;
                 }
                 t.setExitPrice(round(estExit));
-                t.setRMultiple(round(rr));
+                t.setRMultiple(round(withPartials(t, rr)));
                 stampReason(t, rr, leg, preset);
                 notifyMmsClose(t);
                 return;
@@ -797,6 +862,23 @@ public class HtsTradeService {
         } else {
             t.setCloseReason("MANUAL");
         }
+    }
+
+    private static boolean isTv(HtsTradeEntity t) {
+        try {
+            return HtsVariant.valueOf(t.getVariant()).strategy() == HtsVariant.Strategy.TV;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** Last leg's R plus the R already banked by partial exits (TradingView take-profit slices). */
+    private static double withPartials(HtsTradeEntity t, double legR) {
+        if (!isTv(t) || t.getRealisedR() == null || t.getSize() == null || t.getSize() <= 0) {
+            return legR;
+        }
+        double remaining = t.getRemainingSize() != null ? t.getRemainingSize() : t.getSize();
+        return t.getRealisedR() + legR * (remaining / t.getSize());
     }
 
     private static boolean isMms(HtsTradeEntity t) {

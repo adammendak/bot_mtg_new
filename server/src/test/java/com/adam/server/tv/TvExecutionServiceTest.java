@@ -129,19 +129,47 @@ class TvExecutionServiceTest {
     }
 
     @Test
-    void closeEventRecordsTheLinkedTradeAndItsR() {
+    void takeProfitRecordsThePartialSliceOnTheSignalRow() {
         HtsTradeEntity pos = open(HtsVariant.TV_ALGO_H1, "XAU", "BUY");
         pos.setId(5L);
-        pos.setRMultiple(1.4);
         when(trades.openPositionOf(HtsVariant.TV_ALGO_H1, "XAU")).thenReturn(pos);
-        when(trades.closeForAlert(pos, "ALGO_TP")).thenReturn(true);
+        when(trades.partialTakeProfit(pos, 0.2))
+                .thenReturn(new HtsTradeService.AlertOutcome(true, "PARTIAL_TP", "closed 0.2 of 1.0"));
         TvSignalEntity e = ev("algopro-h1", "tp", "BUY", "XAU", 100.0);
 
         service.handle(e);
 
-        assertThat(e.getExecStatus()).isEqualTo("CLOSED");
+        assertThat(e.getExecStatus()).isEqualTo("PARTIAL_TP");
         assertThat(e.getTradeId()).isEqualTo(5L);
-        assertThat(e.getExecDetail()).isEqualTo("R=1.4");
+        assertThat(e.getExecDetail()).isEqualTo("closed 0.2 of 1.0");
+    }
+
+    @Test
+    void invalidationRecordsTheFullCloseAndItsR() {
+        HtsTradeEntity pos = open(HtsVariant.TV_ALGO_H1, "XAU", "BUY");
+        pos.setId(5L);
+        pos.setRMultiple(-0.4);
+        when(trades.openPositionOf(HtsVariant.TV_ALGO_H1, "XAU")).thenReturn(pos);
+        when(trades.closeForAlert(pos, "ALGO_INVALID")).thenReturn(true);
+        TvSignalEntity e = ev("algopro-h1", "invalid", "BUY", "XAU", 100.0);
+
+        service.handle(e);
+
+        assertThat(e.getExecStatus()).isEqualTo("CLOSED");
+        assertThat(e.getExecDetail()).isEqualTo("R=-0.4");
+    }
+
+    @Test
+    void theEntryIsSizedFromTheCapitalPriceNotTheTradingViewClose() {
+        when(market.marketPrice(anyString()))
+                .thenReturn(new com.adam.server.broker.model.MarketPrice("GOLD", 200.0, 200.0, Instant.now()));
+
+        service.handle(ev("algopro-h1", "entry", "BUY", "XAU", 100.0));
+
+        ArgumentCaptor<HtsScan> c = ArgumentCaptor.forClass(HtsScan.class);
+        verify(gate).executeSignal(c.capture());
+        assertThat(c.getValue().entry()).isEqualTo(200.0);
+        assertThat(c.getValue().stopLevel()).isEqualTo(195.0);   // 200 - 2.5 x ATR(2)
     }
 
     @Test
@@ -186,13 +214,18 @@ class TvExecutionServiceTest {
     void takeProfitAndInvalidationCloseTheMatchingSideOnly() {
         HtsTradeEntity longPos = open(HtsVariant.TV_ALGO_H1, "XAU", "BUY");
         when(trades.openPositionOf(HtsVariant.TV_ALGO_H1, "XAU")).thenReturn(longPos);
+        when(trades.partialTakeProfit(any(), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(new HtsTradeService.AlertOutcome(true, "PARTIAL_TP", "x"));
 
         service.handle(ev("algopro-h1", "tp", "SELL", "XAU", 100.0));      // wrong side — ignored
+        service.handle(ev("algopro-h1", "invalid", "SELL", "XAU", 100.0));
         verify(trades, never()).closeForAlert(any(), anyString());
+        verify(trades, never()).partialTakeProfit(any(), org.mockito.ArgumentMatchers.anyDouble());
 
-        service.handle(ev("algopro-h1", "tp", "BUY", "XAU", 100.0));
-        verify(trades).closeForAlert(longPos, "ALGO_TP");
-        service.handle(ev("algopro-h1", "invalid", "BUY", "XAU", 100.0));
+        service.handle(ev("algopro-h1", "tp", "BUY", "XAU", 100.0));        // TP = a 20% slice, NOT a full close
+        verify(trades).partialTakeProfit(longPos, 0.2);
+        verify(trades, never()).closeForAlert(any(), anyString());
+        service.handle(ev("algopro-h1", "invalid", "BUY", "XAU", 100.0));   // invalidation = full close
         verify(trades).closeForAlert(longPos, "ALGO_INVALID");
         verify(gate, never()).executeSignal(any());
     }

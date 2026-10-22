@@ -95,9 +95,11 @@ Alerty `algopro-h1` / `algopro-h4` składają zlecenia na **osobnych kontach dem
 
 | Zdarzenie | Co robi bot |
 |---|---|
-| `entry` BUY/SELL | zlecenie rynkowe, sizing 1% ryzyka (jak reszta HTS), **awaryjny SL = 2.5 × ATR14** na interwale alertu (alert nie niesie SL); przeciwny kierunek na tym samym symbolu najpierw zamyka starą pozycję (`ALGO_REVERSE`) |
-| `tp` | zamyka otwartą pozycję tej strony (`ALGO_TP`) |
-| `invalid` | zamyka otwartą pozycję tej strony (`ALGO_INVALID`) |
+| `entry` BUY/SELL | zlecenie rynkowe, sizing 1% ryzyka (jak reszta HTS), **awaryjny SL = 2.5 × ATR14** na interwale alertu, liczony od **ceny Capital** (nie od ceny z TradingView — feedy różnią się, BTC do ~0.6%, XAU ~0.2%); przeciwny kierunek na tym samym symbolu najpierw zamyka całą starą pozycję (`ALGO_REVERSE`) |
+| `tp` | **zamyka 20% pierwotnej wielkości** pozycji (`TV_TP_CLOSE_FRACTION`, domyślnie 0.2) — kolejnych TP może przyjść wiele, reszta zostaje; wycinek nie mniejszy niż minimalna wielkość u brokera; gdy po wycinku zostałoby mniej niż minimum, zamyka resztę (`ALGO_TP`) |
+| `invalid` | zamyka **całą** pozostałą pozycję tej strony (`ALGO_INVALID`) |
+
+R zamkniętej pozycji = R zrealizowane na wycinkach TP (kolumna `hts_trades.realised_r`) + R ostatniej nogi × udział reszty.
 
 - Uniwersum: **XAU, EURUSD, US100 (NAS100), BTC**. Inne symbole są tylko zapisywane.
 - Jedna pozycja na symbol na koncie; powtórzony `entry` w tym samym kierunku jest ignorowany.
