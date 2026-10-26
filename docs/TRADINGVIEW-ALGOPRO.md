@@ -95,7 +95,7 @@ Alerty `algopro-h1` / `algopro-h4` składają zlecenia na **osobnych kontach dem
 
 | Zdarzenie | Co robi bot |
 |---|---|
-| `entry` BUY/SELL | zlecenie rynkowe, sizing 1% ryzyka (jak reszta HTS), **awaryjny SL = 2.5 × ATR14** na interwale alertu, liczony od **ceny Capital** (nie od ceny z TradingView — feedy różnią się, BTC do ~0.6%, XAU ~0.2%); przeciwny kierunek na tym samym symbolu najpierw zamyka całą starą pozycję (`ALGO_REVERSE`) |
+| `entry` BUY/SELL | zlecenie rynkowe, sizing 1% ryzyka (jak reszta HTS), **awaryjny SL = 3.5 × ATR14** na interwale alertu (albo poziom Invalidation ze wskaźnika, jeśli alert niesie `sl`), liczony od **ceny Capital** (nie od ceny z TradingView — feedy różnią się, BTC do ~0.6%, XAU ~0.2%); przeciwny kierunek na tym samym symbolu najpierw zamyka całą starą pozycję (`ALGO_REVERSE`) |
 | `tp` | **zamyka 20% pierwotnej wielkości** pozycji (`TV_TP_CLOSE_FRACTION`, domyślnie 0.2) — kolejnych TP może przyjść wiele, reszta zostaje; wycinek nie mniejszy niż minimalna wielkość u brokera; gdy po wycinku zostałoby mniej niż minimum, zamyka resztę (`ALGO_TP`) |
 | `invalid` | zamyka **całą** pozostałą pozycję tej strony (`ALGO_INVALID`) |
 
@@ -106,7 +106,7 @@ R zamkniętej pozycji = R zrealizowane na wycinkach TP (kolumna `hts_trades.real
 - Konta: `Account TV H1` / `Account TV H4` (zmień przez `TV_H1_ALGO_ACCOUNT_NAME` / `TV_H4_ALGO_ACCOUNT_NAME`; jeśli login ma dokładnie jedno konto, bot weźmie je niezależnie od nazwy).
 - Poświadczenia: `TV_H1_ALGO_API_KEY`, `TV_H1_ALGO_API_EMAIL`, `TV_H1_ALGO_PASSWORD` (analogicznie `TV_H4_ALGO_*`). Bez nich book jest nieaktywny (zlecenie pominięte, sygnał i tak zapisany).
 - Wyłącznik: flaga **`tv.execution`** w panelu admina (domyślnie włączona; env `TV_EXECUTION_ENABLED=false` ustawia domyślnie wyłączoną). Wyłączona = sygnały tylko się zapisują.
-- Parametry: `TV_ATR_PERIOD` (14), `TV_STOP_ATR_MULT` (2.5), `TV_TP_ATR_MULT` (2.0, informacyjnie).
+- Parametry: `TV_ATR_PERIOD` (14), `TV_STOP_ATR_MULT` (3.5), `TV_TP_ATR_MULT` (2.0, informacyjnie).
 - Pozycje widać w `hts_trades` (warianty `TV_ALGO_H1` / `TV_ALGO_H4`) i w scorecardzie HTS.
 
 ## 10. Baza do analizy wstecznej
@@ -136,3 +136,15 @@ FROM tv_signal_pairs GROUP BY 1, 2 ORDER BY 1, 2;
 SELECT strat, event, exec_status, count(*) FROM tv_signals GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
 ```
 Wyniki zrealizowane (R, zamknięcia) są w `hts_trades` pod `trade_id`.
+
+## 11. Stop zgodny z Invalidation Zone wskaźnika
+
+Invalidation Zone AlgoPro leży zwykle 1.0–1.4× dalej niż dawny stop 2.5×ATR (BTC H4 ≈ 1.0×, US100 H1 ≈ 1.13×, EURUSD H1 ≈ 1.4×), więc stop był wyzwalany przed sygnałem wskaźnika. Domyślny awaryjny stop to teraz **3.5 × ATR14** (`TV_STOP_ATR_MULT`).
+
+Jeśli wskaźnik wystawia poziom Invalidation jako plot, dopisz go do wiadomości alertów **Buy Entry / Sell Entry** (cudzysłów wokół liczby jest obowiązkowy, a numer plotu bierz z menu placeholderów w oknie wiadomości):
+
+```
+,"sl":"{{plot_3}}"
+```
+
+Bot użyje wtedy odległości `|price − sl|` jako stopu (zastosowanej do ceny Capital, bo feedy się różnią). Wartości spoza 0.5–10 × ATR albo po złej stronie ceny są ignorowane (stop ATR).

@@ -93,7 +93,7 @@ class TvExecutionServiceTest {
 
         assertThat(e.getExecStatus()).isEqualTo("OPENED");
         assertThat(e.getTradeId()).isEqualTo(77L);
-        assertThat(e.getStopUsed()).isEqualTo(95.0);
+        assertThat(e.getStopUsed()).isEqualTo(93.0);
         assertThat(e.getTargetUsed()).isEqualTo(104.0);
         assertThat(e.getAtr()).isEqualTo(2.0);
         verify(repo).save(e);
@@ -169,7 +169,7 @@ class TvExecutionServiceTest {
         ArgumentCaptor<HtsScan> c = ArgumentCaptor.forClass(HtsScan.class);
         verify(gate).executeSignal(c.capture());
         assertThat(c.getValue().entry()).isEqualTo(200.0);
-        assertThat(c.getValue().stopLevel()).isEqualTo(195.0);   // 200 - 2.5 x ATR(2)
+        assertThat(c.getValue().stopLevel()).isEqualTo(193.0);   // 200 - 3.5 x ATR(2)
     }
 
     @Test
@@ -183,7 +183,7 @@ class TvExecutionServiceTest {
         assertThat(s.symbol()).isEqualTo("XAU");
         assertThat(s.direction()).isEqualTo(Direction.BUY);
         assertThat(s.entry()).isEqualTo(100.0);
-        assertThat(s.stopLevel()).isEqualTo(95.0);          // 100 - 2.5 x ATR(2)
+        assertThat(s.stopLevel()).isEqualTo(93.0);          // 100 - 3.5 x ATR(2)
         assertThat(s.targetLevel()).isEqualTo(104.0);       // 100 + 2.0 x ATR
         assertThat(s.timestamp()).isEqualTo(Instant.parse("2026-10-20T10:00:00Z"));
     }
@@ -195,7 +195,7 @@ class TvExecutionServiceTest {
         ArgumentCaptor<HtsScan> c = ArgumentCaptor.forClass(HtsScan.class);
         verify(gate).executeSignal(c.capture());
         assertThat(c.getValue().variant()).isEqualTo(HtsVariant.TV_ALGO_H4);
-        assertThat(c.getValue().stopLevel()).isEqualTo(105.0);
+        assertThat(c.getValue().stopLevel()).isEqualTo(107.0);
         assertThat(c.getValue().targetLevel()).isEqualTo(96.0);
     }
 
@@ -263,5 +263,48 @@ class TvExecutionServiceTest {
         service.handle(ev("algopro-h1", "entry", "BUY", "XAU", 100.0));
 
         verify(gate, never()).executeSignal(any());
+    }
+
+    @Test
+    void theIndicatorsOwnInvalidationLevelIsUsedAsTheStopWhenTheAlertCarriesIt() {
+        TvSignalEntity e = ev("algopro-h1", "entry", "BUY", "XAU", 100.0);
+        e.setSl(94.0);                       // 6 below the TradingView price, ATR = 2 -> 3 ATR
+
+        service.handle(e);
+
+        ArgumentCaptor<HtsScan> c = ArgumentCaptor.forClass(HtsScan.class);
+        verify(gate).executeSignal(c.capture());
+        assertThat(c.getValue().stopLevel()).isEqualTo(94.0);
+        assertThat(e.getStopUsed()).isEqualTo(94.0);
+    }
+
+    @Test
+    void theAlertStopDistanceIsAppliedToTheCapitalPriceNotTheTradingViewLevel() {
+        when(market.marketPrice(anyString()))
+                .thenReturn(new com.adam.server.broker.model.MarketPrice("GOLD", 200.0, 200.0, Instant.now()));
+        TvSignalEntity e = ev("algopro-h1", "entry", "BUY", "XAU", 100.0);
+        e.setSl(94.0);
+
+        service.handle(e);
+
+        ArgumentCaptor<HtsScan> c = ArgumentCaptor.forClass(HtsScan.class);
+        verify(gate).executeSignal(c.capture());
+        assertThat(c.getValue().stopLevel()).isEqualTo(194.0);   // 200 - 6, feeds differ by 100 here
+    }
+
+    @Test
+    void anImplausibleAlertStopFallsBackToTheAtrStop() {
+        TvSignalEntity wrongSide = ev("algopro-h1", "entry", "BUY", "XAU", 100.0);
+        wrongSide.setSl(105.0);              // above the price for a BUY
+        TvSignalEntity tooWide = ev("algopro-h1", "entry", "SELL", "EURUSD", 100.0);
+        tooWide.setSl(150.0);                // 25 ATR away
+
+        service.handle(wrongSide);
+        service.handle(tooWide);
+
+        ArgumentCaptor<HtsScan> c = ArgumentCaptor.forClass(HtsScan.class);
+        verify(gate, org.mockito.Mockito.times(2)).executeSignal(c.capture());
+        assertThat(c.getAllValues().get(0).stopLevel()).isEqualTo(93.0);    // 100 - 3.5 x 2
+        assertThat(c.getAllValues().get(1).stopLevel()).isEqualTo(107.0);   // 100 + 3.5 x 2
     }
 }
