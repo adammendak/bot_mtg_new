@@ -378,8 +378,8 @@ public class AppProperties {
         private boolean mailEnabled = true;
         /** Wilder ATR period on the alert timeframe, used for the broker-side safety stop. */
         private int atrPeriod = 14;
-        /** Safety stop = entry -/+ stopAtrMult x ATR (the alerts, not this stop, normally close the trade). */
-        private double stopAtrMult = 2.5;
+        /** Safety stop = entry -/+ stopAtrMult x ATR (the alerts, not this stop, normally close the trade). 3.5: AlgoPro's invalidation sits 1.0-1.4x beyond the former 2.5 ATR stop. */
+        private double stopAtrMult = 3.5;
         /** Informational target = entry +/- tpAtrMult x ATR (the indicator's own "TP sensitivity 2 ATR"). */
         private double tpAtrMult = 2.0;
         /** Share of the ORIGINAL position closed by each AlgoPro Take Profit alert (0.2 = 20%). */

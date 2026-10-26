@@ -167,8 +167,6 @@ public class TvExecutionService {
         }
         e.setStopUsed(scan.stopLevel());
         e.setTargetUsed(scan.targetLevel());
-        double mult = properties.getTv().getStopAtrMult();
-        e.setAtr(mult > 0 ? Math.abs(scan.entry() - scan.stopLevel()) / mult : null);
         log.info("TV exec [{}] ENTRY {} {} @ {} stop {} (ATR-based safety stop)", v.name(), e.getSide(),
                 e.getSymbol(), scan.entry(), scan.stopLevel());
         gate.executeSignal(scan);
@@ -230,8 +228,24 @@ public class TvExecutionService {
         }
         double entry = entryRef;
         boolean buy = dir == Direction.BUY;
-        double stop = buy ? entry - properties.getTv().getStopAtrMult() * atr
-                : entry + properties.getTv().getStopAtrMult() * atr;
+        e.setAtr(atr);
+        double stopDist = properties.getTv().getStopAtrMult() * atr;
+        // The indicator's own invalidation level (if the alert carries it as "sl") is the strategy's real stop:
+        // use its DISTANCE from the alert price (both in TradingView's feed) applied to the Capital price, so the
+        // two feeds' price offset does not leak in. Implausible values fall back to the ATR stop.
+        Double sl = e.getSl();
+        if (sl != null && e.getPrice() > 0) {
+            double d = buy ? e.getPrice() - sl : sl - e.getPrice();
+            if (d >= 0.5 * atr && d <= 10.0 * atr) {
+                stopDist = d;
+                log.info("TV exec [{}] {} stop taken from the alert's sl: {} ({} ATR)", v.name(), e.getSymbol(),
+                        round6(d), round6(d / atr));
+            } else {
+                log.warn("TV exec [{}] {} alert sl {} implausible ({} ATR) — using the ATR stop", v.name(),
+                        e.getSymbol(), sl, round6(d / atr));
+            }
+        }
+        double stop = buy ? entry - stopDist : entry + stopDist;
         double target = buy ? entry + properties.getTv().getTpAtrMult() * atr
                 : entry - properties.getTv().getTpAtrMult() * atr;
         if (stop <= 0) {
@@ -244,6 +258,10 @@ public class TvExecutionService {
             ts = Instant.now();
         }
         return new HtsScan(v, ts, e.getSymbol(), epic, dir, entry, stop, target, buy);
+    }
+
+    private static double round6(double v) {
+        return Math.round(v * 1e6) / 1e6;
     }
 
     /** Record the outcome on the signal row; never throws. */
