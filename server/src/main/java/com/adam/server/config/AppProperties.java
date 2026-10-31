@@ -30,8 +30,8 @@ public class AppProperties {
     private String tvH1AccountName = "Account TV H1";
     private String tvH4AccountName = "Account TV H4";
     /** Capital.com demo sub-account names for the long-ladder bots (LADDER_GER_ACCOUNT_NAME / LADDER_SP_ACCOUNT_NAME). */
-    private String ladderGerAccountName = "Account Ladder GER";
-    private String ladderSpAccountName = "Account Ladder SP";
+    private String ladderGerAccountName = "GerLadder";
+    private String ladderSpAccountName = "SpLadder";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;

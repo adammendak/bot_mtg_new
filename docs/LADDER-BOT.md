@@ -35,8 +35,8 @@ jedno handluje wyłącznie GER40 (`DE40`), drugie wyłącznie SP500 (`US500`). K
 LADDER_GER_API_KEY        LADDER_SP_API_KEY
 LADDER_GER_API_EMAIL      LADDER_SP_API_EMAIL
 LADDER_GER_PASSWORD       LADDER_SP_PASSWORD
-LADDER_GER_ACCOUNT_NAME   (domyślnie "Account Ladder GER")
-LADDER_SP_ACCOUNT_NAME    (domyślnie "Account Ladder SP")
+LADDER_GER_ACCOUNT_NAME   (domyślnie "GerLadder")
+LADDER_SP_ACCOUNT_NAME    (domyślnie "SpLadder")
 LADDER_GER_START_EQUITY   (kapitał startowy dla bezpiecznika; bez tego = saldo przy pierwszym ticku po starcie)
 LADDER_SP_START_EQUITY
 LADDER_ENABLED=true

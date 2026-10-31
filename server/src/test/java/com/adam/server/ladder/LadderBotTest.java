@@ -48,11 +48,11 @@ class LadderBotTest {
         sp = mock(BrokerClient.class);          // not configured → idle
         props = new AppProperties();
         risk = mock(RiskPolicy.class);
-        account = new Account("acc-1", "Account Ladder GER", "EUR", 10000, 10000, 0, true);
+        account = new Account("acc-1", "GerLadder", "EUR", 10000, 10000, 0, true);
         when(ger.configured()).thenReturn(true);
         when(ger.isSessionOpen()).thenReturn(true);
         when(ger.accounts()).thenReturn(List.of(account));
-        when(risk.pickTvAccount(any(), eq("Account Ladder GER"))).thenReturn(account);
+        when(risk.pickTvAccount(any(), eq("GerLadder"))).thenReturn(account);
         when(ger.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
         when(ger.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 24000.0, 24002.0, Instant.now()));
         when(ger.openPositions()).thenReturn(List.of());
@@ -144,8 +144,8 @@ class LadderBotTest {
 
     @Test
     void failsafeStopsNewEntriesAfterA25PercentDrawdown() {
-        Account hurt = new Account("acc-1", "Account Ladder GER", "EUR", 10000, 4000, -2600, true);
-        when(risk.pickTvAccount(any(), eq("Account Ladder GER"))).thenReturn(hurt);
+        Account hurt = new Account("acc-1", "GerLadder", "EUR", 10000, 4000, -2600, true);
+        when(risk.pickTvAccount(any(), eq("GerLadder"))).thenReturn(hurt);
         when(ger.openPositions()).thenReturn(List.of(pos(24000.0)));
         when(ger.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 23000.0, 23002.0, Instant.now()));
 
