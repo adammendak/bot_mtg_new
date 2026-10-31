@@ -75,9 +75,9 @@ dobę UTC; gdy brakuje 50 zakończonych świec, bot nie wchodzi (próbuje ponown
 Konta i zmienne (B jest wyłączone, dopóki `LADDER_B_ENABLED` nie jest `true`):
 
 ```
-LADDER_GER_2_API_KEY    LADDER_GER_2_API_EMAIL    LADDER_GER_2_API_PASSWORD   (konto "LadderGer2", GER40)
-LADDER_SP_2_API_KEY     LADDER_SP_2_API_EMAIL     LADDER_SP_2_API_PASSWORD    (konto "LadderSp2", SP500)
-LADDER_GER_2_ACCOUNT_NAME / LADDER_SP_2_ACCOUNT_NAME   (opcjonalnie, domyślnie LadderGer2 / LadderSp2)
+LADDER_GER_2_API_KEY    LADDER_GER_2_API_EMAIL    LADDER_GER_2_API_PASSWORD   (konto "LadderGER2", GER40)
+LADDER_SP_2_API_KEY     LADDER_SP_2_API_EMAIL     LADDER_SP_2_API_PASSWORD    (konto "LadderSP2", SP500)
+LADDER_GER_2_ACCOUNT_NAME / LADDER_SP_2_ACCOUNT_NAME   (opcjonalnie, domyślnie LadderGER2 / LadderSP2)
 LADDER_GER_2_START_EQUITY / LADDER_SP_2_START_EQUITY   (opcjonalnie, baza bezpiecznika)
 LADDER_B_ENABLED=true
 ```

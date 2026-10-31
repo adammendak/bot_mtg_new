@@ -176,11 +176,11 @@ class LadderBotTest {
     }
 
     private void wireB(List<Candle> d1) {
-        Account accB = new Account("acc-b", "LadderGer2", "EUR", 10000, 10000, 0, true);
+        Account accB = new Account("acc-b", "LadderGER2", "EUR", 10000, 10000, 0, true);
         when(ger2.configured()).thenReturn(true);
         when(ger2.isSessionOpen()).thenReturn(true);
         when(ger2.accounts()).thenReturn(List.of(accB));
-        when(risk.pickTvAccount(any(), eq("LadderGer2"))).thenReturn(accB);
+        when(risk.pickTvAccount(any(), eq("LadderGER2"))).thenReturn(accB);
         when(ger2.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
         when(ger2.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 24000.0, 24002.0, Instant.now()));
         when(ger2.openPositions()).thenReturn(List.of());

@@ -58,6 +58,7 @@ public class LadderBot {
         boolean notConfiguredLogged;
         Boolean trendOk;
         LocalDate trendDay;
+        boolean previewLogged;
 
         Bot(Params params, BrokerClient broker, String accountName, String host, double startEquity,
             boolean variantB, int trendSma) {
@@ -179,6 +180,9 @@ public class LadderBot {
         c.selectAccount(acc.id());
 
         MarketRules rules = c.marketRules(p.epic());
+        if (!b.previewLogged) {
+            sizingPreview(b, acc, rules);
+        }
         if (!rules.tradeable()) {
             return;
         }
@@ -241,6 +245,40 @@ public class LadderBot {
         log.info("LADDER[{}] trend filter SMA{} for {}: {}", b.params.name(), b.trendSma, today,
                 ok ? "entries ALLOWED" : "entries BLOCKED (previous daily close is below the average)");
         return ok;
+    }
+
+    /**
+     * Once per bot after start: what one entry will really look like on this account (broker minimum deal size, FX,
+     * rounded size and its notional as a multiple of equity), so an account too small for the strategy shows up in the
+     * log before the first order instead of as silent skips or oversized entries.
+     */
+    private void sizingPreview(Bot b, Account acc, MarketRules rules) {
+        Params p = b.params;
+        try {
+            MarketPrice px = b.broker.marketPrice(p.epic());
+            if (px == null || px.ask() <= 0) {
+                return;
+            }
+            double fx = b.broker.fxRate(rules.currency(), acc.currency());
+            if (fx <= 0) {
+                fx = 1.0;
+            }
+            double perUnit = px.ask() * (rules.pointValue() > 0 ? rules.pointValue() : 1.0) * fx;
+            double equity = acc.balance() + acc.profitLoss();
+            double raw = p.notionalMultiple() * equity / perUnit;
+            double size = rules.roundSize(raw);
+            double realMultiple = equity > 0 ? size * perUnit / equity : 0;
+            boolean tooSmall = rules.minDealSize() > 0 && raw < rules.minDealSize() / 2.0;
+            b.previewLogged = true;
+            log.info("LADDER[{}] sizing preview: equity {} {}, price {}, min deal size {}, one unit = {} {}; target {}x equity "
+                            + "-> raw size {} -> rounded {} = {}x equity{}", p.name(), Math.round(equity), acc.currency(),
+                    px.ask(), rules.minDealSize(), Math.round(perUnit), acc.currency(), p.notionalMultiple(), raw, size,
+                    Math.round(realMultiple * 100) / 100.0,
+                    tooSmall ? " — TOO SMALL: entries will be SKIPPED, top up the demo account" : (realMultiple
+                            > p.notionalMultiple() * 1.5 ? " — OVERSIZED vs target (minimum deal size)" : ""));
+        } catch (Exception e) {
+            log.warn("LADDER[{}] sizing preview failed: {}", p.name(), e.getClass().getSimpleName());
+        }
     }
 
     private void placeBuy(Bot b, Account acc, MarketRules rules, MarketPrice px, double equity, Decision d, Instant now,

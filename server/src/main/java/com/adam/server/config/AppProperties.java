@@ -33,8 +33,8 @@ public class AppProperties {
     private String ladderGerAccountName = "GerLadder";
     private String ladderSpAccountName = "SpLadder";
     /** Variant B of the ladders (trend filter): sub-account names (LADDER_GER_2_ACCOUNT_NAME / LADDER_SP_2_ACCOUNT_NAME). */
-    private String ladderGer2AccountName = "LadderGer2";
-    private String ladderSp2AccountName = "LadderSp2";
+    private String ladderGer2AccountName = "LadderGER2";
+    private String ladderSp2AccountName = "LadderSP2";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
