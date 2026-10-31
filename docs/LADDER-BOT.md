@@ -64,3 +64,25 @@ LADDER_ENABLED=true
 - Nie zapisuje wyników do bazy. Wyniki oceniamy z historii transakcji konta demo.
 - Wejście po rynku (nie limit na poziomie drabinki), więc fill bywa nieco gorszy niż w symulacji; TP liczony od
   ceny ask w chwili zlecenia, a Capital realizuje TP pozycji long po cenie bid, więc efektywnie TP = D + spread.
+
+## Wersja B (test A/B): ta sama strategia + filtr trendu
+
+Wersja A (konta `LadderGER`, `LadderSP`) działa bez zmian. Wersja B to **dokładnie ta sama strategia** (te same parametry TP,
+krok, limit pozycji, g, bezpiecznik) z jedną różnicą: **nowe wejście (dzienne i drabinka) tylko wtedy, gdy zamknięcie poprzedniego
+zakończonego dnia (D1) jest powyżej średniej z 50 ostatnich zamknięć D1** (`LADDER_B_TREND_SMA`, domyślnie 50). Filtr liczony raz na
+dobę UTC; gdy brakuje 50 zakończonych świec, bot nie wchodzi (próbuje ponownie co tick).
+
+Konta i zmienne (B jest wyłączone, dopóki `LADDER_B_ENABLED` nie jest `true`):
+
+```
+LADDER_GER_2_API_KEY    LADDER_GER_2_API_EMAIL    LADDER_GER_2_API_PASSWORD   (konto "LadderGer2", GER40)
+LADDER_SP_2_API_KEY     LADDER_SP_2_API_EMAIL     LADDER_SP_2_API_PASSWORD    (konto "LadderSp2", SP500)
+LADDER_GER_2_ACCOUNT_NAME / LADDER_SP_2_ACCOUNT_NAME   (opcjonalnie, domyślnie LadderGer2 / LadderSp2)
+LADDER_GER_2_START_EQUITY / LADDER_SP_2_START_EQUITY   (opcjonalnie, baza bezpiecznika)
+LADDER_B_ENABLED=true
+```
+
+Backtest (g = 0,2%): GER40 4,6% → 4,1%/mies. (min. kapitał 75% → 79%), SP500 2,7% → 2,3%/mies. (min. kapitał 65% → 86%, max
+obsunięcie 45% → 25%). Bez spadku rynku A i B wchodzą niemal tak samo, więc różnicę widać dopiero po spadku (ocena po min. 6–8
+tygodniach albo po pierwszym spadku indeksu o 3–4%). Kryterium: B ma sens, jeśli przy wyniku nie mniejszym niż ok. 80% wyniku A
+ma wyraźnie płytsze obsunięcie.

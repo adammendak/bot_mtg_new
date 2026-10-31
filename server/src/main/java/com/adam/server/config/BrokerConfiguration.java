@@ -122,6 +122,36 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("ladderGer2Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalLadderGer2Broker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getLadderGer2();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "ladger2",
+                ep,
+                "Capital.com Ladder GER B credentials are not set (LADDER_GER_2_API_KEY / LADDER_GER_2_API_EMAIL / LADDER_GER_2_API_PASSWORD)"
+        );
+    }
+
+    @Bean("ladderSp2Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalLadderSp2Broker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getLadderSp2();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "ladsp2",
+                ep,
+                "Capital.com Ladder SP B credentials are not set (LADDER_SP_2_API_KEY / LADDER_SP_2_API_EMAIL / LADDER_SP_2_API_PASSWORD)"
+        );
+    }
+
     @Bean("ladderGerBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
     BrokerClient capitalLadderGerBroker(RestClient.Builder builder, AppProperties properties) {
@@ -150,6 +180,18 @@ public class BrokerConfiguration {
                 ep,
                 "Capital.com Ladder SP credentials are not set (LADDER_SP_API_KEY / LADDER_SP_API_EMAIL / LADDER_SP_PASSWORD)"
         );
+    }
+
+    @Bean("ladderGer2Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperLadderGer2Placeholder() {
+        return new UnavailableBrokerClient("ladger2", "Ladder GER B book is not wired in paper mode");
+    }
+
+    @Bean("ladderSp2Broker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperLadderSp2Placeholder() {
+        return new UnavailableBrokerClient("ladsp2", "Ladder SP B book is not wired in paper mode");
     }
 
     @Bean("ladderGerBroker")

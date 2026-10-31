@@ -3,6 +3,7 @@ package com.adam.server.ladder;
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.Account;
+import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketPrice;
 import com.adam.server.broker.model.MarketRules;
@@ -38,6 +39,8 @@ class LadderBotTest {
 
     private BrokerClient ger;
     private BrokerClient sp;
+    private BrokerClient ger2;
+    private BrokerClient sp2;
     private AppProperties props;
     private RiskPolicy risk;
     private Account account;
@@ -46,6 +49,8 @@ class LadderBotTest {
     void setUp() {
         ger = mock(BrokerClient.class);
         sp = mock(BrokerClient.class);          // not configured → idle
+        ger2 = mock(BrokerClient.class);
+        sp2 = mock(BrokerClient.class);
         props = new AppProperties();
         risk = mock(RiskPolicy.class);
         account = new Account("acc-1", "GerLadder", "EUR", 10000, 10000, 0, true);
@@ -62,8 +67,24 @@ class LadderBotTest {
     }
 
     private LadderBot bot(boolean enabled, String at) {
-        return new LadderBot(ger, sp, props, risk, enabled, 25, GER, SP, 10000, 10000,
+        return new LadderBot(ger, sp, ger2, sp2, props, risk, enabled, false, 50, 25, GER, SP, 10000, 10000, 0, 0,
                 Clock.fixed(Instant.parse(at), ZoneOffset.UTC));
+    }
+
+    private LadderBot botB(boolean enabledB, String at) {
+        return new LadderBot(ger, sp, ger2, sp2, props, risk, false, enabledB, 50, 25, GER, SP, 10000, 10000, 10000, 0,
+                Clock.fixed(Instant.parse(at), ZoneOffset.UTC));
+    }
+
+    /** 60 daily candles ending the day before 2026-11-03, closes from {@code from} stepping by {@code step}. */
+    private static List<Candle> daily(double from, double step) {
+        List<Candle> out = new java.util.ArrayList<>();
+        Instant first = Instant.parse("2026-11-03T00:00:00Z").minus(java.time.Duration.ofDays(60));
+        for (int i = 0; i < 60; i++) {
+            double c = from + step * i;
+            out.add(new Candle(first.plus(java.time.Duration.ofDays(i)), c, c, c, c, 0));
+        }
+        return out;
     }
 
     private static Position pos(double level) {
@@ -152,5 +173,55 @@ class LadderBotTest {
         bot(true, "2026-11-03T15:00:00Z").tick();
 
         verify(ger, never()).placeMarketOrder(any());
+    }
+
+    private void wireB(List<Candle> d1) {
+        Account accB = new Account("acc-b", "LadderGer2", "EUR", 10000, 10000, 0, true);
+        when(ger2.configured()).thenReturn(true);
+        when(ger2.isSessionOpen()).thenReturn(true);
+        when(ger2.accounts()).thenReturn(List.of(accB));
+        when(risk.pickTvAccount(any(), eq("LadderGer2"))).thenReturn(accB);
+        when(ger2.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(ger2.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 24000.0, 24002.0, Instant.now()));
+        when(ger2.openPositions()).thenReturn(List.of());
+        when(ger2.placeMarketOrder(any())).thenReturn(new OrderAck("ref-b", null, "SUBMITTED"));
+        when(ger2.candles(eq("DE40"), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(d1);
+    }
+
+    @Test
+    void variantBBuysInAnUptrend() {
+        wireB(daily(23000, 10));          // rising closes: the previous close is above the 50-day average
+
+        botB(true, "2026-11-03T07:06:00Z").tick();
+
+        verify(ger2).placeMarketOrder(any());
+        verify(ger, never()).placeMarketOrder(any());          // variant A is off
+    }
+
+    @Test
+    void variantBStaysOutInADowntrend() {
+        wireB(daily(24000, -10));         // falling closes: the previous close is below the average
+
+        botB(true, "2026-11-03T07:06:00Z").tick();
+
+        verify(ger2, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void variantBStaysOutWhenThereIsNotEnoughDailyHistory() {
+        wireB(daily(23000, 10).subList(0, 20));
+
+        botB(true, "2026-11-03T07:06:00Z").tick();
+
+        verify(ger2, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void variantBDoesNothingWhileItsFlagIsOff() {
+        wireB(daily(23000, 10));
+
+        botB(false, "2026-11-03T07:06:00Z").tick();
+
+        verify(ger2, never()).placeMarketOrder(any());
     }
 }
