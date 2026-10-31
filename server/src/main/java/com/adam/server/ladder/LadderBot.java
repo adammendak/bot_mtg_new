@@ -2,7 +2,9 @@ package com.adam.server.ladder;
 
 import com.adam.server.broker.BrokerClient;
 import com.adam.server.broker.Direction;
+import com.adam.server.broker.Resolution;
 import com.adam.server.broker.model.Account;
+import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.Confirmation;
 import com.adam.server.broker.model.MarketPrice;
 import com.adam.server.broker.model.MarketRules;
@@ -22,6 +24,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -47,23 +50,32 @@ public class LadderBot {
         final BrokerClient broker;
         final String accountName;
         final String host;
+        final boolean variantB;
+        final int trendSma;
         double startEquity;
         LocalDate lastOpenDay;
         Instant lastOrderAt = Instant.EPOCH;
         boolean notConfiguredLogged;
+        Boolean trendOk;
+        LocalDate trendDay;
+        boolean previewLogged;
 
-        Bot(Params params, BrokerClient broker, String accountName, String host, double startEquity) {
+        Bot(Params params, BrokerClient broker, String accountName, String host, double startEquity,
+            boolean variantB, int trendSma) {
             this.params = params;
             this.broker = broker;
             this.accountName = accountName;
             this.host = host;
             this.startEquity = startEquity;
+            this.variantB = variantB;
+            this.trendSma = trendSma;
         }
     }
 
     private final List<Bot> bots = new ArrayList<>();
     private final RiskPolicy risk;
     private final boolean enabled;
+    private final boolean enabledB;
     private final double failsafeDropPct;
     private final Clock clock;
 
@@ -71,9 +83,13 @@ public class LadderBot {
     public LadderBot(
             @Qualifier("ladderGerBroker") BrokerClient gerBroker,
             @Qualifier("ladderSpBroker") BrokerClient spBroker,
+            @Qualifier("ladderGer2Broker") BrokerClient ger2Broker,
+            @Qualifier("ladderSp2Broker") BrokerClient sp2Broker,
             AppProperties properties,
             RiskPolicy risk,
             @Value("${app.ladder.enabled:false}") boolean enabled,
+            @Value("${app.ladder-b.enabled:false}") boolean enabledB,
+            @Value("${app.ladder-b.trend-sma:50}") int trendSma,
             @Value("${app.ladder.failsafe-drop-pct:25}") double failsafeDropPct,
             @Value("${app.ladder.ger.tp-pct:0.5}") double gerTp,
             @Value("${app.ladder.ger.step-pct:0.5}") double gerStep,
@@ -84,32 +100,49 @@ public class LadderBot {
             @Value("${app.ladder.sp.step-pct:0.5}") double spStep,
             @Value("${app.ladder.sp.max-positions:10}") int spMax,
             @Value("${app.ladder.sp.gain-pct:0.2}") double spGain,
-            @Value("${app.ladder.sp.start-equity:0}") double spStart) {
-        this(gerBroker, spBroker, properties, risk, enabled, failsafeDropPct,
+            @Value("${app.ladder.sp.start-equity:0}") double spStart,
+            @Value("${app.ladder-b.ger.start-equity:0}") double ger2Start,
+            @Value("${app.ladder-b.sp.start-equity:0}") double sp2Start) {
+        this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
                 new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerGain, LocalTime.of(7, 5), 15),
                 new Params("SP500", "US500", spTp, spStep, spMax, spGain, LocalTime.of(13, 35), 15),
-                gerStart, spStart, Clock.systemUTC());
+                gerStart, spStart, ger2Start, sp2Start, Clock.systemUTC());
     }
 
-    LadderBot(BrokerClient gerBroker, BrokerClient spBroker, AppProperties properties, RiskPolicy risk,
-              boolean enabled, double failsafeDropPct, Params ger, Params sp, double gerStart, double spStart,
-              Clock clock) {
+    /** Variant B runs the same parameters as A (only the trend filter differs), so B reuses A's {@link Params}. */
+    LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
+              AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
+              double failsafeDropPct, Params ger, Params sp, double gerStart, double spStart, double ger2Start,
+              double sp2Start, Clock clock) {
         this.risk = risk;
         this.enabled = enabled;
+        this.enabledB = enabledB;
         this.failsafeDropPct = failsafeDropPct;
         this.clock = clock;
         bots.add(new Bot(ger, gerBroker, properties.getLadderGerAccountName(),
-                properties.getCapital().getLadderGer().getHost(), gerStart));
+                properties.getCapital().getLadderGer().getHost(), gerStart, false, 0));
         bots.add(new Bot(sp, spBroker, properties.getLadderSpAccountName(),
-                properties.getCapital().getLadderSp().getHost(), spStart));
+                properties.getCapital().getLadderSp().getHost(), spStart, false, 0));
+        bots.add(new Bot(renamed(ger, "-B"), ger2Broker, properties.getLadderGer2AccountName(),
+                properties.getCapital().getLadderGer2().getHost(), ger2Start, true, trendSma));
+        bots.add(new Bot(renamed(sp, "-B"), sp2Broker, properties.getLadderSp2AccountName(),
+                properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
+    }
+
+    private static Params renamed(Params p, String suffix) {
+        return new Params(p.name() + suffix, p.epic(), p.tpPct(), p.stepPct(), p.maxPositions(), p.gainPct(),
+                p.openUtc(), p.openWindowMin());
     }
 
     @Scheduled(cron = "${app.ladder.cron:5 * * * * *}", zone = "UTC")
     public void tick() {
-        if (!enabled) {
+        if (!enabled && !enabledB) {
             return;
         }
         for (Bot b : bots) {
+            if (b.variantB ? !enabledB : !enabled) {
+                continue;
+            }
             try {
                 runOne(b);
             } catch (Exception e) {
@@ -137,14 +170,19 @@ public class LadderBot {
         if (!c.isSessionOpen()) {
             c.login();
         }
-        Account acc = risk.pickTvAccount(c.accounts(), b.accountName);
+        List<Account> accounts = c.accounts();
+        Account acc = risk.pickTvAccount(accounts, b.accountName);
         if (acc == null || acc.id() == null) {
-            log.warn("LADDER[{}] sub-account '{}' not found on this login", p.name(), b.accountName);
+            log.warn("LADDER[{}] sub-account '{}' not found on this login; accounts seen: {}", p.name(),
+                    b.accountName, accounts == null ? List.of() : accounts.stream().map(Account::name).toList());
             return;
         }
         c.selectAccount(acc.id());
 
         MarketRules rules = c.marketRules(p.epic());
+        if (!b.previewLogged) {
+            sizingPreview(b, acc, rules);
+        }
         if (!rules.tradeable()) {
             return;
         }
@@ -165,7 +203,12 @@ public class LadderBot {
                     p.name(), Math.round(b.startEquity));
         }
         Instant now = clock.instant();
-        Decision d = LadderLogic.decide(p, entries, px.bid(), now, b.lastOpenDay, equity, b.startEquity, failsafeDropPct);
+        Boolean trendOk = trendOk(b, now);
+        if (trendOk == null) {
+            return;       // the trend could not be determined yet: no entries until it can (retried next tick)
+        }
+        Decision d = LadderLogic.decide(p, entries, px.bid(), now, b.lastOpenDay, equity, b.startEquity, failsafeDropPct,
+                trendOk);
         if (!d.buy()) {
             if (d.reason().startsWith("FAILSAFE")) {
                 log.warn("LADDER[{}] {}", p.name(), d.reason());
@@ -176,6 +219,66 @@ public class LadderBot {
             return;    // the previous order may not be visible in openPositions() yet
         }
         placeBuy(b, acc, rules, px, equity, d, now, entries.size());
+    }
+
+    /**
+     * Variant B filter, once per UTC day: is the previous completed daily close above the mean of the last
+     * {@code trendSma} completed daily closes? Variant A (trendSma 0) always passes. {@code null} = not determinable.
+     */
+    private Boolean trendOk(Bot b, Instant now) {
+        if (b.trendSma <= 0) {
+            return Boolean.TRUE;
+        }
+        LocalDate today = now.atZone(ZoneOffset.UTC).toLocalDate();
+        if (b.trendOk != null && today.equals(b.trendDay)) {
+            return b.trendOk;
+        }
+        List<Candle> d1 = b.broker.candles(b.params.epic(), Resolution.D1, now.minus(Duration.ofDays(150)), now, 150);
+        Boolean ok = LadderTrend.allow(d1, now, b.trendSma);
+        if (ok == null) {
+            log.warn("LADDER[{}] trend filter: fewer than {} completed daily candles for {} — no entries", b.params.name(),
+                    b.trendSma, b.params.epic());
+            return null;
+        }
+        b.trendOk = ok;
+        b.trendDay = today;
+        log.info("LADDER[{}] trend filter SMA{} for {}: {}", b.params.name(), b.trendSma, today,
+                ok ? "entries ALLOWED" : "entries BLOCKED (previous daily close is below the average)");
+        return ok;
+    }
+
+    /**
+     * Once per bot after start: what one entry will really look like on this account (broker minimum deal size, FX,
+     * rounded size and its notional as a multiple of equity), so an account too small for the strategy shows up in the
+     * log before the first order instead of as silent skips or oversized entries.
+     */
+    private void sizingPreview(Bot b, Account acc, MarketRules rules) {
+        Params p = b.params;
+        try {
+            MarketPrice px = b.broker.marketPrice(p.epic());
+            if (px == null || px.ask() <= 0) {
+                return;
+            }
+            double fx = b.broker.fxRate(rules.currency(), acc.currency());
+            if (fx <= 0) {
+                fx = 1.0;
+            }
+            double perUnit = px.ask() * (rules.pointValue() > 0 ? rules.pointValue() : 1.0) * fx;
+            double equity = acc.balance() + acc.profitLoss();
+            double raw = p.notionalMultiple() * equity / perUnit;
+            double size = rules.roundSize(raw);
+            double realMultiple = equity > 0 ? size * perUnit / equity : 0;
+            boolean tooSmall = rules.minDealSize() > 0 && raw < rules.minDealSize() / 2.0;
+            b.previewLogged = true;
+            log.info("LADDER[{}] sizing preview: equity {} {}, price {}, min deal size {}, one unit = {} {}; target {}x equity "
+                            + "-> raw size {} -> rounded {} = {}x equity{}", p.name(), Math.round(equity), acc.currency(),
+                    px.ask(), rules.minDealSize(), Math.round(perUnit), acc.currency(), p.notionalMultiple(), raw, size,
+                    Math.round(realMultiple * 100) / 100.0,
+                    tooSmall ? " — TOO SMALL: entries will be SKIPPED, top up the demo account" : (realMultiple
+                            > p.notionalMultiple() * 1.5 ? " — OVERSIZED vs target (minimum deal size)" : ""));
+        } catch (Exception e) {
+            log.warn("LADDER[{}] sizing preview failed: {}", p.name(), e.getClass().getSimpleName());
+        }
     }
 
     private void placeBuy(Bot b, Account acc, MarketRules rules, MarketPrice px, double equity, Decision d, Instant now,

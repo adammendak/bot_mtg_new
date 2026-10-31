@@ -18,7 +18,7 @@ class LadderLogicTest {
     private static final Instant TUE_0706 = Instant.parse("2026-11-03T07:06:00Z");
 
     private static Decision decide(List<Double> open, double bid, Instant now, LocalDate lastDay, double eq, double start) {
-        return LadderLogic.decide(GER, open, bid, now, lastDay, eq, start, 25);
+        return LadderLogic.decide(GER, open, bid, now, lastDay, eq, start, 25, true);
     }
 
     @Test
@@ -79,5 +79,13 @@ class LadderLogicTest {
     @Test
     void failsafeIsOffWithoutAStartEquity() {
         assertThat(decide(List.of(24000.0), 23000, TUE_0706, null, 100, 0).buy()).isTrue();
+    }
+
+    @Test
+    void aFalseTrendFilterBlocksEveryNewEntry() {
+        assertThat(LadderLogic.decide(GER, List.of(), 24000, TUE_0706, null, 10000, 10000, 25, false).buy()).isFalse();
+        Decision d = LadderLogic.decide(GER, List.of(24000.0), 23800, TUE_0706, null, 10000, 10000, 25, false);
+        assertThat(d.buy()).isFalse();
+        assertThat(d.reason()).startsWith("TREND");
     }
 }
