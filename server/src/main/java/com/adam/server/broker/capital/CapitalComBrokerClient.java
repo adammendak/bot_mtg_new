@@ -496,6 +496,9 @@ public class CapitalComBrokerClient implements BrokerClient {
         if (request.stopLevel() != null) {
             payload.put("stopLevel", request.stopLevel());
         }
+        if (request.profitLevel() != null) {
+            payload.put("profitLevel", request.profitLevel());
+        }
         CapitalJson.DealReferenceResponse body = authed()
                 .post()
                 .uri("/api/v1/positions")
