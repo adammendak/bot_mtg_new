@@ -122,6 +122,48 @@ public class BrokerConfiguration {
         );
     }
 
+    @Bean("ladderGerBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalLadderGerBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getLadderGer();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "ladger",
+                ep,
+                "Capital.com Ladder GER credentials are not set (LADDER_GER_API_KEY / LADDER_GER_API_EMAIL / LADDER_GER_PASSWORD)"
+        );
+    }
+
+    @Bean("ladderSpBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalLadderSpBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getLadderSp();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://demo-api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "ladsp",
+                ep,
+                "Capital.com Ladder SP credentials are not set (LADDER_SP_API_KEY / LADDER_SP_API_EMAIL / LADDER_SP_PASSWORD)"
+        );
+    }
+
+    @Bean("ladderGerBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperLadderGerPlaceholder() {
+        return new UnavailableBrokerClient("ladger", "Ladder GER book is not wired in paper mode");
+    }
+
+    @Bean("ladderSpBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperLadderSpPlaceholder() {
+        return new UnavailableBrokerClient("ladsp", "Ladder SP book is not wired in paper mode");
+    }
+
     @Bean("tvH1Broker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
     BrokerClient capitalTvH1Broker(RestClient.Builder builder, AppProperties properties) {

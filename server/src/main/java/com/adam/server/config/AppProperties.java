@@ -29,6 +29,9 @@ public class AppProperties {
     /** Capital.com demo sub-account names for the TradingView AlgoPro books (TV_H1_ALGO_ACCOUNT_NAME / TV_H4_ALGO_ACCOUNT_NAME). */
     private String tvH1AccountName = "Account TV H1";
     private String tvH4AccountName = "Account TV H4";
+    /** Capital.com demo sub-account names for the long-ladder bots (LADDER_GER_ACCOUNT_NAME / LADDER_SP_ACCOUNT_NAME). */
+    private String ladderGerAccountName = "Account Ladder GER";
+    private String ladderSpAccountName = "Account Ladder SP";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -352,6 +355,22 @@ public class AppProperties {
         return sdd;
     }
 
+    public String getLadderGerAccountName() {
+        return ladderGerAccountName;
+    }
+
+    public void setLadderGerAccountName(String ladderGerAccountName) {
+        this.ladderGerAccountName = ladderGerAccountName;
+    }
+
+    public String getLadderSpAccountName() {
+        return ladderSpAccountName;
+    }
+
+    public void setLadderSpAccountName(String ladderSpAccountName) {
+        this.ladderSpAccountName = ladderSpAccountName;
+    }
+
     public String getTvH1AccountName() {
         return tvH1AccountName;
     }
@@ -640,6 +659,8 @@ public class AppProperties {
         private final Endpoint mms = new Endpoint();
         private final Endpoint tvH1 = new Endpoint();
         private final Endpoint tvH4 = new Endpoint();
+        private final Endpoint ladderGer = new Endpoint();
+        private final Endpoint ladderSp = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
@@ -650,10 +671,20 @@ public class AppProperties {
             mms.setHost("https://demo-api-capital.backend-capital.com");
             tvH1.setHost("https://demo-api-capital.backend-capital.com");
             tvH4.setHost("https://demo-api-capital.backend-capital.com");
+            ladderGer.setHost("https://demo-api-capital.backend-capital.com");
+            ladderSp.setHost("https://demo-api-capital.backend-capital.com");
         }
 
         public Endpoint getTvH1() {
             return tvH1;
+        }
+
+        public Endpoint getLadderGer() {
+            return ladderGer;
+        }
+
+        public Endpoint getLadderSp() {
+            return ladderSp;
         }
 
         public Endpoint getTvH4() {

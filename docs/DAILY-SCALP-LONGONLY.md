@@ -143,3 +143,18 @@ python tools/long_tp_stack_report.py --cache <candle cache>
 ```
 
 Cache świec z `tools/capital_data.py`. Pliki wynikowe w `tools/out/` są poza gitem.
+
+## 11. Trzy indeksy na jednym koncie (plany A i B)
+
+Wyniki z `tools/long_tp_combo_bt.py`, finansowanie 5,5%. Osie czasu indeksów zestawione z przeniesieniem ostatniej wartości,
+więc to przybliżenie. „Pełne" = każdy indeks dostaje całe konto (g liczone od całego konta), „1/3" = konto podzielone na trzy.
+
+| plan | podział | wynik %/mies. | najniższy kapitał | max łączna dźwignia | stop-out |
+|---|---|---|---|---|---|
+| A (GER40 D0,5 g0,2 + US100 D0,75 g0,2 + SP500 D0,75 g0,2, drabinka 0,5%, K=10) | pełne | 10,9 | 0,01 | 9,3x | TAK (2025-04-07) |
+| A | 1/3 | 3,6 | 0,67 | 3,1x | nie |
+| B (to samo z g = 0,1%) | pełne | 6,3 | 0,41 | 5,3x | nie |
+| B | 1/3 | 2,1 | 0,80 | 1,8x | nie |
+
+Stackowanie trzech indeksów na jednym koncie bez podziału kasuje konto w kwietniu 2025: indeksy spadają razem.
+Wykonanie na dwóch osobnych kontach (GER40 i SP500) opisuje `docs/LADDER-BOT.md`.
