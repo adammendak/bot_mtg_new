@@ -137,9 +137,11 @@ public class LadderBot {
         if (!c.isSessionOpen()) {
             c.login();
         }
-        Account acc = risk.pickTvAccount(c.accounts(), b.accountName);
+        List<Account> accounts = c.accounts();
+        Account acc = risk.pickTvAccount(accounts, b.accountName);
         if (acc == null || acc.id() == null) {
-            log.warn("LADDER[{}] sub-account '{}' not found on this login", p.name(), b.accountName);
+            log.warn("LADDER[{}] sub-account '{}' not found on this login; accounts seen: {}", p.name(),
+                    b.accountName, accounts == null ? List.of() : accounts.stream().map(Account::name).toList());
             return;
         }
         c.selectAccount(acc.id());
