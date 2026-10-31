@@ -798,4 +798,65 @@ class HtsTradeServiceTest {
         assertThat(t.getRemainingSize()).isNull();
         assertThat(t.getRealisedR()).isNull();
     }
+
+    @Test
+    void aPartialTpWhoseSizeDidNotShrinkAtTheBrokerBanksNoR() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        when(broker.openPositions()).thenReturn(List.of(position("d1", Direction.BUY, 1.0)));   // still the full size
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.ok()).isFalse();
+        assertThat(o.status()).isEqualTo("PARTIAL_NOT_APPLIED");
+        assertThat(t.getRealisedR()).isNull();
+        assertThat(t.getRemainingSize()).isNull();
+        assertThat(t.getTp1At()).isNull();
+    }
+
+    @Test
+    void aRejectedReducingOrderIsReportedWithTheBrokersReasonAndBanksNothing() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        when(broker.reducePosition(anyString(), anyString(), any(), anyDouble()))
+                .thenReturn(new OrderAck("ref-x", "d-x", "OK"));
+        when(broker.confirm("ref-x")).thenReturn(new com.adam.server.broker.model.Confirmation(
+                "ref-x", "d-x", "DELETED", "REJECTED", "RC_SOMETHING", "DE40", Direction.SELL, null, null));
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.ok()).isFalse();
+        assertThat(o.status()).isEqualTo("PARTIAL_REJECTED");
+        assertThat(o.detail()).contains("RC_SOMETHING");
+        assertThat(t.getRealisedR()).isNull();
+        verify(broker, never()).openPositions();     // rejected before we even look at the position
+    }
+
+    @Test
+    void theFailureDetailCarriesTheBrokersMessageNotJustTheExceptionClass() {
+        HtsTradeEntity t = tvOpen(1.0);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+        org.mockito.Mockito.doThrow(new BrokerException("Rejected. EURUSD is currently closed")).when(broker)
+                .reducePosition(anyString(), anyString(), any(), anyDouble());
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.status()).isEqualTo("CLOSE_FAILED");
+        assertThat(o.detail()).contains("currently closed");
+    }
+
+    @Test
+    void thePartialDetailKeepsFullSizePrecision() {
+        HtsTradeEntity t = tvOpen(0.05);
+        when(broker.marketRules("DE40")).thenReturn(new com.adam.server.broker.model.MarketRules("DE40", 0.01, 2, 0, 0));
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 101.0, 101.0, bar));
+        when(broker.openPositions()).thenReturn(List.of(position("d1", Direction.BUY, 0.04)));
+
+        HtsTradeService.AlertOutcome o = service.partialTakeProfit(t, 0.2);
+
+        assertThat(o.detail()).contains("closed 0.01 of 0.05, remaining 0.04");
+    }
 }

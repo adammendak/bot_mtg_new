@@ -180,7 +180,11 @@ public class HtsTradeService {
         return true;
     }
 
-    /** Result of an alert-driven exit: {@code status} is PARTIAL_TP / CLOSED / CLOSE_FAILED. */
+    private static String plain(double v) {
+        return java.math.BigDecimal.valueOf(v).stripTrailingZeros().toPlainString();
+    }
+
+    /** Result of an alert-driven exit: {@code status} is PARTIAL_TP / CLOSED / CLOSE_FAILED / PARTIAL_REJECTED / PARTIAL_NOT_APPLIED. */
     public record AlertOutcome(boolean ok, String status, String detail) {
     }
 
@@ -226,12 +230,28 @@ public class HtsTradeService {
         boolean buy = "BUY".equalsIgnoreCase(t.getDirection());
         com.adam.server.broker.Direction dir = buy ? com.adam.server.broker.Direction.BUY
                 : com.adam.server.broker.Direction.SELL;
+        com.adam.server.broker.model.OrderAck ack;
         try {
-            broker.reducePosition(t.getDealId(), t.getEpic(), dir, slice);
+            ack = broker.reducePosition(t.getDealId(), t.getEpic(), dir, slice);
         } catch (Exception e) {
-            log.warn("HTS [{}] {}: partial TP close failed: {}", t.getVariant(), t.getSymbol(),
-                    e.getClass().getSimpleName());
-            return new AlertOutcome(false, "CLOSE_FAILED", e.getClass().getSimpleName());
+            String why = e.getClass().getSimpleName() + (e.getMessage() == null ? ""
+                    : ": " + e.getMessage().substring(0, Math.min(180, e.getMessage().length())));
+            log.warn("HTS [{}] {}: partial TP close failed: {}", t.getVariant(), t.getSymbol(), why);
+            return new AlertOutcome(false, "CLOSE_FAILED", why);
+        }
+        // An accepted HTTP call is not an executed deal: ask the broker whether the reducing order was rejected.
+        if (ack != null && ack.dealReference() != null) {
+            try {
+                com.adam.server.broker.model.Confirmation c = broker.confirm(ack.dealReference());
+                if (c != null && "REJECTED".equalsIgnoreCase(c.dealStatus())) {
+                    log.warn("HTS [{}] {}: the reducing order was REJECTED by the broker: {}", t.getVariant(),
+                            t.getSymbol(), c.reason());
+                    return new AlertOutcome(false, "PARTIAL_REJECTED", "broker rejected: " + c.reason());
+                }
+            } catch (Exception e) {
+                log.warn("HTS [{}] {}: could not confirm the reducing order ({})", t.getVariant(), t.getSymbol(),
+                        e.getClass().getSimpleName());
+            }
         }
         // The broker's own view is the truth: Capital's DELETE once closed whole positions when a size was
         // passed, so verify what is actually left (same deal, a re-keyed deal, nothing, or a hedge leg).
@@ -282,6 +302,12 @@ public class HtsTradeService {
             return new AlertOutcome(true, "CLOSED", "broker closed the whole position on a partial request"
                     + (t.getRMultiple() != null ? ", R=" + t.getRMultiple() : ""));
         }
+        if (same != null && same.size() > (remaining - slice) + slice / 2.0) {
+            log.warn("HTS [{}] {}: partial TP NOT applied — the broker still shows size {} (expected about {}); "
+                            + "no R banked", t.getVariant(), t.getSymbol(), same.size(), remaining - slice);
+            return new AlertOutcome(false, "PARTIAL_NOT_APPLIED", "broker size unchanged at " + plain(same.size())
+                    + " (expected about " + plain(remaining - slice) + ")");
+        }
         double legR = leg > 0 && mark != null ? (mark - t.getEntry()) * (buy ? 1.0 : -1.0) / leg : 0.0;
         double banked = (t.getRealisedR() == null ? 0.0 : t.getRealisedR()) + legR * (slice / size);
         t.setRealisedR(round(banked));
@@ -304,8 +330,8 @@ public class HtsTradeService {
         trades.save(t);
         log.info("HTS [{}] {} partial TP: closed {} of {} (remaining {}), slice R={} banked R={}", t.getVariant(),
                 t.getSymbol(), slice, size, t.getRemainingSize(), round(legR), t.getRealisedR());
-        return new AlertOutcome(true, "PARTIAL_TP", "closed " + slice + " of " + size + ", remaining "
-                + round(t.getRemainingSize()) + ", banked R=" + t.getRealisedR());
+        return new AlertOutcome(true, "PARTIAL_TP", "closed " + plain(slice) + " of " + plain(size) + ", remaining "
+                + plain(t.getRemainingSize()) + ", banked R=" + t.getRealisedR());
     }
 
     /**
