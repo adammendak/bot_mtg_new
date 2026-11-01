@@ -49,9 +49,10 @@ public final class LadderLogic {
      * @param openEntries   entry prices of the currently open ladder positions
      * @param lastOpenDay   day of the last daily-open entry (null = never)
      * @param startEquity   equity the failsafe is measured from (0 = failsafe off)
+     * @param trendOk       variant B trend filter: false blocks every new entry (variant A always passes true)
      */
     public static Decision decide(Params p, List<Double> openEntries, double bid, Instant now, LocalDate lastOpenDay,
-                                  double equity, double startEquity, double failsafeDropPct) {
+                                  double equity, double startEquity, double failsafeDropPct, boolean trendOk) {
         if (bid <= 0) {
             return Decision.none("no price");
         }
@@ -61,6 +62,9 @@ public final class LadderLogic {
         if (startEquity > 0 && equity <= startEquity * (1.0 - failsafeDropPct / 100.0)) {
             return Decision.none("FAILSAFE: equity " + Math.round(equity) + " <= " + (100.0 - failsafeDropPct)
                     + "% of start " + Math.round(startEquity));
+        }
+        if (!trendOk) {
+            return Decision.none("TREND filter: the previous daily close is below its moving average");
         }
         if (openEntries.isEmpty()) {
             var utc = now.atZone(ZoneOffset.UTC);

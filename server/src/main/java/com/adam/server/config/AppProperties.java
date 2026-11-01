@@ -32,6 +32,9 @@ public class AppProperties {
     /** Capital.com demo sub-account names for the long-ladder bots (LADDER_GER_ACCOUNT_NAME / LADDER_SP_ACCOUNT_NAME). */
     private String ladderGerAccountName = "GerLadder";
     private String ladderSpAccountName = "SpLadder";
+    /** Variant B of the ladders (trend filter): sub-account names (LADDER_GER_2_ACCOUNT_NAME / LADDER_SP_2_ACCOUNT_NAME). */
+    private String ladderGer2AccountName = "LadderGER2";
+    private String ladderSp2AccountName = "LadderSP2";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -371,6 +374,22 @@ public class AppProperties {
         this.ladderSpAccountName = ladderSpAccountName;
     }
 
+    public String getLadderGer2AccountName() {
+        return ladderGer2AccountName;
+    }
+
+    public void setLadderGer2AccountName(String ladderGer2AccountName) {
+        this.ladderGer2AccountName = ladderGer2AccountName;
+    }
+
+    public String getLadderSp2AccountName() {
+        return ladderSp2AccountName;
+    }
+
+    public void setLadderSp2AccountName(String ladderSp2AccountName) {
+        this.ladderSp2AccountName = ladderSp2AccountName;
+    }
+
     public String getTvH1AccountName() {
         return tvH1AccountName;
     }
@@ -661,6 +680,8 @@ public class AppProperties {
         private final Endpoint tvH4 = new Endpoint();
         private final Endpoint ladderGer = new Endpoint();
         private final Endpoint ladderSp = new Endpoint();
+        private final Endpoint ladderGer2 = new Endpoint();
+        private final Endpoint ladderSp2 = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
@@ -673,6 +694,8 @@ public class AppProperties {
             tvH4.setHost("https://demo-api-capital.backend-capital.com");
             ladderGer.setHost("https://demo-api-capital.backend-capital.com");
             ladderSp.setHost("https://demo-api-capital.backend-capital.com");
+            ladderGer2.setHost("https://demo-api-capital.backend-capital.com");
+            ladderSp2.setHost("https://demo-api-capital.backend-capital.com");
         }
 
         public Endpoint getTvH1() {
@@ -685,6 +708,14 @@ public class AppProperties {
 
         public Endpoint getLadderSp() {
             return ladderSp;
+        }
+
+        public Endpoint getLadderGer2() {
+            return ladderGer2;
+        }
+
+        public Endpoint getLadderSp2() {
+            return ladderSp2;
         }
 
         public Endpoint getTvH4() {
