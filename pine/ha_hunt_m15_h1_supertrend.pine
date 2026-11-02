@@ -1,0 +1,343 @@
+//@version=6
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HA-Hunt M15 / H1 Supertrend — RESEARCH overlay
+//
+// Chart: M15, NORMAL candles (Heikin-Ashi is computed inside — do not switch
+// the chart to HA). Java / prod HTS / HaHuntEngine are NOT changed by this file.
+//
+// Comparison: keep `pine/ha_hunt_cloud.pine` HA4 (H4 Heikin-Ashi hunt / M15
+// entry / H1 ATR stop) on the same symbol to A/B the HTF filter. This script
+// swaps only the HTF gate: H1 Supertrend in trade direction instead of H4 HA.
+// See docs/HA-HUNT-PINE.md.
+//
+//   HTF filter : last CLOSED H1 Supertrend is bull → longs only;
+//                last CLOSED H1 Supertrend is bear → shorts only.
+//                Closed H1 via request.security(..., expr[1], lookahead_off).
+//   Entry M15  : HA4 default in ha_hunt_cloud.pine — HA flip + RMA stack
+//                (close > RMA33 > RMAslow). Mirror for shorts.
+//                Optional "Band cross" trigger (HA4X-style). Daily PP filter
+//                (previous completed 21:00-UTC session; off for crypto).
+//   Stop       : entry ∓ H1 ATR(14) × 2.5  (same mid-TF stop as HA4).
+//   Exit       : H1 Supertrend flips against the position  OR  stop.
+//                Optional: also exit on M15 HA flip against (input, default OFF).
+//   2R line    : reference only — not an exit (cloud-hold, same as HA4).
+//
+// Supertrend formula (classic TradingView `ta.supertrend(factor, atrPeriod)`):
+//   src     = hl2 = (high + low) / 2
+//   atr     = ta.atr(atrPeriod)          // Wilder RMA of True Range, NOT SMA
+//   basicUp = src - factor * atr
+//   basicDn = src + factor * atr
+//   finalUp = close[1] > finalUp[1] ? max(basicUp, finalUp[1]) : basicUp
+//   finalDn = close[1] < finalDn[1] ? min(basicDn, finalDn[1]) : basicDn
+//   // Built-in direction:  -1 = up / bull (price above the line = finalUp)
+//   //                      +1 = down / bear (price below the line = finalDn)
+//   Flip bull when prev dir was +1 and close > finalDn[1]
+//   Flip bear when prev dir was -1 and close < finalUp[1]
+//   Defaults here: ATR period 10, factor 2.0  (TV / Supertrend.java default
+//   factor is 3.0; Java also uses +1 = up — opposite sign, same band math).
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("HA-Hunt M15 / H1 Supertrend (research)", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+
+// ── strategy ─────────────────────────────────────────────────────────────────
+entryTrig  = input.string("HA flip + stack", "Entry trigger", options = ["HA flip + stack", "Band cross"], tooltip = "HA flip + stack = HA4 default. Band cross = HA4X-style (first bar beyond the fast RMA band, fast band clear of slow).", group = "Strategy")
+longOnly   = input.bool(true,  "Long only (shorts = observe-only)", group = "Strategy")
+enableLong  = input.bool(true, "Enable LONG signals", group = "Strategy")
+enableShort = input.bool(true, "Enable SHORT signals", group = "Strategy")
+showShorts  = input.bool(true, "Show SHORT setups (even in long-only)", group = "Strategy")
+applyPP    = input.bool(true,  "Daily pivot filter  (turn OFF for crypto)", group = "Strategy")
+capReg     = input.int(2,      "Max entries per H1 Supertrend regime", minval = 1, group = "Strategy")
+atrMult    = input.float(2.5,  "Stop = H1 ATR(14) ×", step = 0.1, group = "Strategy")
+fastLen    = input.int(33,     "RMA fast  (HA4 RMA_FAST = 33)", group = "Strategy")
+slowLen    = input.int(100,    "RMA slow  (HA4 default 100)", group = "Strategy")
+exitHaFlip = input.bool(false, "Also exit on M15 HA flip against", tooltip = "OFF by default. When ON, a closed M15 HA colour change against the position exits in addition to H1 Supertrend flip / stop.", group = "Strategy")
+
+// ── H1 Supertrend (classic TV) ───────────────────────────────────────────────
+stAtrLen = input.int(10,    "H1 Supertrend ATR period", minval = 1, group = "H1 Supertrend")
+stFactor = input.float(2.0, "H1 Supertrend factor", step = 0.1, minval = 0.1, group = "H1 Supertrend")
+stTf     = input.timeframe("60", "HTF (H1)", group = "H1 Supertrend", tooltip = "Closed-bar Supertrend via request.security, lookahead_off. Keep 60 for the documented H1 filter.")
+
+// ── visuals ──────────────────────────────────────────────────────────────────
+shadeReg    = input.bool(true,  "Shade H1 Supertrend direction", group = "Visuals")
+bgLongCol   = input.color(color.new(#26A69A, 94), "Background — H1 ST bull", group = "Visuals")
+bgShortCol  = input.color(color.new(#EF5350, 94), "Background — H1 ST bear", group = "Visuals")
+showBoxes   = input.bool(true,  "Risk / reward boxes", group = "Visuals")
+showEdge    = input.bool(true,  "SL / Entry / 2R edge lines", group = "Visuals")
+showTags    = input.bool(true,  "Price tags on box edge", group = "Visuals")
+showBadge   = input.bool(true,  "LONG / SHORT labels", group = "Visuals")
+showHistory = input.bool(false, "Show history (past entry / SL / 2R)", group = "Visuals")
+showHud     = input.bool(true,  "Corner HUD", group = "Visuals")
+hudPosIn    = input.string("Bottom right", "HUD position", options = ["Top left", "Top right", "Bottom left", "Bottom right", "Middle left", "Middle right"], group = "Visuals")
+showStFlipL = input.bool(true, "H1 ST flip triangle — bull", group = "Visuals")
+showStFlipS = input.bool(true, "H1 ST flip triangle — bear", group = "Visuals")
+triOffAtr   = input.float(2.5, "BULL/BEAR triangle offset × ATR", step = 0.25, minval = 0.5, group = "Visuals")
+boxExtend   = input.int(24,    "Box length (bars)", minval = 8, maxval = 100, group = "Visuals")
+boxTransR   = input.int(82,    "Risk box transparency", minval = 50, maxval = 95, group = "Visuals")
+boxTransW   = input.int(85,    "Reward box transparency", minval = 50, maxval = 95, group = "Visuals")
+
+colBuy     = input.color(#26A69A, "Long / reward", group = "Colors")
+colSell    = input.color(#EF5350, "Short / risk", group = "Colors")
+colEntry   = input.color(#42A5F5, "Entry line", group = "Colors")
+colExit    = input.color(#FFB74D, "HTF ST exit", group = "Colors")
+colHuntL   = input.color(#26A69A, "H1 ST bull banner", group = "Colors")
+colHuntS   = input.color(#EF5350, "H1 ST bear banner", group = "Colors")
+
+useCross = entryTrig == "Band cross"
+
+// ── entry-TF Heikin-Ashi (this chart — intended M15) ─────────────────────────
+haClose = (open + high + low + close) / 4.0
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2.0 : (haOpen[1] + haClose[1]) / 2.0
+eBull  = haClose >= haOpen
+eFlip  = eBull != eBull[1]
+
+// ── entry-TF RMA stack (close vs RMA33 vs RMAslow) — HA4 default ─────────────
+rf = ta.rma(close, fastLen)
+rs = ta.rma(close, slowLen)
+stackLong  = close > rf and rf > rs
+stackShort = close < rf and rf < rs
+atr14      = ta.atr(14)
+
+// ── entry-TF band cross (optional HA4X trigger) ──────────────────────────────
+rfHi = ta.rma(high, fastLen), rfLo = ta.rma(low, fastLen)
+rsHi = ta.rma(high, slowLen), rsLo = ta.rma(low, slowLen)
+fUp = math.max(rfHi, rfLo), fLo = math.min(rfHi, rfLo)
+sUp = math.max(rsHi, rsLo), sLo = math.min(rsHi, rsLo)
+longNow  = close > fUp and fLo > sUp
+shortNow = close < fLo and fUp < sLo
+crossLong  = longNow  and not longNow[1]
+crossShort = shortNow and not shortNow[1]
+
+// ── H1 Supertrend — classic TV ta.supertrend (Wilder ATR, hl2, factor) ───────
+// Live (repainting forming H1) — shading + flip triangles only.
+f_st() =>
+    [stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+    [stLine, stDir]
+
+[stLineLive, stDirLive] = request.security(syminfo.tickerid, stTf, f_st(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// Confirmed CLOSED H1 — entries / regime cap / exits (expr[1], no lookahead).
+f_stClosed() =>
+    [stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+    [stLine[1], stDir[1]]
+
+[stLine, stDir] = request.security(syminfo.tickerid, stTf, f_stClosed(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// ta.supertrend dir: -1 = bull (price above line), +1 = bear. Same as H1 close vs line.
+stBull     = not na(stDir) and stDir == -1
+stBear     = not na(stDir) and stDir == 1
+stBullLive = not na(stDirLive) and stDirLive == -1
+stFlip     = stBull != stBull[1]
+stFlipLive = stBullLive != stBullLive[1]
+
+plot(stLine, "H1 Supertrend (closed)", color = color.new(stBull ? colBuy : colSell, 20), linewidth = 2, style = plot.style_stepline)
+
+// ── H1 ATR stop (HA4 mid-TF: H1 ATR14 × 2.5) ────────────────────────────────
+atrV = request.security(syminfo.tickerid, stTf, ta.atr(14), lookahead = barmerge.lookahead_off)
+
+// ── daily pivot — previous completed 21:00-UTC session (same as ha_hunt_cloud) ─
+sIdx = math.floor((time / 1000 - 75600) / 86400)   // 75600s = 21:00 UTC roll
+newS = ta.change(sIdx) != 0
+var float cH = na, var float cL = na, var float cC = na
+var float pH = na, var float pL = na, var float pC = na
+if newS
+    pH := cH, pL := cL, pC := cC
+    cH := high, cL := low, cC := close
+else
+    cH := math.max(nz(cH, high), high)
+    cL := math.min(nz(cL, low), low)
+    cC := close
+pp      = (pH + pL + pC) / 3.0
+ppLong  = not applyPP or (not na(pp) and close > pp)
+ppShort = not applyPP or (not na(pp) and close < pp)
+
+// ── state ───────────────────────────────────────────────────────────────────
+var int   fills   = 0
+var int   pos     = 0
+var float entPx   = na
+var float stpX    = na
+var float tgtX    = na       // 2R reference only
+var bool  tgtFlag = false
+var float lastR   = na
+var box   bxRisk  = na
+var box   bxRew   = na
+var line  lnStop  = na
+var line  lnEntry = na
+var line  lnTgt   = na
+var label lbStop  = na
+var label lbEntry = na
+var label lbTgt   = na
+var table hud     = na
+
+if stFlip
+    fills := 0
+
+// ── H1 ST flip banners (live forming H1 — same series as the shade) ──────────
+triOff = triOffAtr * atr14
+plotshape(stFlipLive and stBullLive and showStFlipL ? low - triOff : na, "BULL H1 ST", shape.triangleup, location.absolute, colHuntL, size = size.normal)
+plotshape(stFlipLive and not stBullLive and showStFlipS ? high + triOff : na, "BEAR H1 ST", shape.triangledown, location.absolute, colHuntS, size = size.normal)
+
+// ── exit: H1 ST flip against  OR  stop  [optional M15 HA flip against] ───────
+exitStop   = (pos == 1 and low <= stpX) or (pos == -1 and high >= stpX)
+exitStFlip = (pos == 1 and not stBull) or (pos == -1 and stBull)
+exitLtfHa  = exitHaFlip and ((pos == 1 and eFlip and not eBull) or (pos == -1 and eFlip and eBull))
+doExit     = pos != 0 and (exitStop or exitStFlip or exitLtfHa)
+exitRsn    = exitStop ? "stop" : exitLtfHa ? "m15_ha_flip" : "h1_st_flip"
+tgtTouch   = pos != 0 and ((pos == 1 and high >= tgtX) or (pos == -1 and low <= tgtX)) and not tgtFlag
+if tgtTouch
+    tgtFlag := true
+
+if doExit
+    if showBadge
+        string xt = exitStop ? "✕  SL" : exitLtfHa ? "HA  M15 flip" : "ST  H1 flip"
+        color  xc = exitStop ? colSell : colExit
+        label.new(bar_index, pos == 1 ? high : low, xt + "\n" + str.tostring(close, format.mintick), yloc = pos == 1 ? yloc.abovebar : yloc.belowbar, style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.new(xc, 5), textcolor = color.white, size = size.small)
+    if showHistory
+        if not na(bxRisk)
+            box.set_right(bxRisk, bar_index), box.set_right(bxRew, bar_index)
+        if not na(lnStop)
+            line.set_x2(lnStop, bar_index), line.set_x2(lnEntry, bar_index), line.set_x2(lnTgt, bar_index)
+        if not na(lbStop)
+            label.set_x(lbStop, bar_index), label.set_x(lbEntry, bar_index), label.set_x(lbTgt, bar_index)
+    else
+        box.delete(bxRisk), box.delete(bxRew)
+        line.delete(lnStop), line.delete(lnEntry), line.delete(lnTgt)
+        label.delete(lbStop), label.delete(lbEntry), label.delete(lbTgt)
+    bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
+    lbStop := na, lbEntry := na, lbTgt := na
+    pos := 0
+
+// ── entry (M15 HA flip + stack, gated by closed H1 Supertrend) ───────────────
+canEnter = fills < capReg and pos == 0
+trigLong  = useCross ? crossLong  : (eFlip and eBull and stackLong)
+trigShort = useCross ? crossShort : (eFlip and not eBull and stackShort)
+longRaw  = stBull and trigLong and stackLong and ppLong
+shortRaw = stBear and trigShort and stackShort and ppShort
+longSig  = longRaw and canEnter and enableLong
+shortSig = shortRaw and canEnter and enableShort and not longOnly
+
+if longSig or shortSig
+    if showHistory
+        if not na(bxRisk)
+            box.set_right(bxRisk, bar_index), box.set_right(bxRew, bar_index)
+        if not na(lnStop)
+            line.set_x2(lnStop, bar_index), line.set_x2(lnEntry, bar_index), line.set_x2(lnTgt, bar_index)
+    else
+        box.delete(bxRisk), box.delete(bxRew)
+        line.delete(lnStop), line.delete(lnEntry), line.delete(lnTgt)
+        label.delete(lbStop), label.delete(lbEntry), label.delete(lbTgt)
+    bxRisk := na, bxRew := na, lnStop := na, lnEntry := na, lnTgt := na
+    lbStop := na, lbEntry := na, lbTgt := na
+
+    bool isLong = longSig
+    pos    := isLong ? 1 : -1
+    entPx  := close
+    lastR  := atrMult * atrV
+    stpX   := isLong ? close - lastR : close + lastR
+    tgtX   := isLong ? close + 2.0 * lastR : close - 2.0 * lastR
+    tgtFlag := false
+    fills  := fills + 1
+    int x2 = bar_index + boxExtend
+    if showBoxes
+        bxRisk := box.new(bar_index, math.max(entPx, stpX), x2, math.min(entPx, stpX), bgcolor = color.new(colSell, boxTransR), border_color = color.new(colSell, 35), border_width = 2)
+        bxRew  := box.new(bar_index, math.max(entPx, tgtX), x2, math.min(entPx, tgtX), bgcolor = color.new(colBuy, boxTransW), border_color = color.new(colBuy, 35), border_width = 2)
+    if showEdge
+        lnStop  := line.new(bar_index, stpX, x2, stpX, color = colSell, width = 2)
+        lnEntry := line.new(bar_index, entPx, x2, entPx, color = colEntry, width = 1, style = line.style_dotted)
+        lnTgt   := line.new(bar_index, tgtX, x2, tgtX, color = colBuy, width = 1, style = line.style_dashed)
+    if showTags
+        lbStop  := label.new(x2, stpX, "SL  " + str.tostring(stpX, format.mintick), style = label.style_label_left, color = color.new(colSell, 0), textcolor = color.white, size = size.small)
+        lbEntry := label.new(x2, entPx, "IN  " + str.tostring(entPx, format.mintick), style = label.style_label_left, color = color.new(colEntry, 10), textcolor = color.white, size = size.small)
+        lbTgt   := label.new(x2, tgtX, "2R  " + str.tostring(tgtX, format.mintick) + "  (ref)", style = label.style_label_left, color = color.new(colBuy, 0), textcolor = color.white, size = size.tiny)
+    if showBadge
+        if isLong
+            label.new(bar_index, low, "▲ LONG", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colBuy, 0), textcolor = color.white, size = size.normal)
+        else
+            label.new(bar_index, high, "▼ SHORT", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colSell, 0), textcolor = color.white, size = size.normal)
+
+if pos != 0
+    int x2e = bar_index + boxExtend
+    if showBoxes and not na(bxRisk)
+        box.set_right(bxRisk, x2e), box.set_right(bxRew, x2e)
+    if showEdge and not na(lnStop)
+        line.set_x2(lnStop, x2e), line.set_x2(lnEntry, x2e), line.set_x2(lnTgt, x2e)
+    if showTags and not na(lbStop)
+        label.set_x(lbStop, x2e), label.set_x(lbEntry, x2e), label.set_x(lbTgt, x2e)
+
+// ── HUD ────────────────────────────────────────────────────────────────────
+hudPos = switch hudPosIn
+    "Top left" => position.top_left
+    "Top right" => position.top_right
+    "Bottom left" => position.bottom_left
+    "Middle left" => position.middle_left
+    "Middle right" => position.middle_right
+    => position.bottom_right
+
+var string hudPosUsed = na
+if barstate.islast and showHud
+    if na(hud) or hudPosUsed != hudPosIn
+        if not na(hud)
+            table.delete(hud)
+        hud := table.new(hudPos, 2, 10, bgcolor = #1E222D, border_width = 1, border_color = #787B86, frame_width = 1, frame_color = #787B86)
+        hudPosUsed := hudPosIn
+    string sideTxt = pos == 0 ? "FLAT" : pos == 1 ? "LONG" : "SHORT"
+    color  sideC   = pos == 0 ? color.gray : pos == 1 ? colBuy : colSell
+    string stTxt   = na(stDirLive) ? "—" : stBullLive ? "BULL" : "BEAR"
+    color  stCol   = na(stDirLive) ? color.gray : stBullLive ? colBuy : colSell
+    string exitTxt = exitHaFlip ? "ST flip / stop / M15 HA" : "ST flip / stop"
+    table.cell(hud, 0, 0, "HA-Hunt M15", bgcolor = #1E222D, text_color = color.white, text_size = size.normal)
+    table.cell(hud, 1, 0, "research", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.normal)
+    table.cell(hud, 0, 1, "Filter", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 1, "H1 Supertrend filter", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 2, "Side", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 2, sideTxt + (longOnly and pos == 0 ? "  (L-only)" : ""), bgcolor = #1E222D, text_color = sideC, text_size = size.small)
+    table.cell(hud, 0, 3, "Entry", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 3, pos != 0 ? str.tostring(entPx, format.mintick) : "—", bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 4, "Stop", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 4, pos != 0 ? str.tostring(stpX, format.mintick) : "—", bgcolor = #1E222D, text_color = colSell, text_size = size.small)
+    table.cell(hud, 0, 5, "2R ref", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 5, pos != 0 ? str.tostring(tgtX, format.mintick) : "—", bgcolor = #1E222D, text_color = colBuy, text_size = size.small)
+    table.cell(hud, 0, 6, "H1 ST", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 6, stTxt + "  " + (na(stLine) ? "" : str.tostring(stLine, format.mintick)), bgcolor = #1E222D, text_color = stCol, text_size = size.small)
+    table.cell(hud, 0, 7, "ST params", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 7, "ATR " + str.tostring(stAtrLen) + " × " + str.tostring(stFactor, "#.0"), bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 8, "Fills / regime", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 8, str.tostring(fills) + " / " + str.tostring(capReg), bgcolor = #1E222D, text_color = color.white, text_size = size.small)
+    table.cell(hud, 0, 9, "Exit", bgcolor = #1E222D, text_color = #B2B5BE, text_size = size.small)
+    table.cell(hud, 1, 9, exitTxt, bgcolor = #1E222D, text_color = colExit, text_size = size.small)
+
+// ── shadow SHORT setups (long-only observe) ──────────────────────────────────
+var int   sFills = 0
+var int   sPos   = 0
+var float sStp   = na
+if stFlip
+    sFills := 0
+if sPos == -1 and (stBull or high >= sStp)
+    sPos := 0
+sTake = shortRaw and sFills < capReg and sPos == 0 and enableShort
+if sTake
+    sPos   := -1
+    sStp   := close + atrMult * atrV
+    sFills := sFills + 1
+    if longOnly and showShorts and showBadge and sFills == 1
+        label.new(bar_index, high, "▽ SHORT (observe)", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(colHuntS, 10), textcolor = color.black, size = size.normal)
+
+sellShow = shortSig or (longOnly and showShorts and sTake)
+plotshape(longSig and not showBadge, "Long", shape.triangleup, location.belowbar, colBuy, size = size.small)
+plotshape(sellShow and not showBadge, "Short", shape.triangledown, location.abovebar, shortSig ? colSell : colHuntS, size = size.small)
+
+bgcolor(shadeReg ? (stBullLive ? bgLongCol : bgShortCol) : na, title = "H1 Supertrend direction")
+
+// ── alerts ─────────────────────────────────────────────────────────────────
+alertcondition(longSig, "HA-Hunt M15/H1ST: Long entry", "HA-Hunt M15/H1ST LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "HA-Hunt M15/H1ST: Short entry", "HA-Hunt M15/H1ST SHORT {{ticker}} @ {{close}}")
+alertcondition(longOnly and showShorts and sTake and sFills == 1, "HA-Hunt M15/H1ST: Short setup (observe)", "HA-Hunt M15/H1ST short setup (observe) {{ticker}} @ {{close}}")
+alertcondition(doExit, "HA-Hunt M15/H1ST: Exit", "HA-Hunt M15/H1ST EXIT {{ticker}} @ {{close}}")
+alertcondition(tgtTouch, "HA-Hunt M15/H1ST: 2R touched", "HA-Hunt M15/H1ST 2R touched {{ticker}} @ {{close}}")
+alertcondition(stFlipLive and stBullLive, "HA-Hunt M15/H1ST: H1 ST bull", "H1 Supertrend bull {{ticker}}")
+alertcondition(stFlipLive and not stBullLive, "HA-Hunt M15/H1ST: H1 ST bear", "H1 Supertrend bear {{ticker}}")
+
+if longSig or shortSig or doExit
+    ev = longSig ? "entry_long" : shortSig ? "entry_short" : "exit"
+    js = '{"strat":"ha_hunt","variant":"M15_H1ST","event":"' + ev + '","symbol":"{{ticker}}","tf":"' + timeframe.period + '","price":' + str.tostring(close, format.mintick) + ',"stop":' + str.tostring(pos != 0 ? stpX : stpX[1], format.mintick) + ',"target":' + str.tostring(pos != 0 ? tgtX : tgtX[1], format.mintick) + ',"reason":"' + (doExit ? exitRsn : "signal") + '"}'
+    alert(js, alert.freq_once_per_bar_close)
