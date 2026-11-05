@@ -33,9 +33,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Two independent long-ladder bots on two dedicated Capital.com DEMO sub-accounts: one trades only GER40 (DE40), the
- * other only SP500 (US500). The broker is the source of truth (the sub-account holds nothing but this ladder), so the
- * bot is stateless apart from a few in-memory guards. Every position carries its own take-profit on the broker side;
+ * Long-ladder bots on dedicated Capital.com DEMO sub-accounts: the GER account trades only GER40 (DE40), the SP account
+ * trades SP500 (US500) and GER40 as two independent ladders (variant B: the same on its own pair of accounts). The broker
+ * is the source of truth (a sub-account holds nothing but these ladders), so the bot is stateless apart from a few in-memory guards. Every position carries its own take-profit on the broker side;
  * there is no stop-loss by design (see docs/DAILY-SCALP-LONGONLY.md). OFF unless {@code app.ladder.enabled=true}.
  */
 @Service
@@ -126,6 +126,12 @@ public class LadderBot {
         bots.add(new Bot(renamed(ger, "-B"), ger2Broker, properties.getLadderGer2AccountName(),
                 properties.getCapital().getLadderGer2().getHost(), ger2Start, true, trendSma));
         bots.add(new Bot(renamed(sp, "-B"), sp2Broker, properties.getLadderSp2AccountName(),
+                properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
+        // The SP accounts run GER40 as well: the same broker session and account, a second instrument. Positions are told
+        // apart by epic, so each ladder only ever sees and extends its own.
+        bots.add(new Bot(renamed(ger, "@SP"), spBroker, properties.getLadderSpAccountName(),
+                properties.getCapital().getLadderSp().getHost(), spStart, false, 0));
+        bots.add(new Bot(renamed(ger, "@SP-B"), sp2Broker, properties.getLadderSp2AccountName(),
                 properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
     }
 

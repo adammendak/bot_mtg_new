@@ -86,3 +86,15 @@ Backtest (g = 0,2%): GER40 4,6% → 4,1%/mies. (min. kapitał 75% → 79%), SP50
 obsunięcie 45% → 25%). Bez spadku rynku A i B wchodzą niemal tak samo, więc różnicę widać dopiero po spadku (ocena po min. 6–8
 tygodniach albo po pierwszym spadku indeksu o 3–4%). Kryterium: B ma sens, jeśli przy wyniku nie mniejszym niż ok. 80% wyniku A
 ma wyraźnie płytsze obsunięcie.
+
+## GER40 także na kontach SP (od 2026-11-05)
+
+Konta `LadderSP` (A) i `LadderSP2` (B) handlują teraz dwa niezależne drabinki: SP500 (`US500`) i GER40 (`DE40`).
+Konta `LadderGER` / `LadderGER2` zostają tylko z GER40. Bot `GER40@SP` (B: `GER40@SP-B`) używa tych samych parametrów
+co `GER40` (TP, krok, K, g, godzina wejścia 07:05 UTC, filtr SMA50 w B) i tego samego połączenia z brokerem co SP500;
+pozycje rozróżnia po instrumencie, więc każda drabinka widzi i rozbudowuje tylko swoje. Nie ma nowych zmiennych środowiskowych.
+
+Uwaga na ryzyko: oba indeksy dzielą kapitał jednego konta, a g liczy się od całego konta, więc łączne zaangażowanie jest większe
+niż na kontach jednoindeksowych (przy g = 0,1% i pełnych drabinkach około 3,3x kapitału w nominale). Badanie
+`DAILY-SCALP-LONGONLY.md` §11 pokazuje, że stackowanie indeksów bez podziału g jest ryzykowne; ewentualne obniżenie g
+na tych kontach wymaga osobnej zmiennej.
