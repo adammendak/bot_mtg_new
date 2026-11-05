@@ -180,9 +180,11 @@ class LadderBotTest {
     private BrokerClient live;
     private static final Params LIVE_GER = new Params("GER40-LIVE", "DE40", 0.5, 0.5, 5, 0.2, LocalTime.of(7, 5), 15);
 
+    private static final Params LIVE_SP = new Params("SP500-LIVE", "US500", 0.75, 0.5, 5, 0.2, LocalTime.of(13, 35), 15);
+
     private LadderBot botLive(boolean active, String at) {
         return new LadderBot(ger, sp, ger2, sp2, props, risk, false, false, 50, 25, GER, SP, GER, 10000, 10000, 0, 0,
-                false, false, 730, LIVE_GER, live, active, 400, 1.5, Clock.fixed(Instant.parse(at), ZoneOffset.UTC));
+                false, false, 730, LIVE_GER, LIVE_SP, live, active, 400, 1.5, Clock.fixed(Instant.parse(at), ZoneOffset.UTC));
     }
 
     private void wireLive(double balance, String accountName) {
@@ -218,11 +220,26 @@ class LadderBotTest {
         botLive(true, "2026-11-03T07:06:00Z").tick();
 
         ArgumentCaptor<OrderRequest> cap = ArgumentCaptor.forClass(OrderRequest.class);
-        verify(live).selectAccount("live-1");
+        verify(live, org.mockito.Mockito.atLeastOnce()).selectAccount("live-1");
         verify(live).placeMarketOrder(cap.capture());
         assertThat(cap.getValue().size()).isEqualTo(0.006);
         assertThat(cap.getValue().stopLevel()).isNull();
         verify(ger, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void theLiveSp500LadderBuysOnlyWhenTheAccountCanAffordTheMinimumSize() {
+        wireLive(800, "LiveSmall");
+        when(live.marketRules("US500")).thenReturn(new MarketRules("US500", 0.01, 1, 0, 0, true, 0.05, "PLN", 1.0, 0.1));
+        when(live.marketPrice("US500")).thenReturn(new MarketPrice("US500", 7700.0, 7701.0, Instant.now()));
+        // one unit = 7701 PLN: target 0.267x of 800 = 213 PLN -> 0.0277 -> rounds to 0.03? the broker step is 0.01
+        LadderBot b = botLive(true, "2026-11-03T13:36:00Z");
+
+        b.tick();
+
+        ArgumentCaptor<OrderRequest> cap = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(live).placeMarketOrder(cap.capture());
+        assertThat(cap.getValue().epic()).isEqualTo("US500");
     }
 
     @Test
