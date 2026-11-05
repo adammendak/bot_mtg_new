@@ -95,6 +95,7 @@ public class LadderBot {
             @Value("${app.ladder.ger.step-pct:0.5}") double gerStep,
             @Value("${app.ladder.ger.max-positions:10}") int gerMax,
             @Value("${app.ladder.ger.gain-pct:0.2}") double gerGain,
+            @Value("${app.ladder.sp-ger.gain-pct:0}") double gerOnSpGain,
             @Value("${app.ladder.ger.start-equity:0}") double gerStart,
             @Value("${app.ladder.sp.tp-pct:0.75}") double spTp,
             @Value("${app.ladder.sp.step-pct:0.5}") double spStep,
@@ -106,14 +107,27 @@ public class LadderBot {
         this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
                 new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerGain, LocalTime.of(7, 5), 15),
                 new Params("SP500", "US500", spTp, spStep, spMax, spGain, LocalTime.of(13, 35), 15),
+                new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerOnSpGain > 0 ? gerOnSpGain : gerGain,
+                        LocalTime.of(7, 5), 15),
                 gerStart, spStart, ger2Start, sp2Start, Clock.systemUTC());
     }
 
-    /** Variant B runs the same parameters as A (only the trend filter differs), so B reuses A's {@link Params}. */
     LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
               AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
               double failsafeDropPct, Params ger, Params sp, double gerStart, double spStart, double ger2Start,
               double sp2Start, Clock clock) {
+        this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
+                ger, sp, ger, gerStart, spStart, ger2Start, sp2Start, clock);
+    }
+
+    /**
+     * Variant B runs the same parameters as A (only the trend filter differs), so B reuses A's {@link Params}. The GER40
+     * ladder that shares the SP accounts has its own parameters ({@code gerOnSp}), e.g. a different gain.
+     */
+    LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
+              AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
+              double failsafeDropPct, Params ger, Params sp, Params gerOnSp, double gerStart, double spStart,
+              double ger2Start, double sp2Start, Clock clock) {
         this.risk = risk;
         this.enabled = enabled;
         this.enabledB = enabledB;
@@ -129,9 +143,9 @@ public class LadderBot {
                 properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
         // The SP accounts run GER40 as well: the same broker session and account, a second instrument. Positions are told
         // apart by epic, so each ladder only ever sees and extends its own.
-        bots.add(new Bot(renamed(ger, "@SP"), spBroker, properties.getLadderSpAccountName(),
+        bots.add(new Bot(renamed(gerOnSp, "@SP"), spBroker, properties.getLadderSpAccountName(),
                 properties.getCapital().getLadderSp().getHost(), spStart, false, 0));
-        bots.add(new Bot(renamed(ger, "@SP-B"), sp2Broker, properties.getLadderSp2AccountName(),
+        bots.add(new Bot(renamed(gerOnSp, "@SP-B"), sp2Broker, properties.getLadderSp2AccountName(),
                 properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
     }
 

@@ -98,3 +98,7 @@ Uwaga na ryzyko: oba indeksy dzielą kapitał jednego konta, a g liczy się od c
 niż na kontach jednoindeksowych (przy g = 0,1% i pełnych drabinkach około 3,3x kapitału w nominale). Badanie
 `DAILY-SCALP-LONGONLY.md` §11 pokazuje, że stackowanie indeksów bez podziału g jest ryzykowne; ewentualne obniżenie g
 na tych kontach wymaga osobnej zmiennej.
+
+Osobny g dla GER40 na kontach SP: `LADDER_SP_GER_GAIN_PCT` (0 lub brak = takie samo jak `LADDER_GER_GAIN_PCT`). SP500 na tych kontach
+ma `LADDER_SP_GAIN_PCT` (to samo dla A i B). Plan testu agresywnego: `LADDER_SP_GAIN_PCT=0.2` + `LADDER_SP_GER_GAIN_PCT=0.2`,
+konta `LadderGER` / `LadderGER2` zostają na `LADDER_GER_GAIN_PCT=0.1`.

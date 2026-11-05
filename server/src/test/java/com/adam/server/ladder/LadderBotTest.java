@@ -249,4 +249,32 @@ class LadderBotTest {
         assertThat(cap.getValue().epic()).isEqualTo("DE40");     // GER40 opens at 07:05; SP500 waits for 13:35
         verify(ger, org.mockito.Mockito.times(1)).placeMarketOrder(any());
     }
+
+    @Test
+    void theGerLadderOnTheSpAccountCanUseItsOwnGain() {
+        Account spAcc = new Account("acc-sp", "LadderSP", "EUR", 10000, 10000, 0, true);
+        props.setLadderSpAccountName("LadderSP");
+        when(sp.configured()).thenReturn(true);
+        when(sp.isSessionOpen()).thenReturn(true);
+        when(sp.accounts()).thenReturn(List.of(spAcc));
+        when(risk.pickTvAccount(any(), eq("LadderSP"))).thenReturn(spAcc);
+        when(sp.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(sp.marketRules("US500")).thenReturn(new MarketRules("US500", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(sp.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 24000.0, 24002.0, Instant.now()));
+        when(sp.marketPrice("US500")).thenReturn(new MarketPrice("US500", 7600.0, 7601.0, Instant.now()));
+        when(sp.openPositions()).thenReturn(List.of());
+        when(sp.placeMarketOrder(any())).thenReturn(new OrderAck("ref-2", null, "SUBMITTED"));
+        Params gerOnSp = new Params("GER40", "DE40", 0.5, 0.5, 10, 0.4, LocalTime.of(7, 5), 15);
+        LadderBot b = new LadderBot(ger, sp, ger2, sp2, props, risk, true, false, 50, 25, GER, SP, gerOnSp, 10000, 10000, 0,
+                0, Clock.fixed(Instant.parse("2026-11-03T07:06:00Z"), ZoneOffset.UTC));
+
+        b.tick();
+
+        ArgumentCaptor<OrderRequest> onSp = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(sp).placeMarketOrder(onSp.capture());
+        ArgumentCaptor<OrderRequest> onGer = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(ger).placeMarketOrder(onGer.capture());
+        assertThat(onSp.getValue().size()).isEqualTo(0.33);          // 0.8 x 10000 / 24002 ... twice the plain GER40 size
+        assertThat(onGer.getValue().size()).isEqualTo(0.17);
+    }
 }
