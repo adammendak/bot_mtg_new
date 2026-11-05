@@ -57,6 +57,9 @@ class Cfg:
     crash: float = 0.0       # block ladder entries when the previous day fell more than this % (0 = off)
     dd_block: float = 0.0    # block NEW entries while the index is more than this % below its 60-day high (0 = off)
     depth: float = 0.0       # size multiplier 1/(1+depth*open_count)
+    target: str = "static"   # TP rule: static | ath | pdh | hi5 | hi10 | hi20 | hi60 | swing (see target_fn)
+    near: float = 0.0        # within this % below the all-time high the TP stays static (0 = rule always applies)
+    cap: float = 0.0         # cap the target distance at this % above the entry (0 = no cap); never below the static TP
 
 
 def regime(df: pd.DataFrame, n: int) -> np.ndarray:
@@ -67,6 +70,54 @@ def regime(df: pd.DataFrame, n: int) -> np.ndarray:
     return ok
 
 
+def target_fn(df: pd.DataFrame, cfg: Cfg):
+    """tp(i, price) -> take-profit price of a position opened on bar i at `price` (everything known at the open of bar i).
+
+    static: price*(1+D). Otherwise, when the entry is MORE than `near` % below the all-time high so far (a pullback), the TP
+    moves to a prior daily high: ath = all-time high, pdh = previous day's high, hiN = highest high of the previous N days,
+    swing = nearest 2-bar fractal swing high (confirmed, within 120 days) above the static TP. The target is never below the
+    static TP, optionally capped at `cap` %.
+    """
+    D = cfg.d / 100.0
+    h = df["h"].to_numpy(); o = df["o"].to_numpy(); n = len(df)
+    ath_prev = np.concatenate([[o[0]], np.maximum.accumulate(h)[:-1]])
+    if cfg.target.startswith("hi"):
+        N = int(cfg.target[2:])
+        lvl = pd.Series(h).rolling(N, min_periods=1).max().shift(1).bfill().to_numpy()
+    elif cfg.target == "pdh":
+        lvl = np.concatenate([[h[0]], h[:-1]])
+    elif cfg.target == "ath":
+        lvl = ath_prev
+    else:
+        lvl = None
+    piv = []
+    if cfg.target == "swing":
+        for k in range(2, n - 2):
+            if h[k] > max(h[k - 2], h[k - 1], h[k + 1], h[k + 2]):
+                piv.append((k, h[k]))
+    piv_k = np.array([k for k, _ in piv]) if piv else np.array([], dtype=int)
+    piv_v = np.array([v for _, v in piv]) if piv else np.array([])
+
+    def tp(i, price, ath_now=None):
+        static = price * (1 + D)
+        if cfg.target == "static":
+            return static
+        ath = max(ath_prev[i], o[i] if ath_now is None else ath_now)
+        if (ath / price - 1.0) * 100.0 <= cfg.near:
+            return static
+        if cfg.target == "swing":
+            m = (piv_k <= i - 3) & (piv_k > i - 120) & (piv_v > static)
+            level = float(piv_v[m].min()) if m.any() else static
+        else:
+            level = float(lvl[i])
+        out = max(static, level)
+        if cfg.cap:
+            out = max(static, min(out, price * (1 + cfg.cap / 100.0)))
+        return out
+
+    return tp
+
+
 def simulate(df: pd.DataFrame, cfg: Cfg):
     o = df["o"].to_numpy(); h = df["h"].to_numpy(); l = df["l"].to_numpy(); c = df["c"].to_numpy()
     n = len(df)
@@ -74,6 +125,7 @@ def simulate(df: pd.DataFrame, cfg: Cfg):
     D = cfg.d / 100.0
     s = cfg.step / 100.0
     reg = regime(df, cfg.sma) if cfg.sma else None
+    tpf = target_fn(df, cfg)
     prev_ret = np.concatenate([[0.0], c[1:] / c[:-1] - 1.0]) * 100
     prev_ret = np.concatenate([[0.0], prev_ret[:-1]])                       # previous day's return, known at the open
     hi60 = pd.Series(c).rolling(60, min_periods=1).max().shift(1).bfill().to_numpy()
@@ -99,7 +151,7 @@ def simulate(df: pd.DataFrame, cfg: Cfg):
         # --- daily-open entry
         if not E and not blocked_daily and not dd_blocked and len(E) < cfg.k:
             w = unit / D
-            E.append(o[i]); TP.append(o[i] * (1 + D)); W.append(w); ENT.append(i)
+            E.append(o[i]); TP.append(tpf(i, o[i])); W.append(w); ENT.append(i)
             sumw += w; sumwinv += w / o[i]; lowest = o[i]
             log.append([i, o[i], -1]); pid.append(len(log) - 1)
             new_this_bar.add(len(log) - 1)
@@ -109,7 +161,7 @@ def simulate(df: pd.DataFrame, cfg: Cfg):
             while len(E) < cfg.k and l[i] <= lowest * (1 - s):
                 price = min(o[i], lowest * (1 - s))
                 w = unit / D / (1.0 + cfg.depth * len(E))
-                E.append(price); TP.append(price * (1 + D)); W.append(w); ENT.append(i)
+                E.append(price); TP.append(tpf(i, price)); W.append(w); ENT.append(i)
                 sumw += w; sumwinv += w / price; lowest = price
                 log.append([i, price, -1]); pid.append(len(log) - 1)
                 new_this_bar.add(len(log) - 1)
@@ -126,7 +178,7 @@ def simulate(df: pd.DataFrame, cfg: Cfg):
             if exit_ok and cfg.mode == "cons" and ENT[j] == i and pid[j] in new_this_bar and E[j] != o[i]:
                 exit_ok = False                                        # bought at a lower level inside this bar
             if exit_ok:
-                R += W[j] * (D - COST)
+                R += W[j] * (TP[j] / E[j] - 1.0 - COST)
                 sumw -= W[j]; sumwinv -= W[j] / E[j]
                 log[pid[j]][2] = i
                 for a in (E, TP, W, ENT, pid):
@@ -150,6 +202,7 @@ def simulate_path(df: pd.DataFrame, cfg: Cfg):
     n = len(df); t = df.index
     D = cfg.d / 100.0; s = cfg.step / 100.0
     reg = regime(df, cfg.sma) if cfg.sma else None
+    tpf = target_fn(df, cfg)
     prev_ret = np.concatenate([[0.0], c[1:] / c[:-1] - 1.0]) * 100
     prev_ret = np.concatenate([[0.0], prev_ret[:-1]])
     hi60 = pd.Series(c).rolling(60, min_periods=1).max().shift(1).bfill().to_numpy()
@@ -163,7 +216,7 @@ def simulate_path(df: pd.DataFrame, cfg: Cfg):
 
     def add(price, fresh, i):
         w = unit / D / (1.0 + cfg.depth * len(E))
-        E.append(price); TP.append(price * (1 + D)); W.append(w); FRESH.append(fresh)
+        E.append(price); TP.append(tpf(i, price)); W.append(w); FRESH.append(fresh)
         st["sumw"] += w; st["sumwinv"] += w / price
         log.append([i, price, -1]); PID.append(len(log) - 1)
 
@@ -172,7 +225,7 @@ def simulate_path(df: pd.DataFrame, cfg: Cfg):
         while j < len(E):
             reach = level_fresh if FRESH[j] else h[i]
             if reach >= TP[j]:
-                st["R"] += W[j] * (D - COST)
+                st["R"] += W[j] * (TP[j] / E[j] - 1.0 - COST)
                 st["sumw"] -= W[j]; st["sumwinv"] -= W[j] / E[j]
                 log[PID[j]][2] = i
                 for a in (E, TP, W, FRESH, PID):
