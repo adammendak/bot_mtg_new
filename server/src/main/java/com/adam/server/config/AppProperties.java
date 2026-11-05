@@ -35,6 +35,8 @@ public class AppProperties {
     /** Variant B of the ladders (trend filter): sub-account names (LADDER_GER_2_ACCOUNT_NAME / LADDER_SP_2_ACCOUNT_NAME). */
     private String ladderGer2AccountName = "LadderGER2";
     private String ladderSp2AccountName = "LadderSP2";
+    /** REAL-MONEY ladder: exact name of the small live sub-account (LADDER_LIVE_ACCOUNT_NAME); blank = the bot refuses to trade. */
+    private String ladderLiveAccountName = "";
     private double liveEquityRefuse = 5000;
     private double demoRiskPln = 10;
     private double haltPln = -30;
@@ -382,6 +384,14 @@ public class AppProperties {
         this.ladderGer2AccountName = ladderGer2AccountName;
     }
 
+    public String getLadderLiveAccountName() {
+        return ladderLiveAccountName;
+    }
+
+    public void setLadderLiveAccountName(String ladderLiveAccountName) {
+        this.ladderLiveAccountName = ladderLiveAccountName;
+    }
+
     public String getLadderSp2AccountName() {
         return ladderSp2AccountName;
     }
@@ -682,6 +692,7 @@ public class AppProperties {
         private final Endpoint ladderSp = new Endpoint();
         private final Endpoint ladderGer2 = new Endpoint();
         private final Endpoint ladderSp2 = new Endpoint();
+        private final Endpoint ladderLive = new Endpoint();
 
         public Capital() {
             demo.setHost("https://demo-api-capital.backend-capital.com");
@@ -696,6 +707,7 @@ public class AppProperties {
             ladderSp.setHost("https://demo-api-capital.backend-capital.com");
             ladderGer2.setHost("https://demo-api-capital.backend-capital.com");
             ladderSp2.setHost("https://demo-api-capital.backend-capital.com");
+            ladderLive.setHost("https://api-capital.backend-capital.com");
         }
 
         public Endpoint getTvH1() {
@@ -716,6 +728,10 @@ public class AppProperties {
 
         public Endpoint getLadderSp2() {
             return ladderSp2;
+        }
+
+        public Endpoint getLadderLive() {
+            return ladderLive;
         }
 
         public Endpoint getTvH4() {

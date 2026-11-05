@@ -117,3 +117,20 @@ na bota; gdy pobranie się nie uda, wejście dostaje static TP (log `ATH lookup 
 * Log wejścia: `BUY … TP 24500.0 (ATH 24500.0)` albo `(static: ATH unknown)`.
 * Brak marginesu (`margin x1.2 > available`) lub rozmiar poniżej minimum brokera = wejście pominięte z ostrzeżeniem w logu,
   zlecenie nie jest składane. Dłuższe trzymanie pozycji wiąże margines na dłużej, więc takie pominięcia mogą być częstsze.
+
+## Bot LIVE na małym koncie (PRAWDZIWE PIENIĄDZE) — domyślnie WYŁĄCZONY
+
+Jedna drabinka GER40 (`GER40-LIVE`) na małym koncie live (np. 400 PLN), ten sam algorytm co boty A (TP na ATH wg
+`LADDER_TP_ATH`, bez SL). Jedyny bot, który może handlować poza demo; konto główne live NIE jest podpięte.
+
+Włączenie wymaga WSZYSTKIEGO naraz (inaczej bot stoi bezczynnie):
+* `LADDER_LIVE_ENABLED=true` **oraz** `LADDER_LIVE_CONFIRM=REAL_MONEY`,
+* `LADDER_LIVE_ACCOUNT_NAME` = dokładna nazwa małego subkonta (bez „jedynego konta" jako zamiennika; pomyłka = bot nic nie robi),
+* dane logowania: `LADDER_LIVE_API_KEY / LADDER_LIVE_EMAIL / LADDER_LIVE_PASSWORD` (domyślnie `CAPITAL_LIVE_*`), host tylko
+  `https://api-capital.backend-capital.com`.
+
+Zabezpieczenia: `LADDER_LIVE_GAIN_PCT` (0,2), `LADDER_LIVE_MAX_POSITIONS` (5), failsafe −25% od `LADDER_LIVE_START_EQUITY`
+(ustaw, inaczej liczy od salda przy starcie), `LADDER_LIVE_MAX_SIZE_OVERSHOOT` (1,5): wejście pomijane, gdy minimalny rozmiar
+brokera > 1,5× docelowy (np. 400 PLN: GER40 min 0,001 ≈ 117 PLN = 0,29× kapitału OK; SP500 min 0,01 ≈ 300 PLN — pominięte).
+Uwaga: pozycje na tym samym instrumencie (DE40) otwarte przez inną strategię na tym koncie bot uzna za swoje — nie mieszaj
+(`HTS_LIVE_EXECUTION_ENABLED`). Wyłączenie: `LADDER_LIVE_ENABLED=false`; otwarte pozycje zostają z TP u brokera.
