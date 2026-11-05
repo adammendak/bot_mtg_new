@@ -224,4 +224,29 @@ class LadderBotTest {
 
         verify(ger2, never()).placeMarketOrder(any());
     }
+
+    @Test
+    void theSpAccountRunsSp500AndGer40AsTwoSeparateLadders() {
+        Account spAcc = new Account("acc-sp", "LadderSP", "EUR", 10000, 10000, 0, true);
+        props.setLadderSpAccountName("LadderSP");
+        when(sp.configured()).thenReturn(true);
+        when(sp.isSessionOpen()).thenReturn(true);
+        when(sp.accounts()).thenReturn(List.of(spAcc));
+        when(risk.pickTvAccount(any(), eq("LadderSP"))).thenReturn(spAcc);
+        when(sp.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(sp.marketRules("US500")).thenReturn(new MarketRules("US500", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(sp.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 24000.0, 24002.0, Instant.now()));
+        when(sp.marketPrice("US500")).thenReturn(new MarketPrice("US500", 7600.0, 7601.0, Instant.now()));
+        // the account already holds a US500 position just above the market: SP500 does not ladder, and it must not count for DE40
+        when(sp.openPositions()).thenReturn(List.of(new Position("d", "r", "US500", Direction.BUY, 0.05, 7610.0, null,
+                7650.0, 0, "EUR", Instant.now())));
+        when(sp.placeMarketOrder(any())).thenReturn(new OrderAck("ref-2", null, "SUBMITTED"));
+
+        bot(true, "2026-11-03T07:06:00Z").tick();
+
+        ArgumentCaptor<OrderRequest> cap = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(sp, org.mockito.Mockito.times(1)).placeMarketOrder(cap.capture());
+        assertThat(cap.getValue().epic()).isEqualTo("DE40");     // GER40 opens at 07:05; SP500 waits for 13:35
+        verify(ger, org.mockito.Mockito.times(1)).placeMarketOrder(any());
+    }
 }
