@@ -113,6 +113,70 @@ class LadderBotTest {
         verify(sp, never()).placeMarketOrder(any());
     }
 
+    private LadderBot botAth(String at) {
+        return new LadderBot(ger, sp, ger2, sp2, props, risk, true, false, 50, 25, GER, SP, GER, 10000, 10000, 0, 0, true, true,
+                730, Clock.fixed(Instant.parse(at), ZoneOffset.UTC));
+    }
+
+    private static List<Candle> highs(double... highs) {
+        List<Candle> out = new java.util.ArrayList<>();
+        Instant first = Instant.parse("2026-11-03T00:00:00Z").minus(java.time.Duration.ofDays(highs.length));
+        for (int i = 0; i < highs.length; i++) {
+            out.add(new Candle(first.plus(java.time.Duration.ofDays(i)), highs[i], highs[i], highs[i], highs[i], 0));
+        }
+        return out;
+    }
+
+    private double placedTp() {
+        ArgumentCaptor<OrderRequest> cap = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(ger).placeMarketOrder(cap.capture());
+        return cap.getValue().profitLevel();
+    }
+
+    @Test
+    void afterAPullbackTheTakeProfitIsTheAllTimeHigh() {
+        when(ger.candles(eq("DE40"), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(highs(24300, 24500, 24100));
+
+        botAth("2026-11-03T07:06:00Z").tick();
+
+        assertThat(placedTp()).isEqualTo(24500.0);
+    }
+
+    @Test
+    void nearTheAllTimeHighTheTakeProfitStaysStatic() {
+        when(ger.candles(eq("DE40"), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(highs(23900, 24050, 24000));
+
+        botAth("2026-11-03T07:06:00Z").tick();
+
+        assertThat(placedTp()).isEqualTo(24122.0);          // ATH 24050 is below the static TP 24122
+    }
+
+    @Test
+    void whenTheAthCannotBeFetchedTheEntryGetsTheStaticTakeProfit() {
+        when(ger.candles(eq("DE40"), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenThrow(new RuntimeException("HTTP 429"));
+
+        botAth("2026-11-03T07:06:00Z").tick();
+
+        assertThat(placedTp()).isEqualTo(24122.0);
+    }
+
+    @Test
+    void theAthIsFetchedOncePerDay() {
+        when(ger.candles(eq("DE40"), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(highs(24300, 24500, 24100));
+        when(ger.openPositions()).thenReturn(List.of(pos(24000.0)));
+        when(ger.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 23800.0, 23802.0, Instant.now()));
+        LadderBot b = botAth("2026-11-03T15:00:00Z");
+
+        b.tick();
+        // the 120 s order cooldown uses the fixed clock, so a second buy is refused — the cache is what is under test
+        verify(ger, org.mockito.Mockito.times(1)).candles(eq("DE40"), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt());
+    }
+
     @Test
     void laddersWhenTheBidFallsHalfAPercentBelowTheLowestEntry() {
         when(ger.openPositions()).thenReturn(List.of(pos(24000.0), pos(24100.0)));
@@ -248,5 +312,33 @@ class LadderBotTest {
         verify(sp, org.mockito.Mockito.times(1)).placeMarketOrder(cap.capture());
         assertThat(cap.getValue().epic()).isEqualTo("DE40");     // GER40 opens at 07:05; SP500 waits for 13:35
         verify(ger, org.mockito.Mockito.times(1)).placeMarketOrder(any());
+    }
+
+    @Test
+    void theGerLadderOnTheSpAccountCanUseItsOwnGain() {
+        Account spAcc = new Account("acc-sp", "LadderSP", "EUR", 10000, 10000, 0, true);
+        props.setLadderSpAccountName("LadderSP");
+        when(sp.configured()).thenReturn(true);
+        when(sp.isSessionOpen()).thenReturn(true);
+        when(sp.accounts()).thenReturn(List.of(spAcc));
+        when(risk.pickTvAccount(any(), eq("LadderSP"))).thenReturn(spAcc);
+        when(sp.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(sp.marketRules("US500")).thenReturn(new MarketRules("US500", 0.01, 1, 0, 0, true, 0.05, "EUR", 1.0, 0.1));
+        when(sp.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 24000.0, 24002.0, Instant.now()));
+        when(sp.marketPrice("US500")).thenReturn(new MarketPrice("US500", 7600.0, 7601.0, Instant.now()));
+        when(sp.openPositions()).thenReturn(List.of());
+        when(sp.placeMarketOrder(any())).thenReturn(new OrderAck("ref-2", null, "SUBMITTED"));
+        Params gerOnSp = new Params("GER40", "DE40", 0.5, 0.5, 10, 0.4, LocalTime.of(7, 5), 15);
+        LadderBot b = new LadderBot(ger, sp, ger2, sp2, props, risk, true, false, 50, 25, GER, SP, gerOnSp, 10000, 10000, 0,
+                0, Clock.fixed(Instant.parse("2026-11-03T07:06:00Z"), ZoneOffset.UTC));
+
+        b.tick();
+
+        ArgumentCaptor<OrderRequest> onSp = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(sp).placeMarketOrder(onSp.capture());
+        ArgumentCaptor<OrderRequest> onGer = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(ger).placeMarketOrder(onGer.capture());
+        assertThat(onSp.getValue().size()).isEqualTo(0.33);          // 0.8 x 10000 / 24002 ... twice the plain GER40 size
+        assertThat(onGer.getValue().size()).isEqualTo(0.17);
     }
 }

@@ -98,3 +98,22 @@ Uwaga na ryzyko: oba indeksy dzielą kapitał jednego konta, a g liczy się od c
 niż na kontach jednoindeksowych (przy g = 0,1% i pełnych drabinkach około 3,3x kapitału w nominale). Badanie
 `DAILY-SCALP-LONGONLY.md` §11 pokazuje, że stackowanie indeksów bez podziału g jest ryzykowne; ewentualne obniżenie g
 na tych kontach wymaga osobnej zmiennej.
+
+Osobny g dla GER40 na kontach SP: `LADDER_SP_GER_GAIN_PCT` (0 lub brak = takie samo jak `LADDER_GER_GAIN_PCT`). SP500 na tych kontach
+ma `LADDER_SP_GAIN_PCT` (to samo dla A i B). Plan testu agresywnego: `LADDER_SP_GAIN_PCT=0.2` + `LADDER_SP_GER_GAIN_PCT=0.2`,
+konta `LadderGER` / `LadderGER2` zostają na `LADDER_GER_GAIN_PCT=0.1`.
+
+## TP na poprzednim szczycie (ATH) — od 2026-11-05
+
+Każda pozycja dostaje przy wejściu `TP = max(static, ATH)`: blisko ATH static (0,5% GER40 / 0,75% SP500) jest dalej niż
+szczyt, więc zostaje static; po cofnięciu pozycja czeka na poprzedni szczyt. Wejścia (otwarcie dnia, drabinka co 0,5%, K10)
+i rozmiar (`g / static TP`) bez zmian — dalszy TP płaci więcej za trafienie, ale trzyma pozycję dłużej (finansowanie).
+ATH = najwyższy `high` zakończonych świec D1 z ostatnich `LADDER_ATH_LOOKBACK_DAYS` (730) dni, pobierany raz na dobę UTC
+na bota; gdy pobranie się nie uda, wejście dostaje static TP (log `ATH lookup failed`). Badanie i tabele:
+`docs/LADDER-TP-TARGETS-2026-11.md`.
+
+* `LADDER_TP_ATH` (domyślnie `true`) — boty A (LadderGER, LadderSP, GER40@SP); `LADDER_B_TP_ATH` (`true`) — boty B.
+  `false` = wrót do static TP bez zmiany kodu. Dotyczy tylko NOWYCH wejść; otwarte pozycje zachowują swój TP.
+* Log wejścia: `BUY … TP 24500.0 (ATH 24500.0)` albo `(static: ATH unknown)`.
+* Brak marginesu (`margin x1.2 > available`) lub rozmiar poniżej minimum brokera = wejście pominięte z ostrzeżeniem w logu,
+  zlecenie nie jest składane. Dłuższe trzymanie pozycji wiąże margines na dłużej, więc takie pominięcia mogą być częstsze.

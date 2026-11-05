@@ -52,6 +52,7 @@ public class LadderBot {
         final String host;
         final boolean variantB;
         final int trendSma;
+        final boolean tpAth;
         double startEquity;
         LocalDate lastOpenDay;
         Instant lastOrderAt = Instant.EPOCH;
@@ -59,9 +60,11 @@ public class LadderBot {
         Boolean trendOk;
         LocalDate trendDay;
         boolean previewLogged;
+        Double athHigh;
+        LocalDate athDay;
 
         Bot(Params params, BrokerClient broker, String accountName, String host, double startEquity,
-            boolean variantB, int trendSma) {
+            boolean variantB, int trendSma, boolean tpAth) {
             this.params = params;
             this.broker = broker;
             this.accountName = accountName;
@@ -69,6 +72,7 @@ public class LadderBot {
             this.startEquity = startEquity;
             this.variantB = variantB;
             this.trendSma = trendSma;
+            this.tpAth = tpAth;
         }
     }
 
@@ -77,6 +81,7 @@ public class LadderBot {
     private final boolean enabled;
     private final boolean enabledB;
     private final double failsafeDropPct;
+    private final int athLookbackDays;
     private final Clock clock;
 
     @Autowired
@@ -91,10 +96,14 @@ public class LadderBot {
             @Value("${app.ladder-b.enabled:false}") boolean enabledB,
             @Value("${app.ladder-b.trend-sma:50}") int trendSma,
             @Value("${app.ladder.failsafe-drop-pct:25}") double failsafeDropPct,
+            @Value("${app.ladder.tp-ath:true}") boolean tpAthA,
+            @Value("${app.ladder-b.tp-ath:true}") boolean tpAthB,
+            @Value("${app.ladder.ath-lookback-days:730}") int athLookbackDays,
             @Value("${app.ladder.ger.tp-pct:0.5}") double gerTp,
             @Value("${app.ladder.ger.step-pct:0.5}") double gerStep,
             @Value("${app.ladder.ger.max-positions:10}") int gerMax,
             @Value("${app.ladder.ger.gain-pct:0.2}") double gerGain,
+            @Value("${app.ladder.sp-ger.gain-pct:0}") double gerOnSpGain,
             @Value("${app.ladder.ger.start-equity:0}") double gerStart,
             @Value("${app.ladder.sp.tp-pct:0.75}") double spTp,
             @Value("${app.ladder.sp.step-pct:0.5}") double spStep,
@@ -106,33 +115,59 @@ public class LadderBot {
         this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
                 new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerGain, LocalTime.of(7, 5), 15),
                 new Params("SP500", "US500", spTp, spStep, spMax, spGain, LocalTime.of(13, 35), 15),
-                gerStart, spStart, ger2Start, sp2Start, Clock.systemUTC());
+                new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerOnSpGain > 0 ? gerOnSpGain : gerGain,
+                        LocalTime.of(7, 5), 15),
+                gerStart, spStart, ger2Start, sp2Start, tpAthA, tpAthB, athLookbackDays, Clock.systemUTC());
     }
 
-    /** Variant B runs the same parameters as A (only the trend filter differs), so B reuses A's {@link Params}. */
     LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
               AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
               double failsafeDropPct, Params ger, Params sp, double gerStart, double spStart, double ger2Start,
               double sp2Start, Clock clock) {
+        this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
+                ger, sp, ger, gerStart, spStart, ger2Start, sp2Start, clock);
+    }
+
+    /**
+     * Variant B runs the same parameters as A (only the trend filter differs), so B reuses A's {@link Params}. The GER40
+     * ladder that shares the SP accounts has its own parameters ({@code gerOnSp}), e.g. a different gain.
+     */
+    LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
+              AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
+              double failsafeDropPct, Params ger, Params sp, Params gerOnSp, double gerStart, double spStart,
+              double ger2Start, double sp2Start, Clock clock) {
+        this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
+                ger, sp, gerOnSp, gerStart, spStart, ger2Start, sp2Start, false, false, 730, clock);
+    }
+
+    /**
+     * {@code tpAthA / tpAthB}: take-profit at the prior high ({@link LadderTarget}) instead of the static TP, for the
+     * A and B bots respectively; {@code athLookbackDays}: how much daily history the ATH is taken from.
+     */
+    LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
+              AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
+              double failsafeDropPct, Params ger, Params sp, Params gerOnSp, double gerStart, double spStart,
+              double ger2Start, double sp2Start, boolean tpAthA, boolean tpAthB, int athLookbackDays, Clock clock) {
+        this.athLookbackDays = athLookbackDays;
         this.risk = risk;
         this.enabled = enabled;
         this.enabledB = enabledB;
         this.failsafeDropPct = failsafeDropPct;
         this.clock = clock;
         bots.add(new Bot(ger, gerBroker, properties.getLadderGerAccountName(),
-                properties.getCapital().getLadderGer().getHost(), gerStart, false, 0));
+                properties.getCapital().getLadderGer().getHost(), gerStart, false, 0, tpAthA));
         bots.add(new Bot(sp, spBroker, properties.getLadderSpAccountName(),
-                properties.getCapital().getLadderSp().getHost(), spStart, false, 0));
+                properties.getCapital().getLadderSp().getHost(), spStart, false, 0, tpAthA));
         bots.add(new Bot(renamed(ger, "-B"), ger2Broker, properties.getLadderGer2AccountName(),
-                properties.getCapital().getLadderGer2().getHost(), ger2Start, true, trendSma));
+                properties.getCapital().getLadderGer2().getHost(), ger2Start, true, trendSma, tpAthB));
         bots.add(new Bot(renamed(sp, "-B"), sp2Broker, properties.getLadderSp2AccountName(),
-                properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
+                properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma, tpAthB));
         // The SP accounts run GER40 as well: the same broker session and account, a second instrument. Positions are told
         // apart by epic, so each ladder only ever sees and extends its own.
-        bots.add(new Bot(renamed(ger, "@SP"), spBroker, properties.getLadderSpAccountName(),
-                properties.getCapital().getLadderSp().getHost(), spStart, false, 0));
-        bots.add(new Bot(renamed(ger, "@SP-B"), sp2Broker, properties.getLadderSp2AccountName(),
-                properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma));
+        bots.add(new Bot(renamed(gerOnSp, "@SP"), spBroker, properties.getLadderSpAccountName(),
+                properties.getCapital().getLadderSp().getHost(), spStart, false, 0, tpAthA));
+        bots.add(new Bot(renamed(gerOnSp, "@SP-B"), sp2Broker, properties.getLadderSp2AccountName(),
+                properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma, tpAthB));
     }
 
     private static Params renamed(Params p, String suffix) {
@@ -309,7 +344,8 @@ public class LadderBot {
                     Math.round(acc.available()));
             return;
         }
-        double tp = rules.roundPrice(px.ask() * (1.0 + p.tpPct() / 100.0));
+        Double ath = b.tpAth ? priorHigh(b, now) : null;
+        double tp = rules.roundPrice(LadderTarget.takeProfit(px.ask(), p.tpPct(), ath));
         OrderRequest req = new OrderRequest(p.epic(), Direction.BUY, size, null, "MARKET", null, null, tp, false);
         OrderAck ack = c.placeMarketOrder(req);
         b.lastOrderAt = now;
@@ -327,7 +363,32 @@ public class LadderBot {
         } catch (Exception e) {
             result = "UNCONFIRMED (" + e.getClass().getSimpleName() + ")";
         }
-        log.info("LADDER[{}] BUY {} {} @~{} TP {} ({} open before) — {} → {}", p.name(), size, p.epic(), px.ask(), tp,
-                openCount, d.reason(), result);
+        log.info("LADDER[{}] BUY {} {} @~{} TP {}{} ({} open before) — {} → {}", p.name(), size, p.epic(), px.ask(), tp,
+                b.tpAth ? (ath == null ? " (static: ATH unknown)" : " (ATH " + ath + ")") : "", openCount, d.reason(),
+                result);
+    }
+
+    /**
+     * The ATH for the TP rule: highest high of the completed daily candles, fetched once per UTC day per bot. A failed
+     * fetch returns null (the entry then gets the static TP and the fetch is retried on the next entry).
+     */
+    private Double priorHigh(Bot b, Instant now) {
+        LocalDate today = now.atZone(ZoneOffset.UTC).toLocalDate();
+        if (b.athHigh != null && today.equals(b.athDay)) {
+            return b.athHigh;
+        }
+        try {
+            List<Candle> d1 = b.broker.candles(b.params.epic(), Resolution.D1, now.minus(Duration.ofDays(athLookbackDays)),
+                    now, 1000);
+            Double high = LadderTarget.priorHigh(d1, now);
+            if (high != null) {
+                b.athHigh = high;
+                b.athDay = today;
+            }
+            return high;
+        } catch (Exception e) {
+            log.warn("LADDER[{}] ATH lookup failed ({}): static TP for this entry", b.params.name(), e.getClass().getSimpleName());
+            return null;
+        }
     }
 }
