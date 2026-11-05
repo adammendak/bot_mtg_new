@@ -152,6 +152,28 @@ public class BrokerConfiguration {
         );
     }
 
+    /** REAL-MONEY ladder session (separate login from the `live` book so selecting its account cannot disturb it). */
+    @Bean("ladderLiveBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
+    BrokerClient capitalLadderLiveBroker(RestClient.Builder builder, AppProperties properties) {
+        AppProperties.Endpoint ep = properties.getCapital().getLadderLive();
+        if (ep.getHost() == null || ep.getHost().isBlank()) {
+            ep.setHost("https://api-capital.backend-capital.com");
+        }
+        return new CapitalComBrokerClient(
+                builder,
+                "ladlive",
+                ep,
+                "Capital.com Ladder LIVE credentials are not set (LADDER_LIVE_API_KEY / LADDER_LIVE_EMAIL / LADDER_LIVE_PASSWORD, default: CAPITAL_LIVE_*)"
+        );
+    }
+
+    @Bean("ladderLiveBroker")
+    @ConditionalOnProperty(name = "app.broker", havingValue = "paper")
+    BrokerClient paperLadderLivePlaceholder() {
+        return new UnavailableBrokerClient("ladlive", "Ladder LIVE book is not wired in paper mode");
+    }
+
     @Bean("ladderGerBroker")
     @ConditionalOnProperty(name = "app.broker", havingValue = "capital", matchIfMissing = true)
     BrokerClient capitalLadderGerBroker(RestClient.Builder builder, AppProperties properties) {

@@ -43,6 +43,9 @@ public class LadderBot {
 
     private static final Logger log = LoggerFactory.getLogger(LadderBot.class);
     private static final long ORDER_COOLDOWN_SECONDS = 120;
+    /** The only host the REAL-MONEY bot accepts, and the phrase that must accompany LADDER_LIVE_ENABLED. */
+    static final String LIVE_HOST = "https://api-capital.backend-capital.com";
+    static final String LIVE_CONFIRM = "REAL_MONEY";
 
     /** One bot = one broker book + one instrument; mutable guards are in-memory only. */
     static final class Bot {
@@ -53,6 +56,8 @@ public class LadderBot {
         final boolean variantB;
         final int trendSma;
         final boolean tpAth;
+        final boolean live;
+        final double maxSizeOvershoot;
         double startEquity;
         LocalDate lastOpenDay;
         Instant lastOrderAt = Instant.EPOCH;
@@ -65,6 +70,11 @@ public class LadderBot {
 
         Bot(Params params, BrokerClient broker, String accountName, String host, double startEquity,
             boolean variantB, int trendSma, boolean tpAth) {
+            this(params, broker, accountName, host, startEquity, variantB, trendSma, tpAth, false, 0);
+        }
+
+        Bot(Params params, BrokerClient broker, String accountName, String host, double startEquity,
+            boolean variantB, int trendSma, boolean tpAth, boolean live, double maxSizeOvershoot) {
             this.params = params;
             this.broker = broker;
             this.accountName = accountName;
@@ -73,6 +83,8 @@ public class LadderBot {
             this.variantB = variantB;
             this.trendSma = trendSma;
             this.tpAth = tpAth;
+            this.live = live;
+            this.maxSizeOvershoot = maxSizeOvershoot;
         }
     }
 
@@ -80,6 +92,7 @@ public class LadderBot {
     private final RiskPolicy risk;
     private final boolean enabled;
     private final boolean enabledB;
+    private final boolean liveActive;
     private final double failsafeDropPct;
     private final int athLookbackDays;
     private final Clock clock;
@@ -90,6 +103,7 @@ public class LadderBot {
             @Qualifier("ladderSpBroker") BrokerClient spBroker,
             @Qualifier("ladderGer2Broker") BrokerClient ger2Broker,
             @Qualifier("ladderSp2Broker") BrokerClient sp2Broker,
+            @Qualifier("ladderLiveBroker") BrokerClient liveBroker,
             AppProperties properties,
             RiskPolicy risk,
             @Value("${app.ladder.enabled:false}") boolean enabled,
@@ -111,13 +125,21 @@ public class LadderBot {
             @Value("${app.ladder.sp.gain-pct:0.2}") double spGain,
             @Value("${app.ladder.sp.start-equity:0}") double spStart,
             @Value("${app.ladder-b.ger.start-equity:0}") double ger2Start,
-            @Value("${app.ladder-b.sp.start-equity:0}") double sp2Start) {
+            @Value("${app.ladder-b.sp.start-equity:0}") double sp2Start,
+            @Value("${app.ladder-live.enabled:false}") boolean liveEnabled,
+            @Value("${app.ladder-live.confirm:}") String liveConfirm,
+            @Value("${app.ladder-live.gain-pct:0.2}") double liveGain,
+            @Value("${app.ladder-live.max-positions:5}") int liveMax,
+            @Value("${app.ladder-live.start-equity:0}") double liveStart,
+            @Value("${app.ladder-live.max-size-overshoot:1.5}") double liveOvershoot) {
         this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
                 new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerGain, LocalTime.of(7, 5), 15),
                 new Params("SP500", "US500", spTp, spStep, spMax, spGain, LocalTime.of(13, 35), 15),
                 new Params("GER40", "DE40", gerTp, gerStep, gerMax, gerOnSpGain > 0 ? gerOnSpGain : gerGain,
                         LocalTime.of(7, 5), 15),
-                gerStart, spStart, ger2Start, sp2Start, tpAthA, tpAthB, athLookbackDays, Clock.systemUTC());
+                gerStart, spStart, ger2Start, sp2Start, tpAthA, tpAthB, athLookbackDays,
+                new Params("GER40-LIVE", "DE40", gerTp, gerStep, liveMax, liveGain, LocalTime.of(7, 5), 15),
+                liveBroker, liveEnabled && LIVE_CONFIRM.equals(liveConfirm), liveStart, liveOvershoot, Clock.systemUTC());
     }
 
     LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
@@ -148,6 +170,22 @@ public class LadderBot {
               AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
               double failsafeDropPct, Params ger, Params sp, Params gerOnSp, double gerStart, double spStart,
               double ger2Start, double sp2Start, boolean tpAthA, boolean tpAthB, int athLookbackDays, Clock clock) {
+        this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
+                ger, sp, gerOnSp, gerStart, spStart, ger2Start, sp2Start, tpAthA, tpAthB, athLookbackDays, null, null,
+                false, 0, 0, clock);
+    }
+
+    /**
+     * {@code liveBroker / liveParams / liveActive}: the optional REAL-MONEY GER40 ladder on the small live sub-account
+     * (null broker = none). {@code liveActive} is true only when both LADDER_LIVE_ENABLED and the confirm phrase are set.
+     */
+    LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
+              AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
+              double failsafeDropPct, Params ger, Params sp, Params gerOnSp, double gerStart, double spStart,
+              double ger2Start, double sp2Start, boolean tpAthA, boolean tpAthB, int athLookbackDays,
+              Params liveParams, BrokerClient liveBroker, boolean liveActive, double liveStart, double liveOvershoot,
+              Clock clock) {
+        this.liveActive = liveActive;
         this.athLookbackDays = athLookbackDays;
         this.risk = risk;
         this.enabled = enabled;
@@ -168,6 +206,10 @@ public class LadderBot {
                 properties.getCapital().getLadderSp().getHost(), spStart, false, 0, tpAthA));
         bots.add(new Bot(renamed(gerOnSp, "@SP-B"), sp2Broker, properties.getLadderSp2AccountName(),
                 properties.getCapital().getLadderSp2().getHost(), sp2Start, true, trendSma, tpAthB));
+        if (liveBroker != null && liveParams != null) {
+            bots.add(new Bot(liveParams, liveBroker, properties.getLadderLiveAccountName(),
+                    properties.getCapital().getLadderLive().getHost(), liveStart, false, 0, tpAthA, true, liveOvershoot));
+        }
     }
 
     private static Params renamed(Params p, String suffix) {
@@ -177,11 +219,11 @@ public class LadderBot {
 
     @Scheduled(cron = "${app.ladder.cron:5 * * * * *}", zone = "UTC")
     public void tick() {
-        if (!enabled && !enabledB) {
+        if (!enabled && !enabledB && !liveActive) {
             return;
         }
         for (Bot b : bots) {
-            if (b.variantB ? !enabledB : !enabled) {
+            if (b.live ? !liveActive : (b.variantB ? !enabledB : !enabled)) {
                 continue;
             }
             try {
@@ -203,8 +245,15 @@ public class LadderBot {
             }
             return;
         }
-        // Demo only, ever: refuse any host that is not the Capital.com demo API.
-        if (b.host == null || !b.host.contains("demo-api-capital")) {
+        // Every bot but the explicitly enabled live one: demo only, refuse any host that is not the Capital.com demo API.
+        if (b.live) {
+            if (b.host == null || !b.host.replaceAll("/+$", "").equals(LIVE_HOST)
+                    || b.accountName == null || b.accountName.isBlank()) {
+                log.error("LADDER[{}] REAL MONEY: refusing to trade - host '{}' must be {} and LADDER_LIVE_ACCOUNT_NAME must be set",
+                        p.name(), b.host, LIVE_HOST);
+                return;
+            }
+        } else if (b.host == null || !b.host.contains("demo-api-capital")) {
             log.error("LADDER[{}] refusing to trade: host '{}' is not the Capital.com demo API", p.name(), b.host);
             return;
         }
@@ -212,7 +261,8 @@ public class LadderBot {
             c.login();
         }
         List<Account> accounts = c.accounts();
-        Account acc = risk.pickTvAccount(accounts, b.accountName);
+        // The live bot needs the EXACT account name: no 'only one account' fallback on real money.
+        Account acc = b.live ? exactAccount(accounts, b.accountName) : risk.pickTvAccount(accounts, b.accountName);
         if (acc == null || acc.id() == null) {
             log.warn("LADDER[{}] sub-account '{}' not found on this login; accounts seen: {}", p.name(),
                     b.accountName, accounts == null ? List.of() : accounts.stream().map(Account::name).toList());
@@ -260,6 +310,13 @@ public class LadderBot {
             return;    // the previous order may not be visible in openPositions() yet
         }
         placeBuy(b, acc, rules, px, equity, d, now, entries.size());
+    }
+
+    private static Account exactAccount(List<Account> accounts, String name) {
+        if (accounts == null) {
+            return null;
+        }
+        return accounts.stream().filter(a -> name.equals(a.name())).findFirst().orElse(null);
     }
 
     /**
@@ -337,6 +394,14 @@ public class LadderBot {
             log.warn("LADDER[{}] skip: size {} is below the broker minimum {} (equity {}, n={})", p.name(), rawSize,
                     rules.minDealSize(), Math.round(equity), p.notionalMultiple());
             return;
+        }
+        if (b.live && equity > 0 && b.maxSizeOvershoot > 0) {
+            double realMultiple = size * px.ask() * pointValueAcct / equity;
+            if (realMultiple > p.notionalMultiple() * b.maxSizeOvershoot) {
+                log.warn("LADDER[{}] REAL MONEY skip: the smallest allowed size {} = {}x equity is more than {}x the target {}x",
+                        p.name(), size, Math.round(realMultiple * 100) / 100.0, b.maxSizeOvershoot, p.notionalMultiple());
+                return;
+            }
         }
         double margin = (rules.marginFactor() > 0 ? rules.marginFactor() : 0.05) * size * px.ask() * pointValueAcct;
         if (margin * 1.2 > acc.available()) {

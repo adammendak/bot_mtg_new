@@ -177,6 +177,83 @@ class LadderBotTest {
                 org.mockito.ArgumentMatchers.anyInt());
     }
 
+    private BrokerClient live;
+    private static final Params LIVE_GER = new Params("GER40-LIVE", "DE40", 0.5, 0.5, 5, 0.2, LocalTime.of(7, 5), 15);
+
+    private LadderBot botLive(boolean active, String at) {
+        return new LadderBot(ger, sp, ger2, sp2, props, risk, false, false, 50, 25, GER, SP, GER, 10000, 10000, 0, 0,
+                false, false, 730, LIVE_GER, live, active, 400, 1.5, Clock.fixed(Instant.parse(at), ZoneOffset.UTC));
+    }
+
+    private void wireLive(double balance, String accountName) {
+        live = mock(BrokerClient.class);
+        Account acc = new Account("live-1", accountName, "PLN", balance, balance, 0, true);
+        when(live.configured()).thenReturn(true);
+        when(live.isSessionOpen()).thenReturn(true);
+        when(live.accounts()).thenReturn(List.of(acc, new Account("live-main", "Main", "PLN", 50000, 50000, 0, true)));
+        when(live.marketRules("DE40")).thenReturn(new MarketRules("DE40", 0.001, 1, 0, 0, true, 0.05, "PLN", 1.0, 0.1));
+        when(live.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 26000.0, 26002.0, Instant.now()));
+        when(live.openPositions()).thenReturn(List.of());
+        when(live.placeMarketOrder(any())).thenReturn(new OrderAck("ref-l", null, "SUBMITTED"));
+        props.getCapital().getLadderLive().setHost("https://api-capital.backend-capital.com");
+        props.setLadderLiveAccountName("LiveSmall");
+    }
+
+    @Test
+    void theLiveBotStaysIdleUnlessBothSwitchesAreOn() {
+        wireLive(400, "LiveSmall");
+
+        botLive(false, "2026-11-03T07:06:00Z").tick();
+
+        verify(live, never()).placeMarketOrder(any());
+        verify(live, never()).accounts();
+    }
+
+    @Test
+    void theLiveBotBuysTheSmallestSizeOnTheNamedAccountOnly() {
+        wireLive(400, "LiveSmall");
+        // one unit = 26002 PLN, target 0.4x of 400 = 160 PLN -> 0.006
+        when(risk.pickTvAccount(any(), any())).thenThrow(new AssertionError("live must not use the fallback picker"));
+
+        botLive(true, "2026-11-03T07:06:00Z").tick();
+
+        ArgumentCaptor<OrderRequest> cap = ArgumentCaptor.forClass(OrderRequest.class);
+        verify(live).selectAccount("live-1");
+        verify(live).placeMarketOrder(cap.capture());
+        assertThat(cap.getValue().size()).isEqualTo(0.006);
+        assertThat(cap.getValue().stopLevel()).isNull();
+        verify(ger, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void theLiveBotRefusesAnAccountNameThatDoesNotMatchExactly() {
+        wireLive(400, "LiveSmall");
+        props.setLadderLiveAccountName("livesmall");
+
+        botLive(true, "2026-11-03T07:06:00Z").tick();
+
+        verify(live, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void theLiveBotRefusesADemoHost() {
+        wireLive(400, "LiveSmall");
+        props.getCapital().getLadderLive().setHost("https://demo-api-capital.backend-capital.com");
+
+        botLive(true, "2026-11-03T07:06:00Z").tick();
+
+        verify(live, never()).placeMarketOrder(any());
+    }
+
+    @Test
+    void theLiveBotSkipsWhenTheMinimumSizeIsFarAboveTheTarget() {
+        wireLive(40, "LiveSmall");     // target 0.4 x 40 = 16 PLN, the smallest deal 0.001 x 26002 = 26 PLN = 0.65x > 1.5 x 0.4x
+
+        botLive(true, "2026-11-03T07:06:00Z").tick();
+
+        verify(live, never()).placeMarketOrder(any());
+    }
+
     @Test
     void laddersWhenTheBidFallsHalfAPercentBelowTheLowestEntry() {
         when(ger.openPositions()).thenReturn(List.of(pos(24000.0), pos(24100.0)));
