@@ -52,6 +52,26 @@ paraExt  = input.float(3.0, "Parabolic: distance above MA mid (x ADR)", minval =
 showPara = input.bool(true, "Show parabolic flags", group = "Parabolic (observe)")
 
 showTbl  = input.bool(true, "Show table", group = "Display")
+tblPosIn = input.string("Top right", "Table position", options = ["Top left", "Top center", "Top right", "Middle left", "Middle center", "Middle right", "Bottom left", "Bottom center", "Bottom right"], group = "Display")
+tblSizeIn = input.string("Small", "Table size", options = ["Tiny", "Small", "Normal", "Large", "Huge"], group = "Display")
+
+tblPos = switch tblPosIn
+    "Top left"      => position.top_left
+    "Top center"    => position.top_center
+    "Middle left"   => position.middle_left
+    "Middle center" => position.middle_center
+    "Middle right"  => position.middle_right
+    "Bottom left"   => position.bottom_left
+    "Bottom center" => position.bottom_center
+    "Bottom right"  => position.bottom_right
+    => position.top_right
+
+tblSize = switch tblSizeIn
+    "Tiny"   => size.tiny
+    "Normal" => size.normal
+    "Large"  => size.large
+    "Huge"   => size.huge
+    => size.small
 
 // ── building blocks ──────────────────────────────────────────────────────────
 // both averages are always calculated (ta.* inside a ternary can skip bars), then one is picked
@@ -159,11 +179,11 @@ plotshape(paraSig, "Parabolic (observe)", style = shape.triangledown, location =
 
 // ── table ────────────────────────────────────────────────────────────────────
 f_row(t, r, name, val, good) =>
-    table.cell(t, 0, r, name, text_color = color.white, text_halign = text.align_left, bgcolor = color.new(color.gray, 75), text_size = size.small)
+    table.cell(t, 0, r, name, text_color = color.white, text_halign = text.align_left, bgcolor = color.new(color.gray, 75), text_size = tblSize)
     table.cell(t, 1, r, val, text_color = color.white, text_halign = text.align_right,
-         bgcolor = good ? color.new(#2ecc71, 55) : color.new(color.red, 65), text_size = size.small)
+         bgcolor = good ? color.new(#2ecc71, 55) : color.new(color.red, 65), text_size = tblSize)
 
-var table tbl = table.new(position.top_right, 2, 9, border_width = 1)
+var table tbl = table.new(tblPos, 2, 9, border_width = 1)
 if showTbl and barstate.islast
     f_row(tbl, 0, "ADR% (" + str.tostring(adrLen) + "d)", str.tostring(adr, "#.0") + "%", adrOk)
     f_row(tbl, 1, "Prior run", str.tostring(runPct, "#") + "%", runOk)
