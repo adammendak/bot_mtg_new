@@ -1,0 +1,188 @@
+//@version=6
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Qullamaggie Setups — breakout / episodic pivot / parabolic (observe-only) overlay.
+// Own implementation of the publicly described Kristjan Qullamägi swing technique
+// (docs/QULLAMAGGIE-SETUPS.md). The numbers are DEFAULTS chosen by us from secondary
+// sources — they are inputs, not his rulebook. Built for the DAILY chart (stocks,
+// ETFs, also index CFDs); ADR% is always taken from daily data.
+//
+//   BREAKOUT   1. ADR% >= min (default 5)                       — it must move fast
+//              2. prior run >= min % within run-length bars       — a leader, up strongly
+//              3. trend: MA10 > MA20 > MA50, MA10/MA20 rising, close above MA50
+//              4. orderly consolidation: tight range (vs ADR), shallow pullback from the
+//                 run high, higher lows, volume drying up
+//              5. trigger: close above the consolidation high ("pivot") on volume >= x * avg
+//              6. stop = low of the breakout day (flag when risk > 1 x ADR)
+//              7. manage: partial after N days, trail with the close vs MA10/MA20
+//   EPISODIC   gap up >= N % on volume >= x * avg after a quiet stock (no big prior run)
+//   PARABOLIC  observe-only: huge short-term run + far above MA20 (short-side study)
+//
+// NOT here: stock screener (liquidity, relative-strength rank), position sizing, any execution.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Qullamaggie Setups", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+maType   = input.string("SMA", "Moving average type", options = ["SMA", "EMA"], group = "Moving averages")
+len1     = input.int(10, "MA fast", minval = 2, group = "Moving averages")
+len2     = input.int(20, "MA mid", minval = 2, group = "Moving averages")
+len3     = input.int(50, "MA slow", minval = 2, group = "Moving averages")
+show200  = input.bool(false, "Show MA200", group = "Moving averages")
+trailMa  = input.string("MA fast", "Trailing exit uses", options = ["MA fast", "MA mid"], group = "Moving averages")
+
+adrLen   = input.int(20, "ADR length (days)", minval = 2, group = "ADR")
+adrMin   = input.float(5.0, "Minimum ADR %", minval = 0.0, step = 0.5, tooltip = "Swing candidates are usually screened for ADR% of 5-6 or more.", group = "ADR")
+
+runLen   = input.int(63, "Prior run window (bars)", minval = 10, tooltip = "63 daily bars ~ 3 months.", group = "Breakout")
+runMin   = input.float(30.0, "Min prior run %", minval = 0.0, step = 5.0, group = "Breakout")
+consLen  = input.int(10, "Consolidation length (bars)", minval = 3, group = "Breakout")
+consMax  = input.float(2.5, "Max consolidation range (x ADR)", minval = 0.5, step = 0.25, tooltip = "High-low range of the consolidation divided by ADR%.", group = "Breakout")
+pullMax  = input.float(25.0, "Max pullback from run high %", minval = 1.0, step = 1.0, group = "Breakout")
+needHL   = input.bool(true, "Require higher lows", group = "Breakout")
+needDry  = input.bool(true, "Require volume dry-up (5d avg < 20d avg)", group = "Breakout")
+volMult  = input.float(1.5, "Breakout volume x average", minval = 0.0, step = 0.1, group = "Breakout")
+partDays = input.int(3, "Take partial after N bars", minval = 1, group = "Breakout")
+
+epGap    = input.float(10.0, "EP min gap %", minval = 1.0, step = 1.0, group = "Episodic pivot")
+epVol    = input.float(3.0, "EP volume x average", minval = 1.0, step = 0.5, group = "Episodic pivot")
+epQuiet  = input.float(30.0, "EP max prior run % (neglected stock)", minval = 0.0, step = 5.0, group = "Episodic pivot")
+
+paraRun  = input.float(50.0, "Parabolic: min gain over 10 bars %", minval = 10.0, step = 5.0, group = "Parabolic (observe)")
+paraExt  = input.float(3.0, "Parabolic: distance above MA mid (x ADR)", minval = 1.0, step = 0.5, group = "Parabolic (observe)")
+showPara = input.bool(true, "Show parabolic flags", group = "Parabolic (observe)")
+
+showTbl  = input.bool(true, "Show table", group = "Display")
+
+// ── building blocks ──────────────────────────────────────────────────────────
+// both averages are always calculated (ta.* inside a ternary can skip bars), then one is picked
+sma1 = ta.sma(close, len1)
+sma2 = ta.sma(close, len2)
+sma3 = ta.sma(close, len3)
+ema1 = ta.ema(close, len1)
+ema2 = ta.ema(close, len2)
+ema3 = ta.ema(close, len3)
+ma1 = maType == "SMA" ? sma1 : ema1
+ma2 = maType == "SMA" ? sma2 : ema2
+ma3 = maType == "SMA" ? sma3 : ema3
+ma200 = ta.sma(close, 200)
+
+// ADR% = 100 * (SMA(high/low, n) - 1), always from the DAILY series (works on any chart timeframe).
+adrRatio = request.security(syminfo.tickerid, "D", ta.sma(high / low, adrLen), lookahead = barmerge.lookahead_off)
+adr      = 100.0 * (adrRatio - 1.0)
+adrOk    = adr >= adrMin
+
+volAvg20 = ta.sma(volume, 20)
+volAvg5  = ta.sma(volume, 5)
+relVol   = volAvg20 > 0 ? volume / volAvg20 : 0.0
+
+// prior run: low of the window came BEFORE its high; measured to the run high
+runHi    = ta.highest(high, runLen)
+runLo    = ta.lowest(low, runLen)
+loBefore = ta.lowestbars(low, runLen) < ta.highestbars(high, runLen)
+runPct   = runLo > 0 ? 100.0 * (runHi / runLo - 1.0) : 0.0
+runOk    = loBefore and runPct >= runMin
+
+trendOk  = ma1 > ma2 and ma2 > ma3 and ma1 > ma1[3] and ma2 > ma2[5] and close > ma3
+
+// consolidation measured on the bars BEFORE the trigger bar ([1])
+consHi   = ta.highest(high, consLen)[1]
+consLo   = ta.lowest(low, consLen)[1]
+consRng  = consLo > 0 ? 100.0 * (consHi / consLo - 1.0) : 1000.0
+tight    = adr > 0 and consRng <= consMax * adr
+pullPct  = runHi[1] > 0 ? 100.0 * (1.0 - consLo / runHi[1]) : 100.0
+shallow  = pullPct <= pullMax
+lowRecent = ta.lowest(low, 5)[1]
+lowPrior  = ta.lowest(low, 5)[6]
+higherLows = not needHL or lowRecent > lowPrior
+dryUp      = not needDry or volAvg5[1] < volAvg20[1]
+
+setupReady = adrOk and runOk[1] and trendOk[1] and tight and shallow and higherLows and dryUp
+
+// ── signals ──────────────────────────────────────────────────────────────────
+breakout = setupReady and close > consHi and volume >= volMult * volAvg20 and close > open
+
+gapPct   = close[1] > 0 ? 100.0 * (open / close[1] - 1.0) : 0.0
+priorRun = close[21] > 0 ? 100.0 * (close[1] / close[21] - 1.0) : 0.0       // 20-bar run before the gap
+epSig    = adrOk[1] and gapPct >= epGap and relVol >= epVol and close > open and priorRun <= epQuiet
+
+gain10   = close[10] > 0 ? 100.0 * (close / close[10] - 1.0) : 0.0
+extAdr   = adr > 0 ? 100.0 * (close / ma2 - 1.0) / adr : 0.0
+paraSig  = showPara and gain10 >= paraRun and extAdr >= paraExt
+
+// ── trade state (long only, one position at a time) ──────────────────────────
+var bool   inTrade   = false
+var float  stopPx    = na
+var float  entryPx   = na
+var int    entryBar  = na
+var bool   partDone  = false
+
+trailLine = trailMa == "MA fast" ? ma1 : ma2
+
+newEntry = breakout and not inTrade
+if newEntry
+    inTrade  := true
+    stopPx   := low
+    entryPx  := close
+    entryBar := bar_index
+    partDone := false
+
+exitSig = inTrade and not newEntry and (close < trailLine or close < stopPx)
+partSig = inTrade and not newEntry and not partDone and (bar_index - entryBar) >= partDays and close > entryPx
+if partSig
+    partDone := true
+
+riskPct  = newEntry ? 100.0 * (close - low) / close : na
+riskOverAdr = newEntry and adr > 0 and riskPct > adr
+
+if exitSig
+    inTrade := false
+
+// ── plots ────────────────────────────────────────────────────────────────────
+plot(ma1, "MA fast", color = color.new(#2ecc71, 0), linewidth = 1)
+plot(ma2, "MA mid",  color = color.new(#f1c40f, 0), linewidth = 1)
+plot(ma3, "MA slow", color = color.new(#e67e22, 0), linewidth = 2)
+plot(show200 ? ma200 : na, "MA200", color = color.new(#95a5a6, 0), linewidth = 2)
+plot(inTrade ? stopPx : na, "Stop (low of breakout day)", color = color.new(color.red, 0), style = plot.style_linebr)
+plot(setupReady ? consHi : na, "Pivot (consolidation high)", color = color.new(color.aqua, 20), style = plot.style_linebr, linewidth = 2)
+bgcolor(setupReady and not inTrade ? color.new(color.aqua, 92) : na)
+
+plotshape(newEntry, "Breakout", style = shape.labelup, location = location.belowbar, color = color.new(#2ecc71, 0),
+     textcolor = color.white, text = "BO", size = size.small)
+plotshape(epSig, "Episodic pivot", style = shape.labelup, location = location.belowbar, color = color.new(#3498db, 0),
+     textcolor = color.white, text = "EP", size = size.small)
+plotshape(partSig, "Partial", style = shape.labeldown, location = location.abovebar, color = color.new(#f39c12, 0),
+     textcolor = color.white, text = "1/3", size = size.tiny)
+plotshape(exitSig, "Exit", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 0),
+     textcolor = color.white, text = "EXIT", size = size.small)
+plotshape(paraSig, "Parabolic (observe)", style = shape.triangledown, location = location.abovebar,
+     color = color.new(color.purple, 0), size = size.tiny)
+
+// ── table ────────────────────────────────────────────────────────────────────
+f_row(t, r, name, val, good) =>
+    table.cell(t, 0, r, name, text_color = color.white, text_halign = text.align_left, bgcolor = color.new(color.gray, 75), text_size = size.small)
+    table.cell(t, 1, r, val, text_color = color.white, text_halign = text.align_right,
+         bgcolor = good ? color.new(#2ecc71, 55) : color.new(color.red, 65), text_size = size.small)
+
+var table tbl = table.new(position.top_right, 2, 9, border_width = 1)
+if showTbl and barstate.islast
+    f_row(tbl, 0, "ADR% (" + str.tostring(adrLen) + "d)", str.tostring(adr, "#.0") + "%", adrOk)
+    f_row(tbl, 1, "Prior run", str.tostring(runPct, "#") + "%", runOk)
+    f_row(tbl, 2, "Trend 10>20>50", trendOk ? "yes" : "no", trendOk)
+    f_row(tbl, 3, "Consol. range", str.tostring(consRng, "#.0") + "% (" + str.tostring(adr > 0 ? consRng / adr : 0.0, "#.0") + "x ADR)", tight)
+    f_row(tbl, 4, "Pullback", str.tostring(pullPct, "#.0") + "%", shallow)
+    f_row(tbl, 5, "Higher lows", higherLows ? "yes" : "no", higherLows)
+    f_row(tbl, 6, "Volume dry-up", dryUp ? "yes" : "no", dryUp)
+    f_row(tbl, 7, "Rel. volume", str.tostring(relVol, "#.0") + "x", relVol >= volMult)
+    f_row(tbl, 8, "SETUP", setupReady ? "READY above " + str.tostring(consHi, format.mintick) : "not ready", setupReady)
+
+// risk label on entry
+if newEntry
+    label.new(bar_index, low, "stop " + str.tostring(low, format.mintick) + " | risk " + str.tostring(riskPct, "#.0") + "%"
+         + (riskOverAdr ? " > ADR!" : ""), style = label.style_label_up, yloc = yloc.price,
+         color = riskOverAdr ? color.new(color.orange, 20) : color.new(color.gray, 40), textcolor = color.white, size = size.tiny)
+
+// ── alerts ───────────────────────────────────────────────────────────────────
+alertcondition(breakout and not inTrade[1], "Breakout", "Qullamaggie breakout {{ticker}} close {{close}}")
+alertcondition(epSig, "Episodic pivot", "Qullamaggie EP {{ticker}} gap + volume")
+alertcondition(setupReady and not setupReady[1], "Setup ready", "Qullamaggie setup ready {{ticker}} - pivot in the chart")
+alertcondition(exitSig, "Exit (trailing)", "Qullamaggie exit {{ticker}} close below trailing MA / stop")
