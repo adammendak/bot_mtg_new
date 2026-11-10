@@ -134,3 +134,10 @@ Zabezpieczenia: `LADDER_LIVE_GAIN_PCT` (0,2), `LADDER_LIVE_MAX_POSITIONS` (5), f
 brokera > 1,5× docelowy (np. 400 PLN: GER40 min 0,001 ≈ 117 PLN = 0,29× kapitału OK; SP500 min 0,01 ≈ 300 PLN — pominięte).
 Uwaga: pozycje na tym samym instrumencie (DE40) otwarte przez inną strategię na tym koncie bot uzna za swoje — nie mieszaj
 (`HTS_LIVE_EXECUTION_ENABLED`). Wyłączenie: `LADDER_LIVE_ENABLED=false`; otwarte pozycje zostają z TP u brokera.
+
+### SP500 na koncie live (od 2026-11-05)
+
+Na tym samym koncie live działa druga, niezależna drabinka `SP500-LIVE` (epic US500, wejście 13:35 UTC, `LADDER_LIVE_SP_GAIN_PCT`,
+domyślnie 0,2; te same przełączniki, limit pozycji i failsafe co GER40-LIVE; margines wspólny). Gdy konto jest za małe na minimalny
+rozmiar brokera (SP500 min 0,01 ≈ 230–300 PLN), wejście jest pomijane z ostrzeżeniem „REAL MONEY skip" i zacznie się samo,
+kiedy kapitał na to pozwoli.

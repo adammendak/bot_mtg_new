@@ -129,6 +129,7 @@ public class LadderBot {
             @Value("${app.ladder-live.enabled:false}") boolean liveEnabled,
             @Value("${app.ladder-live.confirm:}") String liveConfirm,
             @Value("${app.ladder-live.gain-pct:0.2}") double liveGain,
+            @Value("${app.ladder-live.sp-gain-pct:0.2}") double liveSpGain,
             @Value("${app.ladder-live.max-positions:5}") int liveMax,
             @Value("${app.ladder-live.start-equity:0}") double liveStart,
             @Value("${app.ladder-live.max-size-overshoot:1.5}") double liveOvershoot) {
@@ -139,6 +140,7 @@ public class LadderBot {
                         LocalTime.of(7, 5), 15),
                 gerStart, spStart, ger2Start, sp2Start, tpAthA, tpAthB, athLookbackDays,
                 new Params("GER40-LIVE", "DE40", gerTp, gerStep, liveMax, liveGain, LocalTime.of(7, 5), 15),
+                new Params("SP500-LIVE", "US500", spTp, spStep, liveMax, liveSpGain, LocalTime.of(13, 35), 15),
                 liveBroker, liveEnabled && LIVE_CONFIRM.equals(liveConfirm), liveStart, liveOvershoot, Clock.systemUTC());
     }
 
@@ -172,19 +174,19 @@ public class LadderBot {
               double ger2Start, double sp2Start, boolean tpAthA, boolean tpAthB, int athLookbackDays, Clock clock) {
         this(gerBroker, spBroker, ger2Broker, sp2Broker, properties, risk, enabled, enabledB, trendSma, failsafeDropPct,
                 ger, sp, gerOnSp, gerStart, spStart, ger2Start, sp2Start, tpAthA, tpAthB, athLookbackDays, null, null,
-                false, 0, 0, clock);
+                null, false, 0, 0, clock);
     }
 
     /**
-     * {@code liveBroker / liveParams / liveActive}: the optional REAL-MONEY GER40 ladder on the small live sub-account
-     * (null broker = none). {@code liveActive} is true only when both LADDER_LIVE_ENABLED and the confirm phrase are set.
+     * {@code liveBroker / liveParams / liveSpParams / liveActive}: the optional REAL-MONEY GER40 (and SP500) ladders on
+     * the small live sub-account (null broker = none). {@code liveActive} is true only when both LADDER_LIVE_ENABLED and the confirm phrase are set.
      */
     LadderBot(BrokerClient gerBroker, BrokerClient spBroker, BrokerClient ger2Broker, BrokerClient sp2Broker,
               AppProperties properties, RiskPolicy risk, boolean enabled, boolean enabledB, int trendSma,
               double failsafeDropPct, Params ger, Params sp, Params gerOnSp, double gerStart, double spStart,
               double ger2Start, double sp2Start, boolean tpAthA, boolean tpAthB, int athLookbackDays,
-              Params liveParams, BrokerClient liveBroker, boolean liveActive, double liveStart, double liveOvershoot,
-              Clock clock) {
+              Params liveParams, Params liveSpParams, BrokerClient liveBroker, boolean liveActive, double liveStart,
+              double liveOvershoot, Clock clock) {
         this.liveActive = liveActive;
         this.athLookbackDays = athLookbackDays;
         this.risk = risk;
@@ -209,6 +211,13 @@ public class LadderBot {
         if (liveBroker != null && liveParams != null) {
             bots.add(new Bot(liveParams, liveBroker, properties.getLadderLiveAccountName(),
                     properties.getCapital().getLadderLive().getHost(), liveStart, false, 0, tpAthA, true, liveOvershoot));
+            if (liveSpParams != null) {
+                // Second ladder on the same live account (SP500): separate epic, shared margin; it simply skips while the
+                // account is too small for the broker's minimum size (the overshoot guard).
+                bots.add(new Bot(liveSpParams, liveBroker, properties.getLadderLiveAccountName(),
+                        properties.getCapital().getLadderLive().getHost(), liveStart, false, 0, tpAthA, true,
+                        liveOvershoot));
+            }
         }
     }
 
