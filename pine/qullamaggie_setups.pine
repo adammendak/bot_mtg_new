@@ -36,7 +36,7 @@ adrMin   = input.float(5.0, "Minimum ADR %", minval = 0.0, step = 0.5, tooltip =
 runLen   = input.int(63, "Prior run window (bars)", minval = 10, tooltip = "63 daily bars ~ 3 months.", group = "Breakout")
 runMin   = input.float(30.0, "Min prior run %", minval = 0.0, step = 5.0, group = "Breakout")
 consLen  = input.int(10, "Consolidation length (bars)", minval = 3, group = "Breakout")
-consMax  = input.float(2.5, "Max consolidation range (x ADR)", minval = 0.5, step = 0.25, tooltip = "High-low range of the consolidation divided by ADR%.", group = "Breakout")
+consMax  = input.float(5.0, "Max consolidation range (x ADR)", minval = 0.5, step = 0.25, tooltip = "High-low range of the consolidation divided by ADR%.", group = "Breakout")
 pullMax  = input.float(25.0, "Max pullback from run high %", minval = 1.0, step = 1.0, group = "Breakout")
 needHL   = input.bool(true, "Require higher lows", group = "Breakout")
 needDry  = input.bool(true, "Require volume dry-up (5d avg < 20d avg)", group = "Breakout")

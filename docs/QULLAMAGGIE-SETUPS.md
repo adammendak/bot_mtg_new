@@ -41,7 +41,7 @@ Rysuje średnie, liczy ADR% z danych dziennych i pokazuje tabelę stanu setupu. 
 - ADR% ≥ 5,
 - poprzedni wzrost ≥ 30% w 63 sesjach, z dołkiem przed szczytem,
 - trend: MA10 > MA20 > MA50, MA10 i MA20 rosną, cena nad MA50,
-- konsolidacja z ostatnich 10 sesji: zakres ≤ 2,5 × ADR, cofnięcie od szczytu biegu ≤ 25%, wyższe dołki (ostatnie 5 sesji vs poprzednie 5), średni wolumen 5 dni < średni 20 dni.
+- konsolidacja z ostatnich 10 sesji: zakres ≤ 5 × ADR (2,5 było za ciasne, patrz backtest), cofnięcie od szczytu biegu ≤ 25%, wyższe dołki (ostatnie 5 sesji vs poprzednie 5), średni wolumen 5 dni < średni 20 dni.
 
 **Sygnały:**
 - `BO` — zamknięcie nad szczytem konsolidacji, wolumen ≥ 1,5 × średnia, świeca wzrostowa. Rysuje stop (dołek dnia wybicia) i etykietę z ryzykiem; ostrzega, gdy ryzyko > 1 × ADR.
@@ -56,7 +56,22 @@ Alerty: Breakout, Episodic pivot, Setup ready, Exit.
 
 - Skaner (płynność, ranking siły relatywnej) nie jest częścią wskaźnika. Wskaźnik ocenia jeden instrument naraz.
 - Wejście na zamknięciu dnia to uproszczenie; on często wchodzi intraday na wybiciu opening range.
-- Progi (30%, 2,5 × ADR, 1,5 × wolumen itd.) są naszą interpretacją. Zanim ktokolwiek handluje według tego, trzeba je sprawdzić backtestem na liście akcji (w repo mamy tylko dzienne US100, QQQ, TQQQ; akcji pojedynczych brak) i potwierdzić, że wskaźnik kompiluje się w TradingView.
+- Progi (30%, 5 × ADR, 1,5 × wolumen itd.) są naszą interpretacją; wynik backtestu poniżej. Wskaźnik trzeba jeszcze sprawdzić w edytorze TradingView (kompilacja).
 - Nie piszemy na to bota: Capital.com handluje CFD na akcje z innymi kosztami, a strategia opiera się na wyborze liderów ze skanera.
 
 Źródła: opisy wskaźników TradingView (m.in. „Qullamaggie Daily with ADR% and Compression Range", „Qullamaggie Breakout V2"), arkusz badawczy Complete Trader's Edge o Kristjanie Kullamägim, artykuł forex.in.rs „Kristjan Kullamägi Stocks Trading Strategy".
+
+## Backtest (2026-11): brak przewagi, bota nie piszemy
+
+Skrypty: `tools/qullamaggie_fetch.py` (pobranie), `tools/qullamaggie_bt.py` (backtest portfelowy), lista `tools/qullamaggie_universe.txt`.
+Dane: 199 akcji z Capital.com (dzienne, 2020-11 … 2026-11; 20 z 220 tickerów nie ma na Capital.com). Wolumen to wolumen CFD z Capital.com, nie giełdowy.
+Reguły: sygnał na zamknięciu dnia t−1, wejście na otwarciu t (+0,05% poślizgu), stop = dołek dnia wybicia, po 3 sesjach 1/3 pozycji i stop na break-even, reszta wychodzi po zamknięciu poniżej MA10; ryzyko 0,5% kapitału na transakcję, max 8 pozycji, max 25% kapitału na pozycję, bez dźwigni; koszt finansowania CFD 7% rocznie.
+
+Wnioski:
+1. **Domyślne progi były za ciasne**: z zakresem konsolidacji ≤ 2,5 × ADR wychodziła 1 transakcja w 6 lat na 199 spółek. Dla 10 sesji typowy zakres to 3–6 × dzienny ADR, więc próg podniesiony do 5 (Pine też).
+2. Po poluzowaniu: 15–552 transakcji zależnie od wariantu, skuteczność ok. 30–40%, średnia wygrana 3–6 R, średnia strata −1,4…−1,6 R (luki i poślizg pogarszają założone −1 R).
+3. Profit factor: **0,75–1,65**, większość wariantów 0,93–1,12. Najlepszy (V2: konsolidacja ≤ 5 × ADR, bez warunków wyższych dołków i wysychania wolumenu, wolumen wybicia ≥ 1,5 × średnia, 62 transakcje): PF 1,65, +20% łącznie przez 6 lat (3,2% rocznie), ale **5 najlepszych transakcji daje 162% całego zysku** (głównie 2024: +22 tys. z 100 tys.), w 2023, 2025 i 2026 wynik ujemny. To jeden epizod, nie powtarzalna przewaga.
+4. Dla porównania: równo ważony kup-i-trzymaj tych spółek +196% (maks. obsunięcie 41%), US100 +117%. Filtr rynku (US100 > SMA50) nie pomaga (PF 0,99). Pełny zestaw reguł z Pine (z wyższymi dołkami i wysychaniem wolumenu): 15 transakcji, PF 0,75.
+5. Ograniczenia testu: lista spółek ułożona dziś (survivorship bias zawyża wyniki, a przewagi i tak nie ma), wejście na zamknięciu zamiast intraday (on kupuje wybicie w trakcie dnia), brak rankingu siły relatywnej i filtra płynności z oryginalnego skanera. Intraday-owa wersja albo prawdziwy skaner mogą wyglądać lepiej, ale tego nie testowaliśmy.
+
+Rekomendacja: nie budować bota na akcje. Zostaje wskaźnik jako pomoc przy ręcznym wyborze. Jeśli ma powstać codzienny skaner, to jako raport mailowy („co dziś spełnia setup") do ręcznej decyzji, bez automatycznych zleceń.
