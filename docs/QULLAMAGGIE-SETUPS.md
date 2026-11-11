@@ -37,6 +37,8 @@ Zarządzanie pozycją: po 3–5 dniach sprzedaje się część pozycji (1/3–1/
 
 Rysuje średnie, liczy ADR% z danych dziennych i pokazuje tabelę stanu setupu. Wszystkie progi są parametrami.
 
+Tabela: miejsce w jednym z 9 pól ekranu (każdy róg, środki krawędzi, środek) i rozmiar Tiny…Huge (grupa Display). Wiersze informacyjne z danych dziennych (niezależnie od interwału wykresu): **ADR%** (w nawiasie to samo w jednostkach ceny), **ATR(14d)** (cena i % ceny) oraz **odległość od EMA50 dziennej** w % i w wielokrotnościach ADR (np. +6,2% = +1,1 ADR; zielone nad EMA, czerwone pod).
+
 **Setup gotowy (tło aqua + linia „pivot")** gdy jednocześnie:
 - ADR% ≥ 5,
 - poprzedni wzrost ≥ 30% w 63 sesjach, z dołkiem przed szczytem,
