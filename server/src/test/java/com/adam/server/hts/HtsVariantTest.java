@@ -256,10 +256,10 @@ class HtsVariantTest {
     }
 
     @Test
-    void kalmanH4IsAnH4SwingBookSatelliteScannedOncePerH4Candle() {
+    void kalmanH4RunsOnTheTvH4BookAndIsScannedOncePerH4Candle() {
         HtsVariant v = HtsVariant.KAL_H4;
         assertThat(v.strategy()).isEqualTo(HtsVariant.Strategy.KALMAN);
-        assertThat(v.book()).isEqualTo(com.adam.server.broker.Books.SWING);
+        assertThat(v.book()).isEqualTo(com.adam.server.broker.Books.TV_H4);
         assertThat(v.ltf()).isEqualTo(com.adam.server.broker.Resolution.H4);
         assertThat(v.ltfMinutes()).isEqualTo(240);
         assertThat(v.parked()).isFalse();

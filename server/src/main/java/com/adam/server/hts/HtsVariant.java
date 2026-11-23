@@ -218,8 +218,11 @@ public enum HtsVariant {
      * while the short Kalman filter is above the long one, short otherwise;
      * every crossover closes the open position and opens the opposite side.
      * Disaster stop at 3×ATR14 (sizes the trade, never the exit). Runs on the
-     * {@code swing} book ("Account H1") next to {@link #H1_ST_V3}, on
-     * {@code StV3.SATELLITE_UNIVERSE} (US100/XAU/BTC/GER40/EURUSD).
+     * {@code tvh4} book ("Account TV H4", its own Capital login) next to
+     * {@link #TV_ALGO_H4} — positions are tracked per variant, so the two never
+     * touch each other's trades. Universe: {@code StV3.SATELLITE_UNIVERSE}
+     * (US100/XAU/BTC/GER40/EURUSD). Executes under {@code hts.execution}
+     * (not {@code tv.execution}).
      *
      * <p><b>No proven edge</b> — a forward test of the requested 18/144 pair:
      * H4 backtest on Capital data, last 12&nbsp;months, realised trades after
@@ -228,7 +231,7 @@ public enum HtsVariant {
      * universe if the forward test agrees. ({@code HTS_OBSERVE_ONLY_SYMBOLS}
      * deliberately does not apply to this strategy: it is the ST_V3 triage list.)
      */
-    KAL_H4(Strategy.KALMAN, null, Resolution.H4, Books.SWING, Duration.ofDays(60), Duration.ofDays(150), 240, false,
+    KAL_H4(Strategy.KALMAN, null, Resolution.H4, Books.TV_H4, Duration.ofDays(60), Duration.ofDays(150), 240, false,
             0, 0, 0, 0, StV3.SATELLITE_UNIVERSE, false, EntryTrigger.HA_FLIP);
 
     /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, {@link StV3Engine} or {@link KalmanEngine}. */
