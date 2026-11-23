@@ -4,7 +4,10 @@
 //
 // Modified copy (same licence, non-commercial use): crossover signals are drawn as real ARROWS, bigger,
 // above/below the candle, with size / colour / distance inputs ("Arrows" group); the original tiny emoji
-// labels are optional ("Original labels"). Retest marks have a size input. Alerts added. The Kalman
+// labels are optional ("Original labels"). Retest marks have a size input. Alerts added. The background
+// shading (band between the two Kalman lines, level boxes) can be switched off in the "Background" group
+// (both off by default). A table at the end of the script shows a stop-and-reverse simulation of the crossover
+// signals (trades, win rate, avg and total %, profit factor, long/short split, buy & hold). The Kalman
 // calculation and the trend logic are unchanged.
 
 //@version=5
@@ -32,6 +35,15 @@ string price_size_s = input.string("Normal", "Price text size", options = ["Tiny
 bool   orig_labels  = input.bool(false, "Original labels (small emoji arrows)", group = "Arrows")
 string mark_size_s  = input.string("Normal", "Retest mark size", options = ["Tiny", "Small", "Normal", "Large", "Huge"], group = "Arrows")
 
+// background colour (new) - both off by default, so nothing is shaded behind the candles
+bool show_fill  = input.bool(false, "Shade between the Kalman lines", tooltip = "The translucent band between the short and the long Kalman line (red in a downtrend, green in an uptrend).", group = "Background")
+bool show_boxes = input.bool(false, "Level boxes behind the signal candle", tooltip = "The translucent box that opens on a crossover and stays open while the trend lasts. Retest marks still use these levels when the boxes are hidden.", group = "Background")
+
+// strategy table (new)
+bool   show_table = input.bool(true, "Show strategy table", group = "Table")
+string table_pos  = input.string("Top Right", "Table position", options = ["Top Left", "Top Right", "Middle Right", "Bottom Left", "Bottom Right"], group = "Table")
+float  cost_pct   = input.float(0.01, "Cost per side (% of price)", minval = 0.0, step = 0.01, tooltip = "Spread + slippage charged on entry and again on exit of every simulated trade. Research used 0.01% for indices and 0.04% for BTC.", group = "Table")
+
 // }
 
 f_size(s) =>
@@ -41,6 +53,17 @@ f_size(s) =>
         "Large"  => size.large
         "Huge"   => size.huge
         => size.normal
+
+f_pos(s) =>
+    switch s
+        "Top Left"     => position.top_left
+        "Middle Right" => position.middle_right
+        "Bottom Left"  => position.bottom_left
+        "Bottom Right" => position.bottom_right
+        => position.top_right
+
+f_sgn(v) =>
+    v > 0 ? "+" : ""
 
 string arrow_size = f_size(arrow_size_s)
 string price_size = f_size(price_size_s)
@@ -107,7 +130,7 @@ if buy_sig
         if show_price
             label.new(bar_index, y - atr14 * price_gap, str.tostring(math.round(close, 1)), yloc = yloc.price,
                  style = label.style_label_up, color = color(na), textcolor = arrow_up_col, size = price_size)
-    lower_box := box.new(bar_index, low+atr, bar_index, low, border_color = na, bgcolor = color.new(upper_col, 60))
+    lower_box := box.new(bar_index, low+atr, bar_index, low, border_color = na, bgcolor = show_boxes ? color.new(upper_col, 60) : color(na))
 
 if not ta.change(trend_up)
     lower_box.set_right(bar_index)
@@ -121,7 +144,7 @@ if sell_sig
         if show_price
             label.new(bar_index, y + atr14 * price_gap, str.tostring(math.round(close, 1)), yloc = yloc.price,
                  style = label.style_label_down, color = color(na), textcolor = arrow_dn_col, size = price_size)
-    upper_box := box.new(bar_index, high, bar_index, high-atr, border_color = na, bgcolor = color.new(lower_col, 60))
+    upper_box := box.new(bar_index, high, bar_index, high-atr, border_color = na, bgcolor = show_boxes ? color.new(lower_col, 60) : color(na))
 
 if not ta.change(trend_up)
     upper_box.set_right(bar_index)
@@ -136,10 +159,91 @@ if retest_sig
 p1 = plot(short_kalman, "Short Kalman", color = trend_col1)
 p2 = plot(long_kalman, "Long Kalman", linewidth = 2, color = trend_col)
 
-fill(p1, p2, short_kalman, long_kalman, na, color.new(trend_col, 80))
+color fill_col = show_fill ? color.new(trend_col, 80) : color(na)
+fill(p1, p2, short_kalman, long_kalman, na, fill_col)
 
 plotcandle(open, high, low, close, title='Title', color = candle_col, wickcolor=candle_col, bordercolor = candle_col)
 
 alertcondition(buy_sig,  "Kalman BUY",  "Kalman Trend: short crossed ABOVE long - {{ticker}} {{interval}}")
 alertcondition(sell_sig, "Kalman SELL", "Kalman Trend: short crossed BELOW long - {{ticker}} {{interval}}")
+// }
+
+
+// ＳＴＲＡＴＥＧＹ ＴＡＢＬＥ (new) ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+// Stop-and-reverse simulation of the crossover signals: always in the market, long while the short Kalman is
+// above the long one, short otherwise. A signal is known at the close of the crossover candle, the trade is
+// filled at the OPEN of the next candle. Returns are % of price, one unit of notional, summed (no compounding);
+// the cost per side is charged on entry and again on exit. Retest marks are not traded. It runs over the bars
+// loaded on the chart, after a warm-up of 2 x the long length.
+bool sim_on = bar_index > 2 * long_len
+var int   s_pos   = 0
+var float s_entry = na
+var float s_start = na
+var int   s_n     = 0
+var int   s_win   = 0
+var int   s_nl    = 0
+var int   s_ns    = 0
+var float s_sum   = 0.0
+var float s_suml  = 0.0
+var float s_sums  = 0.0
+var float s_gw    = 0.0
+var float s_gl    = 0.0
+
+if sim_on and na(s_start)
+    s_start := open
+
+if sim_on and (buy_sig[1] or sell_sig[1])
+    if s_pos != 0
+        float ret = (s_pos * (open / s_entry - 1.0) - 2.0 * cost_pct / 100.0) * 100.0
+        s_n += 1
+        s_sum += ret
+        if s_pos == 1
+            s_nl += 1
+            s_suml += ret
+        else
+            s_ns += 1
+            s_sums += ret
+        if ret > 0
+            s_win += 1
+            s_gw += ret
+        else
+            s_gl += -ret
+    s_pos := buy_sig[1] ? 1 : -1
+    s_entry := open
+
+if show_table and barstate.islast
+    var table tb = table.new(f_pos(table_pos), 2, 12, bgcolor = color.new(color.black, 25), border_width = 1, border_color = color.gray)
+    float open_ret = s_pos != 0 and not na(s_entry) ? (s_pos * (close / s_entry - 1.0) - cost_pct / 100.0) * 100.0 : na
+    string t_win = s_n > 0 ? str.tostring(100.0 * s_win / s_n, "0") + "%" : "-"
+    string t_avg = s_n > 0 ? f_sgn(s_sum) + str.tostring(s_sum / s_n, "0.00") + "%" : "-"
+    string t_tot = f_sgn(s_sum) + str.tostring(s_sum, "0.0") + "%"
+    string t_pf  = s_gl > 0 ? str.tostring(s_gw / s_gl, "0.00") : "-"
+    string t_l   = str.tostring(s_nl) + " / " + (s_nl > 0 ? f_sgn(s_suml) + str.tostring(s_suml / s_nl, "0.00") + "%" : "-")
+    string t_s   = str.tostring(s_ns) + " / " + (s_ns > 0 ? f_sgn(s_sums) + str.tostring(s_sums / s_ns, "0.00") + "%" : "-")
+    string t_bh  = na(s_start) ? "-" : f_sgn(close - s_start) + str.tostring((close / s_start - 1.0) * 100.0, "0.0") + "%"
+    string t_now = s_pos == 0 ? "-" : (s_pos == 1 ? "LONG " : "SHORT ") + f_sgn(open_ret) + str.tostring(open_ret, "0.00") + "%"
+    table.cell(tb, 0, 0, "Kalman stop & reverse", text_color = color.white, bgcolor = color.new(#2962FF, 0), text_size = size.small)
+    table.cell(tb, 1, 0, str.tostring(short_len) + " / " + str.tostring(long_len), text_color = color.white, bgcolor = color.new(#2962FF, 0), text_size = size.small)
+    table.cell(tb, 0, 1, "Rules", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 1, "always in market, flips on crossover", text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 2, "Fill / cost", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 2, "next open, " + str.tostring(cost_pct, "0.00") + "% per side", text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 3, "Trades", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 3, str.tostring(s_n), text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 4, "Win rate", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 4, t_win, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 5, "Avg / trade", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 5, t_avg, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 6, "Total (sum of %)", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 6, t_tot, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 7, "Profit factor", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 7, t_pf, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 8, "Long n / avg", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 8, t_l, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 9, "Short n / avg", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 9, t_s, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 10, "Buy & hold", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 10, t_bh, text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 11, "Now", text_color = color.silver, text_size = size.small)
+    table.cell(tb, 1, 11, t_now, text_color = color.white, text_size = size.small)
 // }
