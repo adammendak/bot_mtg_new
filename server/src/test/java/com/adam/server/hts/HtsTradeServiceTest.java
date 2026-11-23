@@ -653,6 +653,73 @@ class HtsTradeServiceTest {
         verify(broker, never()).amendPosition(anyString(), anyDouble(), anyBoolean());
     }
 
+    // ---- Kalman stop-and-reverse (KAL_H4) ----
+
+    /** 660 closed H4 candles ending ~12h ago: 500 bars drifting (sign) then 160 reversing — Kalman 18/144 flips late. */
+    private List<Candle> kalmanBars(int sign) {
+        int n = 660;
+        Instant first = Instant.now().minus(Duration.ofHours(4L * n + 12)).truncatedTo(java.time.temporal.ChronoUnit.HOURS);
+        double[] c = new double[n];
+        List<Candle> out = new java.util.ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            c[i] = i < 500 ? 150 + sign * 0.05 * i + Math.sin(i / 7.0)
+                    : c[i - 1] - sign * 0.4 + 0.3 * Math.sin((i - 500) / 3.0);
+            out.add(new Candle(first.plus(Duration.ofHours(4L * i)), c[i], c[i] + 1, c[i] - 1, c[i], 0));
+        }
+        return out;
+    }
+
+    private HtsTradeEntity kalmanOpen(String dealId, Direction dir) {
+        HtsTradeEntity t = open(dealId, dir, 100.0, dir == Direction.BUY ? 94.0 : 106.0, 1.0); // leg = 6
+        t.setVariant("KAL_H4");
+        t.setBook(HtsVariant.KAL_H4.book());
+        return t;
+    }
+
+    @Test
+    void flattenForReversalClosesTheOppositePositionAndLeavesASameDirectionOneAlone() {
+        when(books.forBook(HtsVariant.KAL_H4.book())).thenReturn(broker);
+        HtsTradeEntity longPos = kalmanOpen("dK", Direction.BUY);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(longPos));
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 103.0, 103.0, bar));
+
+        assertThat(service.flattenForReversal(HtsVariant.KAL_H4, "GER40", Direction.BUY)).isFalse();
+        assertThat(longPos.getStatus()).isEqualTo("OPEN");
+        verify(broker, never()).closePosition(anyString(), anyDouble());
+
+        assertThat(service.flattenForReversal(HtsVariant.KAL_H4, "GER40", Direction.SELL)).isTrue();
+        verify(broker).closePosition("dK", 1.0);
+        assertThat(longPos.getStatus()).isEqualTo("CLOSED");
+        assertThat(longPos.getCloseReason()).isEqualTo("KALMAN_FLIP");
+        verify(sink).onClose(longPos);
+
+        assertThat(service.flattenForReversal(HtsVariant.KAL_H4, "XAU", Direction.SELL)).isFalse(); // nothing open there
+    }
+
+    @Test
+    void manageClosesAKalmanLongWhenTheTrendTurnedDownButKeepsAShort() {
+        when(books.forBook(HtsVariant.KAL_H4.book())).thenReturn(broker);
+        when(market.candles(anyString(), any(), any(), any(), anyInt())).thenReturn(kalmanBars(+1)); // ends in a down trend
+        when(broker.transactionHistory(any(), any(), any(Duration.class))).thenReturn(List.of());
+        when(broker.marketPrice("DE40")).thenReturn(new MarketPrice("DE40", 97.0, 97.0, bar));
+
+        HtsTradeEntity shortPos = kalmanOpen("dS", Direction.SELL);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(shortPos));
+        when(broker.openPositions()).thenReturn(List.of(pos("dS", Direction.SELL)));
+        service.manage();
+        assertThat(shortPos.getStatus()).isEqualTo("OPEN");
+        verify(broker, never()).closePosition(anyString(), anyDouble());
+
+        HtsTradeEntity longPos = kalmanOpen("dL", Direction.BUY);
+        when(repo.findByStatusOrderByIdDesc("OPEN")).thenReturn(List.of(longPos));
+        when(broker.openPositions()).thenReturn(List.of(pos("dL", Direction.BUY)));
+        service.manage();
+        verify(broker).closePosition("dL", 1.0);
+        assertThat(longPos.getStatus()).isEqualTo("CLOSED");
+        assertThat(longPos.getCloseReason()).isEqualTo("KALMAN_FLIP");
+    }
+
     // ---- TradingView partial take-profit ----
 
     private HtsTradeEntity tvOpen(double size) {

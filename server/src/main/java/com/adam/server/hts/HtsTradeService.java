@@ -2,6 +2,7 @@ package com.adam.server.hts;
 
 import com.adam.server.broker.BrokerBooks;
 import com.adam.server.broker.BrokerClient;
+import com.adam.server.broker.Direction;
 import com.adam.server.broker.model.BrokerTransaction;
 import com.adam.server.broker.model.Candle;
 import com.adam.server.broker.model.OrderAck;
@@ -60,6 +61,8 @@ public class HtsTradeService {
     private final HtsEngine engine;
     private final HaHuntEngine haHunt;
     private final MmsEngine mms;
+    /** Stateless — the exit check needs no wiring, which keeps the constructor (and its tests) unchanged. */
+    private final KalmanEngine kalman = new KalmanEngine();
     private final AppProperties properties;
     private final com.adam.server.sdd.RiskPolicy risk;
     private final List<HtsTradeSink> sinks;
@@ -537,6 +540,9 @@ public class HtsTradeService {
         if (v.strategy() == HtsVariant.Strategy.ST_V3) {
             return stV3Exit(t, v, buy, market, candleCache);
         }
+        if (v.strategy() == HtsVariant.Strategy.KALMAN) {
+            return kalmanExit(t, v, buy, market, candleCache);
+        }
         double entry = t.getEntry();
         double leg = Math.abs(entry - t.getStopLevel());
         if (leg <= 0) {
@@ -682,6 +688,57 @@ public class HtsTradeService {
             log.warn("HTS [{}] {}: cloud-hold close failed ({})", v, t.getSymbol(), e.getClass().getSimpleName());
             return false;
         }
+    }
+
+    /** {@code close_reason} of a Kalman stop-and-reverse exit (opposite crossover). */
+    static final String KALMAN_FLIP = "KALMAN_FLIP";
+
+    /**
+     * Stop-and-reverse flatten: close this model's OPEN position on {@code symbol}
+     * when it points the other way from the fresh signal, so the reversal entry
+     * is not blocked by "one position per model/symbol". Row is finalised right
+     * away ({@link #closeForAlert}). Returns whether a position was closed.
+     */
+    public boolean flattenForReversal(HtsVariant v, String symbol, Direction newDirection) {
+        HtsTradeEntity open = openPositionOf(v, symbol);
+        if (open == null || newDirection == null || newDirection.name().equalsIgnoreCase(open.getDirection())) {
+            return false;
+        }
+        return closeForAlert(open, KALMAN_FLIP);
+    }
+
+    /**
+     * {@link HtsVariant.Strategy#KALMAN} exit: backup for the scan's own flatten —
+     * if the last closed H4 bar's Kalman trend is against the position, close it
+     * (the re-entry in the new direction then comes from the next scan slot, which
+     * still sees the flip within its catch-up window). The broker only holds the
+     * 3xATR disaster stop; a stop touch is picked up by the normal reconcile.
+     */
+    private boolean kalmanExit(HtsTradeEntity t, HtsVariant v, boolean buy, BrokerClient market,
+                               Map<String, List<Candle>> candleCache) {
+        if (t.getDealId() == null || t.getSize() == null) {
+            return false;
+        }
+        String cacheKey = t.getEpic() + "|KALMAN|" + v.ltf();
+        List<Candle> bars = candleCache.get(cacheKey);
+        if (bars == null) {
+            try {
+                Instant now = Instant.now();
+                bars = MmsEngine.closedOnly(HtsCandles.fetch(market, t.getEpic(), v.ltf(),
+                        now.minus(v.ltfLookback()), now), v.ltfMinutes(), now);
+            } catch (Exception e) {
+                log.warn("HTS [{}] {}: H4 fetch for Kalman exit failed ({})", v, t.getSymbol(),
+                        e.getClass().getSimpleName());
+                return false;
+            }
+            candleCache.put(cacheKey, bars);
+        }
+        if (!kalman.exitSignal(bars, buy)) {
+            return false;
+        }
+        log.info("HTS [{}] {} Kalman 18/144 flipped against the {} — closing", v, t.getSymbol(),
+                buy ? "long" : "short");
+        return closeForAlert(t, KALMAN_FLIP);
     }
 
     /**
