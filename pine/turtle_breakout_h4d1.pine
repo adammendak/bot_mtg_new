@@ -1,0 +1,166 @@
+//@version=6
+indicator("Turtle Breakout H4/D1 - Revelio (HA ok)", shorttitle="Turtle H4/D1", overlay=true, max_labels_count=500)
+
+// Turtle breakout counted in CHART candles - meant for H4 and D1 (works on any timeframe, but the edge was only
+// looked for on D1 / H4; M15..H1 is noise). Long and short (switch below). No day-trading schedule here.
+// Long  : price goes above the highest high of the previous N candles (resting buy-stop at that band; fill =
+//         max(band, open)). Stop = fill - atrMult*ATR. Exit: low below max(stop, lowest low of the previous M).
+// Short : mirror image - price goes below the lowest low of the previous N candles (fill = min(band, open)).
+//         Stop = fill + atrMult*ATR. Exit: high above min(stop, highest high of the previous M).
+// ATR is the previous candle's. One position at a time; a candle that closes a trade cannot open the next one;
+// if both bands break on the same flat candle, the side whose band is closer to the open is taken.
+// Everything uses COMPLETED candles only; signals and alerts are confirmed at candle close.
+//
+// Price data: "Real candles" (default) computes everything from real prices - correct even when the chart
+// itself is set to Heikin Ashi. "Heikin Ashi" computes bands, ATR and fills from Heikin Ashi candles (works on
+// any chart type). Heikin Ashi prices are not tradeable prices, so stats in that mode only compare signal quality.
+// Blue shading = long held, purple = short held.
+
+string dirMode = input.string("Long & Short", "Direction", options=["Long & Short", "Long only", "Short only"], group="Rules")
+string priceMode = input.string("Real candles", "Price data", options=["Real candles", "Heikin Ashi"], group="Rules", tooltip="Real candles: levels from real prices, also on a Heikin Ashi chart. Heikin Ashi: levels from Heikin Ashi candles.")
+int N = input.int(20, "Entry: breakout of the last N candles", minval=2, maxval=400, group="Rules")
+int M = input.int(10, "Exit: opposite extreme of the last M candles", minval=2, maxval=400, group="Rules")
+int atrLen = input.int(20, "ATR length (candles)", minval=2, maxval=400, group="Rules")
+float atrMult = input.float(2.0, "Stop loss (ATR multiple from entry)", minval=0.5, step=0.5, group="Rules")
+bool showBg = input.bool(true, "Shade candles while in position", group="Display")
+bool showLabels = input.bool(true, "Label each exit with its R", group="Display")
+bool showTable = input.bool(true, "Show stats table", group="Display")
+
+bool allowLong = dirMode != "Short only"
+bool allowShort = dirMode != "Long only"
+
+string dataTicker = priceMode == "Heikin Ashi" ? ticker.heikinashi(syminfo.tickerid) : ticker.standard(syminfo.tickerid)
+[o, h, l, c] = request.security(dataTicker, timeframe.period, [open, high, low, close])
+
+float tr = na(c[1]) ? h - l : math.max(h - l, math.max(math.abs(h - c[1]), math.abs(l - c[1])))
+float cAtr = ta.rma(tr, atrLen)
+float cHighN = ta.highest(h, N)
+float cLowN = ta.lowest(l, N)
+float cHighM = ta.highest(h, M)
+float cLowM = ta.lowest(l, M)
+
+// Levels valid for THIS candle (completed candles only).
+float entHi = cHighN[1]   // long entry band
+float entLo = cLowN[1]    // short entry band
+float extLo = cLowM[1]    // long exit band
+float extHi = cHighM[1]   // short exit band
+float atrNow = cAtr[1]
+bool ready = not na(entHi) and not na(entLo) and not na(extLo) and not na(extHi) and not na(atrNow)
+
+var int sigDir = 0
+var float sigStop = na
+var float tEntry = na
+var float tRisk = na
+var int nTrades = 0
+var int nWins = 0
+var float sumR = 0.0
+var float grossWin = 0.0
+var float grossLoss = 0.0
+var int nLong = 0
+var float sumRLong = 0.0
+var int nShort = 0
+var float sumRShort = 0.0
+bool longEntry = false
+bool shortEntry = false
+bool exitEvent = false
+int exitDir = 0
+float exitR = na
+
+if barstate.isconfirmed and ready
+    int wasDir = sigDir
+    float exitPx = na
+    if wasDir == 0
+        bool longBreak = allowLong and h > entHi
+        bool shortBreak = allowShort and l < entLo
+        int side = 0
+        if longBreak and shortBreak
+            side := (entHi - o) <= (o - entLo) ? 1 : -1
+        else if longBreak
+            side := 1
+        else if shortBreak
+            side := -1
+        if side != 0
+            float fill = side == 1 ? math.max(entHi, o) : math.min(entLo, o)
+            tEntry := fill
+            tRisk := atrMult * atrNow
+            sigStop := fill - side * tRisk
+            sigDir := side
+            longEntry := side == 1
+            shortEntry := side == -1
+            exitEvent := side == 1 ? l < sigStop : h > sigStop
+            exitPx := sigStop
+    else
+        float lvl = wasDir == 1 ? math.max(sigStop, extLo) : math.min(sigStop, extHi)
+        exitEvent := wasDir == 1 ? l < lvl : h > lvl
+        exitPx := wasDir == 1 ? math.min(o, lvl) : math.max(o, lvl)
+    if exitEvent
+        exitDir := sigDir
+        sigDir := 0
+        exitR := exitDir * (exitPx - tEntry) / tRisk
+        nTrades += 1
+        sumR += exitR
+        if exitDir == 1
+            nLong += 1
+            sumRLong += exitR
+        else
+            nShort += 1
+            sumRShort += exitR
+        if exitR > 0
+            nWins += 1
+            grossWin += exitR
+        else
+            grossLoss += -exitR
+
+if exitEvent and showLabels
+    label.new(bar_index, exitDir == 1 ? low : high, "R " + (exitR > 0 ? "+" : "") + str.tostring(exitR, "0.00"), style=exitDir == 1 ? label.style_label_up : label.style_label_down, color=exitR > 0 ? color.new(color.green, 20) : color.new(color.red, 20), textcolor=color.white, size=size.small)
+
+float activeStop = sigDir == 1 ? math.max(sigStop, extLo) : (sigDir == -1 ? math.min(sigStop, extHi) : na)
+int shadeDir = sigDir != 0 ? sigDir : exitDir
+plot(allowLong ? entHi : na, "Long entry band", color=color.teal, linewidth=2, style=plot.style_stepline)
+plot(allowShort ? entLo : na, "Short entry band", color=color.purple, linewidth=2, style=plot.style_stepline)
+plot(allowLong ? extLo : na, "Long exit band", color=color.orange, style=plot.style_stepline)
+plot(allowShort ? extHi : na, "Short exit band", color=color.yellow, style=plot.style_stepline)
+plot(activeStop, "Active exit (tighter of stop and band)", color=color.red, linewidth=2, style=plot.style_linebr)
+bgcolor(showBg and shadeDir != 0 ? (shadeDir == 1 ? color.new(#2962FF, 85) : color.new(color.purple, 85)) : na, title="Position held")
+plotshape(longEntry, title="Long entry", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small)
+plotshape(shortEntry, title="Short entry", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+plotshape(exitEvent and exitDir == 1, title="Long exit", style=shape.xcross, location=location.abovebar, color=color.gray, size=size.small)
+plotshape(exitEvent and exitDir == -1, title="Short exit", style=shape.xcross, location=location.belowbar, color=color.gray, size=size.small)
+
+// Intrabar alerts: an entry band was just broken while no signal is live (set the alert to "Once per bar").
+// Place the stop order at the band for a real fill; the close-confirmed alerts below arrive after the move.
+bool longBroken = ready and allowLong and sigDir == 0 and h > entHi
+bool shortBroken = ready and allowShort and sigDir == 0 and l < entLo
+alertcondition(longBroken, "Long entry band broken (intrabar)", "Turtle H4/D1: LONG band broken on {{ticker}} {{interval}}.")
+alertcondition(shortBroken, "Short entry band broken (intrabar)", "Turtle H4/D1: SHORT band broken on {{ticker}} {{interval}}.")
+alertcondition(longEntry, "Long entry (candle close)", "Turtle H4/D1: LONG breakout confirmed on {{ticker}} {{interval}} at candle close.")
+alertcondition(shortEntry, "Short entry (candle close)", "Turtle H4/D1: SHORT breakout confirmed on {{ticker}} {{interval}} at candle close.")
+alertcondition(exitEvent, "Exit (candle close)", "Turtle H4/D1: trade signal ended on {{ticker}} {{interval}} at candle close.")
+
+if showTable and barstate.islast
+    var table stats = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 25), border_width=1, border_color=color.gray)
+    string winTxt = nTrades > 0 ? str.tostring(100.0 * nWins / nTrades, "0") + "%" : "-"
+    string avgTxt = nTrades > 0 ? (sumR > 0 ? "+" : "") + str.tostring(sumR / nTrades, "0.00") + " R" : "-"
+    string totTxt = (sumR > 0 ? "+" : "") + str.tostring(sumR, "0.0")
+    string pfTxt = grossLoss > 0 ? str.tostring(grossWin / grossLoss, "0.00") : "-"
+    string longTxt = str.tostring(nLong) + " / " + (nLong > 0 ? (sumRLong > 0 ? "+" : "") + str.tostring(sumRLong / nLong, "0.00") + " R" : "-")
+    string shortTxt = str.tostring(nShort) + " / " + (nShort > 0 ? (sumRShort > 0 ? "+" : "") + str.tostring(sumRShort / nShort, "0.00") + " R" : "-")
+    string stateTxt = sigDir == 1 ? "LONG, exit " + str.tostring(math.max(sigStop, extLo), format.mintick) : (sigDir == -1 ? "SHORT, exit " + str.tostring(math.min(sigStop, extHi), format.mintick) : (ready ? "flat: buy " + str.tostring(entHi, format.mintick) + " / sell " + str.tostring(entLo, format.mintick) : "-"))
+    table.cell(stats, 0, 0, "Turtle H4/D1", text_color=color.white, bgcolor=color.new(#2962FF, 0), text_size=size.small)
+    table.cell(stats, 1, 0, priceMode, text_color=color.white, bgcolor=color.new(#2962FF, 0), text_size=size.small)
+    table.cell(stats, 0, 1, "Trades", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 1, str.tostring(nTrades), text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 2, "Win rate", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 2, winTxt, text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 3, "Avg R", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 3, avgTxt, text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 4, "Total R", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 4, totTxt, text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 5, "Profit factor", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 5, pfTxt, text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 6, "Long n / avg", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 6, longTxt, text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 7, "Short n / avg", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 7, shortTxt, text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 8, "Now", text_color=color.silver, text_size=size.small)
+    table.cell(stats, 1, 8, stateTxt, text_color=color.white, text_size=size.small)
