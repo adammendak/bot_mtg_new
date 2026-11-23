@@ -49,6 +49,7 @@ public class HtsScanService {
     private final HaHuntEngine haHunt;
     private final MmsEngine mms;
     private final StV3Engine stV3;
+    private final KalmanEngine kalman;
     private final HtsSignalRepository signals;
     private final com.adam.server.config.AppProperties properties;
     private final Clock clock;
@@ -67,6 +68,7 @@ public class HtsScanService {
             HaHuntEngine haHunt,
             MmsEngine mms,
             StV3Engine stV3,
+            KalmanEngine kalman,
             HtsSignalRepository signals,
             com.adam.server.config.AppProperties properties,
             Clock clock,
@@ -80,6 +82,7 @@ public class HtsScanService {
         this.haHunt = haHunt;
         this.mms = mms;
         this.stV3 = stV3;
+        this.kalman = kalman;
         this.signals = signals;
         this.properties = properties;
         this.clock = clock;
@@ -108,8 +111,9 @@ public class HtsScanService {
         List<HtsScan> found = new ArrayList<>();
         try {
             int minute = now.atZone(zone).getMinute();
+            int hourUtc = now.atZone(java.time.ZoneOffset.UTC).getHour();
             for (HtsVariant variant : HtsVariant.values()) {
-                if (variant.parked() || !variant.dueAtMinute(minute)) {
+                if (variant.parked() || !variant.dueAt(hourUtc, minute)) {
                     continue;
                 }
                 // OKX variants scan crypto on the OKX book; Capital variants scan
@@ -137,6 +141,8 @@ public class HtsScanService {
                         scanMms(variant, market, now, zone, found);
                     } else if (variant.strategy() == HtsVariant.Strategy.ST_V3) {
                         scanStV3(variant, market, now, found);
+                    } else if (variant.strategy() == HtsVariant.Strategy.KALMAN) {
+                        scanKalman(variant, market, now, found);
                     } else if (variant.book().equals(Books.OKX)) {
                         BrokerClient okx = market;
                         scanVariant(variant, OkxSymbol.universe().stream()
@@ -396,6 +402,44 @@ public class HtsScanService {
                             v.label(), signal.symbol(), signal.direction(), signal.entry(),
                             signal.stopLevel(), signal.targetLevel(), signal.htfUp() ? "bull" : "bear");
                 }
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /**
+     * {@link HtsVariant#KAL_H4} scan: closed H4 candles per symbol, Kalman 18/144
+     * crossover. A flip against an open position flattens it first
+     * ({@code KALMAN_FLIP}) so the reversal can open immediately; a flip that
+     * already produced a trade (same bar) is skipped silently, which is what
+     * keeps the 2-bar catch-up window from re-mailing / re-persisting it.
+     */
+    private void scanKalman(HtsVariant v, BrokerClient market, Instant now, List<HtsScan> found) {
+        Instant fromEntry = now.minus(v.ltfLookback());
+        for (String code : v.universe()) {
+            SddSymbol sym;
+            try {
+                sym = SddSymbol.valueOf(code);
+            } catch (RuntimeException e) {
+                log.warn("HTS [{}] scan: unknown symbol {}", v.name(), code);
+                continue;
+            }
+            String epic = sym.epic(properties);
+            try {
+                List<Candle> bars = MmsEngine.closedOnly(
+                        HtsCandles.fetch(market, epic, v.ltf(), fromEntry, now), v.ltfMinutes(), now);
+                HtsScan signal = kalman.evaluate(v, code, epic, bars);
+                if (signal == null || trades.alreadyExecuted(signal)) {
+                    continue;
+                }
+                found.add(signal);
+                persist(signal);
+                notify(signal, null);
+                trades.flattenForReversal(v, code, signal.direction());
+                execution.executeSignal(signal);
+                log.info("HTS [{}] signal {} {} entry {} stop {} (Kalman 18/144 flip)",
+                        v.label(), signal.symbol(), signal.direction(), signal.entry(), signal.stopLevel());
             } catch (RuntimeException e) {
                 log.warn("HTS [{}] scan skipped {} ({}): {}", v.name(), code, epic, e.getClass().getSimpleName());
             }

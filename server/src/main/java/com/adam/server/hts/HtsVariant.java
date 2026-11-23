@@ -74,7 +74,10 @@ import java.util.List;
  * rest, full exit when the entry-TF's fast band crosses to the opposite side
  * of its slow band. See each {@code M*_ST_V3*}/{@code H1_ST_V3} constant's
  * own javadoc for the backtest behind its specific timeframe pairing and
- * universe pick.
+ * universe pick. KALMAN ({@link Strategy#KALMAN}, {@link #KAL_H4}) runs
+ * {@link KalmanEngine}: stop-and-reverse on the short/long Kalman-filter
+ * crossover of closed H4 candles — the exit is the opposite crossover
+ * ({@link HtsTradeService#kalmanExit}), the broker only holds a 3×ATR disaster stop.
  */
 public enum HtsVariant {
 
@@ -207,10 +210,29 @@ public enum HtsVariant {
 
     /** Same as {@link #TV_ALGO_H1} for H4 charts → {@code tvh4} book ("Account TV H4"). */
     TV_ALGO_H4(Strategy.TV, null, Resolution.H4, Books.TV_H4, Duration.ofDays(120), Duration.ofDays(45), 240, false,
-            0, 0, 0, 0, TvAlgo.UNIVERSE, false, EntryTrigger.HA_FLIP);
+            0, 0, 0, 0, TvAlgo.UNIVERSE, false, EntryTrigger.HA_FLIP),
 
-    /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, or {@link StV3Engine}. */
-    public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3, TV }
+    /**
+     * Kalman Trend Levels (BigBeluga) stop-and-reverse on closed H4 candles,
+     * short 18 / long 144 ({@link KalmanEngine}) — always in the market, long
+     * while the short Kalman filter is above the long one, short otherwise;
+     * every crossover closes the open position and opens the opposite side.
+     * Disaster stop at 3×ATR14 (sizes the trade, never the exit). Runs on the
+     * {@code swing} book ("Account H1") next to {@link #H1_ST_V3}, on
+     * {@code StV3.SATELLITE_UNIVERSE} (US100/XAU/BTC/GER40/EURUSD).
+     *
+     * <p><b>No proven edge</b> — a forward test of the requested 18/144 pair:
+     * H4 backtest on Capital data, last 12&nbsp;months, realised trades after
+     * costs: 18/144 −28.6&nbsp;% (PF 0.87) vs 33/144 +34.2&nbsp;% (PF 1.26).
+     * US100 and GER40 were the weakest in the grid — drop them from the
+     * universe if the forward test agrees. ({@code HTS_OBSERVE_ONLY_SYMBOLS}
+     * deliberately does not apply to this strategy: it is the ST_V3 triage list.)
+     */
+    KAL_H4(Strategy.KALMAN, null, Resolution.H4, Books.SWING, Duration.ofDays(60), Duration.ofDays(150), 240, false,
+            0, 0, 0, 0, StV3.SATELLITE_UNIVERSE, false, EntryTrigger.HA_FLIP);
+
+    /** Entry model: {@link HtsEngine} ribbon, {@link HaHuntEngine} HA-hunt, {@link MmsEngine}, {@link StV3Engine} or {@link KalmanEngine}. */
+    public enum Strategy { RIBBON, HA_HUNT, MMS, ST_V3, TV, KALMAN }
 
     /**
      * How an HA-hunt variant decides entry-TF direction (the hunt gate, RMA
@@ -423,6 +445,20 @@ public enum HtsVariant {
         return minuteOfHour % ltfMinutes < 5;
     }
 
+    /**
+     * Hour-aware version of {@link #dueAtMinute}: an H4 variant must not scan
+     * every hour. {@link Strategy#KALMAN} is due once per H4 candle — in the
+     * 5-minute slot starting at minute 5 of every UTC hour divisible by 4
+     * (04:05, 08:05, ... — the H4 grid is anchored on 00:00 UTC), a few
+     * minutes after the bar closed so the broker's feed has it.
+     */
+    public boolean dueAt(int hourUtc, int minuteOfHour) {
+        if (strategy == Strategy.KALMAN) {
+            return hourUtc % (ltfMinutes / 60) == 0 && minuteOfHour >= 5 && minuteOfHour < 10;
+        }
+        return dueAtMinute(minuteOfHour);
+    }
+
     public Resolution htf() {
         return htf;
     }
@@ -436,7 +472,7 @@ public enum HtsVariant {
         if (strategy == Strategy.MMS) {
             return ltf != null ? ltf.name() : "M15";
         }
-        if (strategy == Strategy.TV) {
+        if (strategy == Strategy.TV || strategy == Strategy.KALMAN) {
             return ltf.name();
         }
         if (strategy == Strategy.ST_V3) {
@@ -475,6 +511,9 @@ public enum HtsVariant {
         }
         if (strategy == Strategy.TV) {
             return name() + " " + ltf;
+        }
+        if (strategy == Strategy.KALMAN) {
+            return name() + " " + ltf + " Kalman 18/144";
         }
         if (strategy != Strategy.HA_HUNT) {
             return name() + " " + htf + "/" + ltf;
@@ -534,7 +573,8 @@ public enum HtsVariant {
         if (this == CORE_LIVE) {
             return !"GER40".equalsIgnoreCase(symbolCode);
         }
-        if (strategy == Strategy.MMS || strategy == Strategy.ST_V3 || strategy == Strategy.TV) {
+        if (strategy == Strategy.MMS || strategy == Strategy.ST_V3 || strategy == Strategy.TV
+                || strategy == Strategy.KALMAN) {
             if (symbolCode == null) {
                 return false;
             }

@@ -254,4 +254,35 @@ class HtsVariantTest {
         assertThat(HtsVariant.TV_ALGO_H4.label()).contains("H4");
         assertThat(HtsVariant.TV_ALGO_H1.mailsSignals()).isFalse();
     }
+
+    @Test
+    void kalmanH4IsAnH4SwingBookSatelliteScannedOncePerH4Candle() {
+        HtsVariant v = HtsVariant.KAL_H4;
+        assertThat(v.strategy()).isEqualTo(HtsVariant.Strategy.KALMAN);
+        assertThat(v.book()).isEqualTo(com.adam.server.broker.Books.SWING);
+        assertThat(v.ltf()).isEqualTo(com.adam.server.broker.Resolution.H4);
+        assertThat(v.ltfMinutes()).isEqualTo(240);
+        assertThat(v.parked()).isFalse();
+        assertThat(v.live()).isFalse();
+        assertThat(v.longOnly()).isFalse();
+        assertThat(v.mailsSignals()).isFalse();
+        assertThat(v.universe()).containsExactly("US100", "XAU", "BTC", "GER40", "EURUSD");
+        assertThat(v.tradesSymbol("btc")).isTrue();
+        assertThat(v.tradesSymbol("XAG")).isFalse();
+        assertThat(v.htfLabel()).isEqualTo("H4");
+        assertThat(v.label()).isEqualTo("KAL_H4 H4 Kalman 18/144");
+
+        // once per H4 candle: minute 5-9 of every UTC hour divisible by 4
+        for (int h = 0; h < 24; h++) {
+            boolean grid = h % 4 == 0;
+            assertThat(v.dueAt(h, 5)).as("hour %d :05", h).isEqualTo(grid);
+            assertThat(v.dueAt(h, 9)).as("hour %d :09", h).isEqualTo(grid);
+            assertThat(v.dueAt(h, 0)).as("hour %d :00", h).isFalse();
+            assertThat(v.dueAt(h, 30)).as("hour %d :30", h).isFalse();
+        }
+        // every other variant keeps the minute-only rule
+        assertThat(HtsVariant.H1_ST_V3.dueAt(13, 2)).isTrue();
+        assertThat(HtsVariant.H1_ST_V3.dueAt(13, 7)).isFalse();
+        assertThat(HtsVariant.M15_ST_V3.dueAt(3, 15)).isEqualTo(HtsVariant.M15_ST_V3.dueAtMinute(15));
+    }
 }
